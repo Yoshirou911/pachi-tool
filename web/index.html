@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#6366f1">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<title>pachi-tool</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="app">
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <span class="logo">🎰 pachi-tool</span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="header-date" style="font-size:.72rem;color:var(--text3)"></span>
+        <span id="header-status" class="status-badge"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Tab bar -->
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="estimate">
+      <span class="tab-icon">🔍</span>
+      <span class="tab-label">推測</span>
+    </button>
+    <button class="tab-btn" data-tab="session">
+      <span class="tab-icon">📝</span>
+      <span class="tab-label">収支</span>
+    </button>
+    <button class="tab-btn" data-tab="hall">
+      <span class="tab-icon">📊</span>
+      <span class="tab-label">店傾向</span>
+    </button>
+    <button class="tab-btn" data-tab="machines">
+      <span class="tab-icon">🎮</span>
+      <span class="tab-label">機種</span>
+    </button>
+  </nav>
+
+  <!-- Pages -->
+  <main class="page-container">
+
+    <!-- ======================== 推測ページ ======================== -->
+    <section id="page-estimate" class="page active">
+      <div class="page-inner">
+
+        <!-- Machine & Hall selector -->
+        <div class="card">
+          <div class="form-row">
+            <label class="form-label">機種</label>
+            <select id="est-machine" class="form-select">
+              <option value="">-- 機種を選択 --</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label class="form-label">ホール</label>
+            <input type="text" id="est-hall" class="form-input" list="hall-datalist"
+                   placeholder="ホール名（任意）" autocomplete="off">
+            <datalist id="hall-datalist"></datalist>
+          </div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">曜日</label>
+              <select id="est-weekday" class="form-select">
+                <option value="">--</option>
+                <option value="0">月</option>
+                <option value="1">火</option>
+                <option value="2">水</option>
+                <option value="3">木</option>
+                <option value="4">金</option>
+                <option value="5">土</option>
+                <option value="6">日</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">日付（特定日判定）</label>
+              <input type="number" id="est-dom" class="form-input" placeholder="例: 15" min="1" max="31">
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="form-check-label">
+              <input type="checkbox" id="est-event"> イベント日
+            </label>
+          </div>
+        </div>
+
+        <!-- Session timer -->
+        <div id="session-timer-bar" style="display:flex;align-items:center;gap:10px;padding:8px 0">
+          <button id="timer-toggle" class="btn btn-sm btn-ghost">⏱ タイマー開始</button>
+          <span id="timer-display" style="font-variant-numeric:tabular-nums;font-weight:700;color:var(--text2);font-size:.9rem;display:none">00:00:00</span>
+          <button id="timer-reset" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger)">リセット</button>
+        </div>
+
+        <!-- Games total -->
+        <div class="card">
+          <div class="form-row">
+            <label class="form-label">総ゲーム数 (G)</label>
+            <input type="number" id="est-games" class="form-input form-input-lg"
+                   placeholder="0" min="0" inputmode="numeric">
+          </div>
+          <div class="form-row" id="started-from-row" style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+            <label class="form-label" style="font-size:.8rem;color:var(--text3)">
+              宵越し・引き継ぎG数 <span style="font-weight:400">（前日等からの持ち越しG数）</span>
+            </label>
+            <input type="number" id="est-started-from" class="form-input"
+                   placeholder="0（宵越しなし）" min="0" inputmode="numeric" value="0">
+          </div>
+        </div>
+
+        <!-- Element counts -->
+        <div class="card" id="est-counts-card">
+          <div class="card-title">カウント入力</div>
+          <div id="est-counts-list">
+            <p class="hint">機種を選択するとカウント入力欄が表示されます</p>
+          </div>
+          <button id="est-reset-btn" class="btn btn-ghost btn-sm" style="display:none">
+            カウントをリセット
+          </button>
+        </div>
+
+        <!-- Recent sessions for this machine -->
+        <div id="est-recent-sessions" style="display:none"></div>
+
+        <!-- 確定演出制約 -->
+        <div id="est-confirm-section" style="display:none">
+          <div style="font-size:.72rem;color:var(--text3);margin-bottom:6px;font-weight:600">確定演出 (任意)</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="confirm-btn btn btn-sm btn-ghost" data-min="4">設4以上確定</button>
+            <button class="confirm-btn btn btn-sm btn-ghost" data-min="5">設5以上確定</button>
+            <button class="confirm-btn btn btn-sm btn-ghost" data-min="6">設6確定</button>
+            <button id="est-confirm-clear" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger)">✕ 解除</button>
+          </div>
+          <div id="est-confirm-badge" style="display:none;margin-top:6px;padding:5px 10px;border-radius:6px;font-size:.78rem;font-weight:700;background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3)"></div>
+        </div>
+
+        <!-- Estimate button -->
+        <button id="est-run-btn" class="btn btn-primary btn-full" disabled>
+          設定を推測する
+        </button>
+
+        <!-- Results -->
+        <div id="est-result" class="card result-card" style="display:none">
+          <div class="result-header">
+            <div class="result-stat">
+              <span class="stat-label">期待設定</span>
+              <span id="res-expected" class="stat-value">--</span>
+            </div>
+            <div class="result-stat">
+              <span class="stat-label">高設定率</span>
+              <span id="res-high-prob" class="stat-value">--%</span>
+            </div>
+            <div class="result-stat">
+              <span class="stat-label">期待値</span>
+              <span id="res-ev" class="stat-value">--%</span>
+            </div>
+          </div>
+
+          <!-- Denomination + profit per 1000G -->
+          <div id="res-profit-row" style="display:none;padding:8px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <select id="denom-select" class="form-select" style="flex:0 0 auto;width:auto;padding:5px 8px;font-size:.8rem">
+              <option value="1">1円機</option>
+              <option value="2.5">2.5円機</option>
+              <option value="5">5円機</option>
+              <option value="20">20円機</option>
+            </select>
+            <span style="font-size:.78rem;color:var(--text3)">1000Gあたり期待収益:</span>
+            <span id="res-profit-1k" style="font-weight:700;font-size:.9rem">--</span>
+          </div>
+
+          <!-- Confidence indicator -->
+          <div id="res-confidence" style="padding:8px 16px;border-bottom:1px solid var(--border);display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <span style="font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">推測信頼度</span>
+              <span id="res-confidence-label" style="font-size:.75rem;font-weight:700"></span>
+            </div>
+            <div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
+              <div id="res-confidence-bar" style="height:100%;border-radius:2px;transition:width .5s,background .3s"></div>
+            </div>
+          </div>
+
+          <!-- Retreat alert -->
+          <div id="res-retreat" class="retreat-alert" style="display:none">
+            <span class="retreat-icon">⚠</span>
+            <span id="res-retreat-msg"></span>
+          </div>
+
+          <!-- Posterior bars -->
+          <div class="bar-section">
+            <div class="bar-header">
+              <span>設定</span>
+              <span>確率</span>
+            </div>
+            <div id="res-bars"></div>
+          </div>
+
+          <!-- Element analysis -->
+          <div id="res-element-analysis" style="display:none;border-top:1px solid var(--border)"></div>
+
+          <!-- Estimate history sparkline -->
+          <div id="res-sparkline" style="display:none;padding:10px 16px;border-top:1px solid var(--border)">
+            <div style="font-size:.7rem;color:var(--text3);margin-bottom:4px">推測設定の変化</div>
+            <svg id="res-sparkline-svg" width="100%" height="40" style="display:block;overflow:visible"></svg>
+          </div>
+
+          <!-- Retreat advice -->
+          <div id="res-advice" style="display:none;margin:10px 16px;border-radius:8px;padding:10px 14px;font-size:.82rem">
+            <div id="res-advice-icon" style="font-size:1.2rem;margin-bottom:2px"></div>
+            <div id="res-advice-text" style="font-weight:700"></div>
+            <div id="res-advice-detail" style="color:var(--text2);font-size:.75rem;margin-top:2px"></div>
+          </div>
+
+          <!-- Save session button -->
+          <button id="est-save-btn" class="btn btn-secondary btn-full" style="margin-top:12px">
+            このセッションを記録する
+          </button>
+        </div>
+
+        <!-- Setting change detection -->
+        <details id="change-detect-section" style="display:none">
+          <summary style="cursor:pointer;padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);font-size:.88rem;font-weight:600;color:var(--text2);list-style:none;display:flex;align-items:center;gap:8px">
+            <span>🔄</span> 設定変更検知（2区間比較）
+          </summary>
+          <div class="card" style="border-radius:0 0 var(--radius) var(--radius);margin-top:-1px">
+            <p class="hint" style="margin-bottom:12px">前半・後半でカウントを分けて入力することで、途中で設定が変わったかを検出します。</p>
+            <div class="form-row-2col">
+              <div>
+                <label class="form-label">前半 G数</label>
+                <input type="number" id="cd-early-games" class="form-input" placeholder="例: 3000" inputmode="numeric">
+              </div>
+              <div>
+                <label class="form-label">後半 G数</label>
+                <input type="number" id="cd-late-games" class="form-input" placeholder="例: 3000" inputmode="numeric">
+              </div>
+            </div>
+            <div id="cd-counts-area"></div>
+            <button id="cd-run-btn" class="btn btn-secondary btn-full" style="margin-top:10px">
+              設定変更を分析する
+            </button>
+            <div id="cd-result" style="display:none;margin-top:12px"></div>
+          </div>
+        </details>
+
+        <!-- Session save form (inline) -->
+        <div id="est-save-form" class="card" style="display:none">
+          <div class="card-title">セッション記録</div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">投資 (円)</label>
+              <input type="number" id="save-inv" class="form-input" placeholder="0" inputmode="numeric">
+            </div>
+            <div>
+              <label class="form-label">回収 (円)</label>
+              <input type="number" id="save-ret" class="form-input" placeholder="0" inputmode="numeric">
+            </div>
+          </div>
+          <!-- Auto-calculated diff -->
+          <div id="save-diff-display" style="display:none;padding:8px 12px;border-radius:8px;text-align:center;margin-bottom:8px;font-size:1rem;font-weight:700;background:var(--bg3)"></div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">台番号</label>
+              <input type="number" id="save-seat" class="form-input" placeholder="台番" inputmode="numeric">
+            </div>
+            <div>
+              <label class="form-label">差枚 <span id="save-coins-hint" style="font-weight:400;font-size:.72rem;color:var(--text3)"></span></label>
+              <input type="number" id="save-coins" class="form-input" placeholder="0" inputmode="numeric">
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="form-label">メモ</label>
+            <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">
+              <button class="note-tag btn btn-sm btn-ghost" data-note="高設定確定">高設定確定</button>
+              <button class="note-tag btn btn-sm btn-ghost" data-note="設4以上確定">設4以上確定</button>
+              <button class="note-tag btn btn-sm btn-ghost" data-note="BB先行">BB先行</button>
+              <button class="note-tag btn btn-sm btn-ghost" data-note="RB先行">RB先行</button>
+              <button class="note-tag btn btn-sm btn-ghost" data-note="ブドウ良好">ブドウ良好</button>
+              <button class="note-tag btn btn-sm btn-ghost" data-note="ブドウ不良">ブドウ不良</button>
+            </div>
+            <input type="text" id="save-notes" class="form-input" placeholder="任意メモ">
+          </div>
+          <div class="form-row">
+            <label class="form-check-label">
+              <input type="checkbox" id="save-corner"> 角台
+            </label>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button id="save-cancel-btn" class="btn btn-ghost" style="flex:1">キャンセル</button>
+            <button id="save-confirm-btn" class="btn btn-primary" style="flex:2">保存</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!-- ======================== 収支ページ ======================== -->
+    <section id="page-session" class="page">
+      <div class="page-inner">
+
+        <!-- Stats summary -->
+        <div class="card stats-row" id="session-summary">
+          <div class="stat-box">
+            <span class="stat-label">総セッション</span>
+            <span class="stat-value" id="sum-count">0</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">収支</span>
+            <span class="stat-value" id="sum-diff">¥0</span>
+          </div>
+          <div class="stat-box">
+            <span class="stat-label">勝率</span>
+            <span class="stat-value" id="sum-wr">--%</span>
+          </div>
+        </div>
+        <div id="sum-streak" style="text-align:center;padding:4px 0;min-height:20px"></div>
+
+        <!-- Quick entry toggle -->
+        <button id="quick-entry-btn" class="btn btn-secondary btn-full" style="margin-bottom:8px">
+          ＋ セッションを素早く記録
+        </button>
+
+        <!-- Quick entry form (hidden by default) -->
+        <div id="quick-entry-form" class="card" style="display:none">
+          <div class="card-title">クイック記録</div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">機種</label>
+              <input type="text" id="qe-machine" class="form-input" list="qe-machine-list" placeholder="機種名">
+              <datalist id="qe-machine-list"></datalist>
+            </div>
+            <div>
+              <label class="form-label">ホール</label>
+              <input type="text" id="qe-hall" class="form-input" list="qe-hall-list" placeholder="ホール名">
+              <datalist id="qe-hall-list"></datalist>
+            </div>
+          </div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">投資 (円)</label>
+              <input type="number" id="qe-inv" class="form-input" placeholder="0" inputmode="numeric">
+            </div>
+            <div>
+              <label class="form-label">回収 (円)</label>
+              <input type="number" id="qe-ret" class="form-input" placeholder="0" inputmode="numeric">
+            </div>
+          </div>
+          <div id="qe-diff-display" style="display:none;padding:8px;border-radius:8px;text-align:center;font-size:1rem;font-weight:700;background:var(--bg3);margin-bottom:8px"></div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">総G数</label>
+              <input type="number" id="qe-games" class="form-input" placeholder="0" inputmode="numeric">
+            </div>
+            <div>
+              <label class="form-label">日付</label>
+              <input type="date" id="qe-date" class="form-input">
+            </div>
+          </div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">台番号</label>
+              <input type="number" id="qe-seat" class="form-input" placeholder="台番" inputmode="numeric">
+            </div>
+            <div>
+              <label class="form-label" style="padding-top:8px">
+                <input type="checkbox" id="qe-corner"> 角台
+              </label>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button id="qe-cancel-btn" class="btn btn-ghost" style="flex:1">キャンセル</button>
+            <button id="qe-save-btn" class="btn btn-primary" style="flex:2">記録する</button>
+          </div>
+        </div>
+
+        <!-- Filter bar -->
+        <div class="card filter-bar">
+          <select id="ses-hall-filter" class="form-select form-select-sm">
+            <option value="">全ホール</option>
+          </select>
+          <select id="ses-machine-filter" class="form-select form-select-sm">
+            <option value="">全機種</option>
+          </select>
+          <input type="month" id="ses-month-filter" class="form-input form-select-sm"
+                 style="flex:0 0 auto;width:130px;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
+          <button id="ses-refresh-btn" class="btn btn-ghost btn-sm">更新</button>
+          <button id="ses-export-btn" class="btn btn-ghost btn-sm" title="CSVエクスポート">📥</button>
+          <label class="btn btn-ghost btn-sm" title="CSVインポート" style="cursor:pointer">
+            📤 <input type="file" id="ses-import-input" accept=".csv" style="display:none">
+          </label>
+        </div>
+
+        <!-- PnL chart -->
+        <div class="card" id="pnl-chart-card" style="display:none">
+          <div class="card-title">📈 累計収支グラフ</div>
+          <svg id="pnl-chart" width="100%" height="140" style="display:block"></svg>
+        </div>
+
+        <!-- Monthly stats -->
+        <div class="card" id="monthly-card" style="display:none">
+          <div class="card-title">📅 月別サマリー</div>
+          <div id="monthly-stats"></div>
+        </div>
+
+        <!-- Seat analysis -->
+        <div class="card" id="seat-card" style="display:none">
+          <div class="card-title">🎰 台番号・角台分析</div>
+          <div id="seat-analysis"></div>
+        </div>
+
+        <!-- Session list -->
+        <div id="session-list">
+          <p class="hint center">まだ記録がありません</p>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!-- ======================== 店傾向ページ ======================== -->
+    <section id="page-hall" class="page">
+      <div class="page-inner">
+
+        <div class="card">
+          <select id="hall-select" class="form-select">
+            <option value="ベガスベガス大東店">ベガスベガス大東店</option>
+          </select>
+        </div>
+
+        <!-- 曜日スコア -->
+        <div class="card">
+          <div class="card-title">📅 曜日別スコア</div>
+          <div id="hall-weekday-chart"></div>
+        </div>
+
+        <!-- 機種ランキング -->
+        <div class="card">
+          <div class="card-title">🏆 機種スコアランキング</div>
+          <div id="hall-machine-ranking"></div>
+        </div>
+
+        <!-- 特定日 -->
+        <div class="card">
+          <div class="card-title">📅 特定日の傾向</div>
+          <div id="hall-special-days"></div>
+        </div>
+
+        <!-- 今日の推奨 -->
+        <div class="card">
+          <div class="card-title">💡 今日の立ち回り推奨</div>
+          <div id="hall-today-recommend"></div>
+        </div>
+
+        <!-- 外部スクレイプデータ -->
+        <div class="card">
+          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+            <span>🌐 みんレポ データ</span>
+            <button id="scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px">
+              取得
+            </button>
+          </div>
+          <div id="scrape-status-bar" style="font-size:.78rem;color:var(--text3);margin-bottom:8px"></div>
+          <div id="scrape-date-row" style="display:none;margin-bottom:10px">
+            <select id="scrape-date-select" class="form-select" style="font-size:.8rem"></select>
+          </div>
+          <div id="scrape-report-table"></div>
+        </div>
+
+        <!-- 過去30日ランキング（スクレイプ） -->
+        <div class="card" id="scrape-trend-card" style="display:none">
+          <div class="card-title">📈 過去30日 機種別平均差枚</div>
+          <div id="scrape-top-machines"></div>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!-- ======================== 機種ページ ======================== -->
+    <section id="page-machines" class="page">
+      <div class="page-inner">
+        <div class="card">
+          <input type="text" id="machine-search" class="form-input"
+                 placeholder="機種名で検索...">
+        </div>
+        <div id="machine-list"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast"></div>
+
+<!-- Session detail modal -->
+<div id="modal-overlay" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="modal-title">セッション詳細</span>
+      <button id="modal-close" class="modal-close">✕</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+    <div class="modal-footer">
+      <button id="modal-delete" class="btn btn-danger">削除</button>
+      <button id="modal-edit" class="btn btn-secondary">編集</button>
+      <button id="modal-close2" class="btn btn-ghost">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/app.js"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>

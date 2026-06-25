@@ -1,0 +1,14 @@
+# pachi-tool 依存パッケージ
+# pip install -r requirements.txt
+
+# スクレイピング
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# API サーバ
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+
+# Pydantic (fastapi 同梱だが明示)
+pydantic>=2.0.0

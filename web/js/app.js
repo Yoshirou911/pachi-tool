@@ -337,6 +337,7 @@ async function runEstimate() {
   const counts = getCountValues();
   const games = parseInt(estGames.value) || 0;
   const startedFrom = parseInt(document.getElementById('est-started-from')?.value) || 0;
+  const seatNum = parseInt(document.getElementById('est-seat-number')?.value) || null;
   const weekday = estWeekday.value !== '' ? parseInt(estWeekday.value) : null;
   const dom = estDom.value ? parseInt(estDom.value) : null;
 
@@ -351,6 +352,7 @@ async function runEstimate() {
       is_event_day: estEvent.checked,
       day_of_month: dom,
       ...(state.minSetting ? { min_setting: state.minSetting } : {}),
+      ...(seatNum ? { seat_number: seatNum } : {}),
     });
     state.lastEstimate = { result, machine: state.currentMachine, games, startedFrom, counts };
     // 推測履歴を積む（最大20件）

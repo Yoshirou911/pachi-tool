@@ -82,6 +82,7 @@ class EstimateRequest(BaseModel):
     is_event_day: bool = False
     day_of_month: Optional[int] = None
     min_setting: Optional[int] = None  # 確定演出による下限設定 (e.g. 4 → 設4以上確定)
+    seat_number: Optional[int] = None  # 台番（同台の過去セッションを事前に反映）
 
 
 class EstimateResponse(BaseModel):
@@ -190,6 +191,7 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
                 is_event_day=req.is_event_day,
                 day_of_month=req.day_of_month,
                 settings=list(profile.settings),
+                seat_number=req.seat_number,
             )
         except Exception:
             prior = None

@@ -65,6 +65,7 @@ def compute_prior(
     is_event_day: bool = False,
     day_of_month: Optional[int] = None,
     settings: Optional[list[str]] = None,
+    seat_number: Optional[int] = None,
 ) -> dict[str, float]:
     """
     指定条件に合った事前分布を生成して返す。
@@ -93,6 +94,7 @@ def compute_prior(
     n = len(settings)
 
     # ── Step1: セッション履歴（時系列減衰重み付き）──────────────────────
+    # 台番が指定された場合: 同台番のセッションを3倍重視
     sessions = list_sessions(hall_name=hall_name, machine_name=machine_name or None)
     accumulated: dict[str, float] = defaultdict(float)
     total_weight = 0.0
@@ -114,6 +116,9 @@ def compute_prior(
             if day_of_month is not None:
                 if str(d.day % 10) == str(day_of_month % 10):
                     weight *= 1.5
+            # 同台番なら大幅追加重視（実際にその台で打った記録）
+            if seat_number is not None and s.seat_number == seat_number:
+                weight *= 3.0
         except ValueError:
             weight = 0.5
 

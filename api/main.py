@@ -912,6 +912,84 @@ def get_tail_analysis(
     ]
 
 
+@app.get("/api/hall/today_targets", tags=["hall"])
+def get_today_targets(
+    hall_name: str = Query(...),
+    days: int = Query(30),
+) -> dict:
+    """今日の狙い台TOP3 — 曜日傾向・末尾傾向・台番ランキングを統合"""
+    import datetime
+    today = datetime.date.today()
+    weekday = today.weekday()  # 0=月 ... 6=日
+    weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
+    today_name = weekday_names[weekday]
+
+    conn = _get_reports_conn()
+    if not conn:
+        return {"seats": [], "best_tail": None, "best_machine": None, "today_weekday": today_name}
+
+    # 上位台番（avg_diff降順、min 3日分）
+    seat_rows = conn.execute(
+        """SELECT machine_name, seat_number,
+                  COUNT(*) as days, ROUND(AVG(diff_coins)) as avg_diff,
+                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
+             AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
+             AND bb_prob IS NOT NULL
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name, seat_number
+           HAVING days >= 3
+           ORDER BY avg_diff DESC
+           LIMIT 5""",
+        (hall_name, days)
+    ).fetchall()
+
+    # 最も好調な末尾
+    tail_rows = conn.execute(
+        """SELECT machine_name AS tail, ROUND(AVG(diff_coins)) as avg_diff
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name LIKE '末尾%'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name HAVING COUNT(*) >= 3
+           ORDER BY avg_diff DESC LIMIT 1""",
+        (hall_name, days)
+    ).fetchall()
+
+    # 最も好調な機種
+    machine_rows = conn.execute(
+        """SELECT machine_name, ROUND(AVG(diff_coins)) as avg_diff
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
+             AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
+             AND bb_prob IS NOT NULL
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name HAVING COUNT(*) >= 5
+           ORDER BY avg_diff DESC LIMIT 1""",
+        (hall_name, days)
+    ).fetchall()
+
+    conn.close()
+
+    seats = [
+        {
+            "machine_name": r[0], "seat_number": r[1],
+            "days": r[2], "avg_diff": r[3], "win_rate": round(r[4] or 0, 1)
+        }
+        for r in seat_rows[:3]
+    ]
+    best_tail = tail_rows[0][0] if tail_rows else None
+    best_machine = machine_rows[0][0] if machine_rows else None
+
+    return {
+        "seats": seats,
+        "best_tail": best_tail,
+        "best_machine": best_machine,
+        "today_weekday": today_name,
+        "data_days": days,
+    }
+
+
 # ---------------------------------------------------------------------------
 # マップ
 # ---------------------------------------------------------------------------

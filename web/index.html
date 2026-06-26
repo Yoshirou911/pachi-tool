@@ -419,8 +419,15 @@
 
         <!-- Monthly stats -->
         <div class="card" id="monthly-card" style="display:none">
-          <div class="card-title">📅 月別サマリー</div>
+          <div class="card-title">📅 月別収支</div>
+          <canvas id="monthly-bar-chart" height="160" style="margin-bottom:12px"></canvas>
           <div id="monthly-stats"></div>
+        </div>
+
+        <!-- Machine breakdown -->
+        <div class="card" id="machine-breakdown-card" style="display:none">
+          <div class="card-title">🎰 機種別収支</div>
+          <canvas id="machine-breakdown-chart" height="160"></canvas>
         </div>
 
         <!-- Seat analysis -->
@@ -477,6 +484,12 @@
           <input type="text" id="hall-custom-input" class="form-input"
                  placeholder="みんレポの店舗名を入力（例: マルハン○○店）"
                  style="display:none;margin-top:8px">
+        </div>
+
+        <!-- 今日の狙い台 -->
+        <div class="card" id="today-targets-card" style="display:none">
+          <div class="card-title" id="today-targets-title">🎯 今日の狙い台</div>
+          <div id="today-targets-body"></div>
         </div>
 
         <!-- 曜日スコア -->

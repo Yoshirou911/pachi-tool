@@ -791,6 +791,8 @@ async function loadSessions() {
     renderSessionSummary(sessions);
     renderPnLChart(sessions);
     renderMonthlyStats(sessions);
+    renderMonthlyBarChart(sessions);
+    renderMachineBreakdownChart(sessions);
     renderSeatAnalysis(sessions);
     renderDailyProfitChart(sessions);
   } catch (e) {
@@ -1233,6 +1235,7 @@ async function loadHallPage() {
   // スクレイプステータスを非同期で読み込み
   loadScrapeStatus();
   loadAnasloStatus();
+  loadTodayTargets(hall);
 }
 
 function renderMySessionStats(stats) {
@@ -2301,6 +2304,8 @@ async function init() {
 
 let _dailyChart = null;
 let _trendChart = null;
+let _monthlyBarChart = null;
+let _machineBreakdownChart = null;
 
 const CHART_COLORS = {
   up:   '#22c55e',
@@ -2384,6 +2389,139 @@ async function renderDailyProfitChart(sessions) {
       }
     }
   });
+}
+
+// 月別収支バーチャート
+function renderMonthlyBarChart(sessions) {
+  const canvas = document.getElementById('monthly-bar-chart');
+  if (!canvas) return;
+  const byMonth = {};
+  for (const s of sessions) {
+    const m = (s.date || '').slice(0, 7);
+    if (!m) continue;
+    byMonth[m] = (byMonth[m] || 0) + (s.diff_yen || 0);
+  }
+  const months = Object.keys(byMonth).sort();
+  if (months.length < 2) { canvas.style.display = 'none'; return; }
+  canvas.style.display = 'block';
+  const values = months.map(m => byMonth[m]);
+  if (_monthlyBarChart) _monthlyBarChart.destroy();
+  _monthlyBarChart = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: months.map(m => m.slice(5) + '月'),
+      datasets: [{
+        data: values,
+        backgroundColor: values.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'),
+        borderColor: values.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+        borderWidth: 1,
+      }]
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: {
+        ...chartDefaults().plugins,
+        tooltip: { callbacks: { label: ctx => (ctx.parsed.y >= 0 ? '+' : '') + ctx.parsed.y.toLocaleString() + '円' } }
+      }
+    }
+  });
+}
+
+// 機種別収支横棒チャート
+function renderMachineBreakdownChart(sessions) {
+  const card = document.getElementById('machine-breakdown-card');
+  if (!card || sessions.length < 3) { if (card) card.style.display = 'none'; return; }
+  const byMachine = {};
+  for (const s of sessions) {
+    const m = s.machine_name || '不明';
+    byMachine[m] = (byMachine[m] || 0) + (s.diff_yen || 0);
+  }
+  const sorted = Object.entries(byMachine).sort(([,a],[,b]) => b - a);
+  const topPos = sorted.filter(([,v]) => v >= 0).slice(0, 4);
+  const topNeg = sorted.filter(([,v]) => v < 0).slice(-2);
+  const display = [...topPos, ...topNeg];
+  if (display.length < 2) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  const labels = display.map(([m]) => m);
+  const values = display.map(([,v]) => v);
+  if (_machineBreakdownChart) _machineBreakdownChart.destroy();
+  const defaults = chartDefaults();
+  _machineBreakdownChart = new Chart(
+    document.getElementById('machine-breakdown-chart').getContext('2d'),
+    {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: values.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'),
+          borderColor: values.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+          borderWidth: 1,
+        }]
+      },
+      options: {
+        ...defaults,
+        indexAxis: 'y',
+        plugins: {
+          ...defaults.plugins,
+          tooltip: { callbacks: { label: ctx => (ctx.parsed.x >= 0 ? '+' : '') + ctx.parsed.x.toLocaleString() + '円' } }
+        },
+        scales: {
+          x: { ticks: { color: CHART_COLORS.text, font: { size: 10 }, callback: v => (v >= 0 ? '+' : '') + v.toLocaleString() }, grid: { color: CHART_COLORS.grid } },
+          y: { ticks: { color: CHART_COLORS.text, font: { size: 10 } }, grid: { color: CHART_COLORS.grid } }
+        }
+      }
+    }
+  );
+}
+
+// 今日の狙い台セレクター（店傾向ページ）
+async function loadTodayTargets(hall) {
+  const card = document.getElementById('today-targets-card');
+  const title = document.getElementById('today-targets-title');
+  const body = document.getElementById('today-targets-body');
+  if (!card) return;
+  try {
+    const data = await apiFetch(`/api/hall/today_targets?hall_name=${encodeURIComponent(hall)}`);
+    if (!data || (!data.seats.length && !data.best_tail && !data.best_machine)) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = 'block';
+    title.textContent = `🎯 今日(${data.today_weekday}曜日)の狙い台`;
+    let html = '';
+    if (data.seats.length) {
+      html += `<div style="margin-bottom:10px"><div style="font-size:.73rem;color:var(--text3);margin-bottom:6px">過去${data.data_days}日の台番ランキング</div>`;
+      data.seats.forEach((s, i) => {
+        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+        const col = s.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+        html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+          <span style="font-size:1.1rem">${medal}</span>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:.88rem">${esc(s.machine_name)} <span style="color:var(--text2)">${s.seat_number}番台</span></div>
+            <div style="font-size:.73rem;color:var(--text3)">${s.days}日分データ / 勝率${s.win_rate}%</div>
+          </div>
+          <div style="font-weight:700;color:${col};font-size:.95rem">${s.avg_diff >= 0 ? '+' : ''}${s.avg_diff}枚</div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+    if (data.best_tail || data.best_machine) {
+      html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">`;
+      if (data.best_tail) {
+        html += `<div style="background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:8px;padding:6px 12px;font-size:.8rem">
+          好調末尾: <strong>${data.best_tail.replace('末尾', '')}</strong></div>`;
+      }
+      if (data.best_machine) {
+        html += `<div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:6px 12px;font-size:.8rem">
+          好調機種: <strong>${esc(data.best_machine)}</strong></div>`;
+      }
+      html += `</div>`;
+    }
+    body.innerHTML = html;
+  } catch(e) {
+    card.style.display = 'none';
+  }
 }
 
 // 機種別差枚トレンド折れ線グラフ（店傾向ページ）

@@ -917,48 +917,59 @@ def get_today_targets(
     hall_name: str = Query(...),
     days: int = Query(30),
 ) -> dict:
-    """今日の狙い台TOP3 — 曜日傾向・末尾傾向・台番ランキングを統合"""
-    import datetime
+    """今日の狙い台TOP3 — 曜日傾向・安定性・直近トレンドを複合スコアで統合"""
+    import datetime, math as _math
     today = datetime.date.today()
     weekday = today.weekday()  # 0=月 ... 6=日
     weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
     today_name = weekday_names[weekday]
+    # SQLiteの曜日: 0=日,1=月...6=土  ← Python weekday 0=月に変換
+    sql_dow = (weekday + 1) % 7  # Python月→SQL月=1
 
     conn = _get_reports_conn()
     if not conn:
         return {"seats": [], "best_tail": None, "best_machine": None, "today_weekday": today_name}
 
-    # 上位台番（avg_diff降順、min 3日分）
+    # 全台の過去stats（avg・分散・勝率・直近7日）
     seat_rows = conn.execute(
         """SELECT machine_name, seat_number,
-                  COUNT(*) as days, ROUND(AVG(diff_coins)) as avg_diff,
-                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate
+                  COUNT(*) as total_days,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  ROUND(AVG(diff_coins*diff_coins) - AVG(diff_coins)*AVG(diff_coins)) as variance,
+                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate,
+                  ROUND(AVG(CASE WHEN report_date >= date('now','-7 days') THEN diff_coins END)) as avg_7d,
+                  COUNT(CASE WHEN report_date >= date('now','-7 days') THEN 1 END) as cnt_7d,
+                  ROUND(AVG(CASE WHEN strftime('%w',report_date)=? THEN diff_coins END)) as avg_same_dow,
+                  COUNT(CASE WHEN strftime('%w',report_date)=? THEN 1 END) as cnt_same_dow
            FROM hall_day_seat
            WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
              AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
              AND bb_prob IS NOT NULL
              AND report_date >= date('now', '-' || ? || ' days')
            GROUP BY machine_name, seat_number
-           HAVING days >= 3
-           ORDER BY avg_diff DESC
-           LIMIT 5""",
-        (hall_name, days)
+           HAVING total_days >= 3""",
+        (str(sql_dow), str(sql_dow), hall_name, days)
     ).fetchall()
 
-    # 最も好調な末尾
+    # 最も好調な末尾（曜日重み付き）
     tail_rows = conn.execute(
-        """SELECT machine_name AS tail, ROUND(AVG(diff_coins)) as avg_diff
+        """SELECT machine_name AS tail,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  ROUND(AVG(CASE WHEN strftime('%w',report_date)=? THEN diff_coins END)) as avg_dow
            FROM hall_day_seat
            WHERE hall_name=? AND machine_name LIKE '末尾%'
              AND report_date >= date('now', '-' || ? || ' days')
            GROUP BY machine_name HAVING COUNT(*) >= 3
-           ORDER BY avg_diff DESC LIMIT 1""",
-        (hall_name, days)
+           ORDER BY avg_diff DESC LIMIT 3""",
+        (str(sql_dow), hall_name, days)
     ).fetchall()
 
-    # 最も好調な機種
+    # 最も好調な機種（5台以上データあり）
     machine_rows = conn.execute(
-        """SELECT machine_name, ROUND(AVG(diff_coins)) as avg_diff
+        """SELECT machine_name,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  COUNT(DISTINCT seat_number) as unit_cnt,
+                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate
            FROM hall_day_seat
            WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
              AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
@@ -971,14 +982,55 @@ def get_today_targets(
 
     conn.close()
 
-    seats = [
-        {
-            "machine_name": r[0], "seat_number": r[1],
-            "days": r[2], "avg_diff": r[3], "win_rate": round(r[4] or 0, 1)
-        }
-        for r in seat_rows[:3]
-    ]
-    best_tail = tail_rows[0][0] if tail_rows else None
+    # ── 複合スコアリング ──────────────────────────────────────────────
+    # score = avg_diff(40%) + 同曜日avg(25%) + 安定性(20%) + 直近トレンド(15%)
+    scored = []
+    for r in seat_rows:
+        (machine, seat, total_days, avg_diff, variance,
+         win_rate, avg_7d, cnt_7d, avg_same_dow, cnt_same_dow) = r
+
+        avg_diff      = avg_diff or 0
+        variance      = max(variance or 0, 0)
+        avg_7d        = avg_7d if avg_7d is not None else avg_diff
+        avg_same_dow  = avg_same_dow if (avg_same_dow is not None and cnt_same_dow >= 1) else avg_diff
+        win_rate      = win_rate or 0
+
+        # 安定性: 標準偏差が小さいほど高スコア（平均差枚に対する比率）
+        std = _math.sqrt(variance)
+        stability = max(0.0, 1.0 - std / (abs(avg_diff) + 1500)) if avg_diff > 0 else 0.0
+
+        # 直近トレンド: 7日平均 vs 全期間平均の乖離（上振れ中か）
+        trend = avg_7d - avg_diff if cnt_7d >= 2 else 0.0
+
+        # 正規化スコア（差枚ベース、同曜日・安定性・トレンドで補正）
+        score = (
+            avg_diff      * 0.40 +
+            avg_same_dow  * 0.25 +
+            avg_diff * stability * 0.20 +
+            trend         * 0.15
+        )
+
+        scored.append({
+            "machine_name": machine,
+            "seat_number": seat,
+            "days": total_days,
+            "avg_diff": int(avg_diff),
+            "win_rate": round(win_rate, 1),
+            "avg_same_dow": int(avg_same_dow),
+            "avg_7d": int(avg_7d) if cnt_7d >= 1 else None,
+            "stability": round(stability, 2),
+            "score": round(score, 1),
+        })
+
+    scored.sort(key=lambda x: -x["score"])
+    seats = scored[:3]
+
+    # 末尾: 同曜日avg優先
+    best_tail = None
+    if tail_rows:
+        best = max(tail_rows, key=lambda r: (r[2] or r[1]) )
+        best_tail = best[0]
+
     best_machine = machine_rows[0][0] if machine_rows else None
 
     return {
@@ -1131,11 +1183,11 @@ def api_ai_estimate_comment(body: dict):
     comment = comment_estimate(
         machine_name=body.get("machine_name", ""),
         games=body.get("games", 0),
-        bb=body.get("bb", 0),
-        rb=body.get("rb", 0),
+        element_counts=body.get("element_counts", {}),
         posterior=body.get("posterior", {}),
         ev=body.get("ev", 0),
         recommendation=body.get("recommendation", ""),
+        element_analysis=body.get("element_analysis", []),
     )
     return {"comment": comment}
 

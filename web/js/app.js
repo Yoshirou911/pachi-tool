@@ -425,40 +425,62 @@ function renderEstimateResult(r) {
     `;
   }).join('');
 
-  // 要素別分析
+  // 要素別分析（理論値比較付き）
   const analysisEl = document.getElementById('res-element-analysis');
   if (analysisEl && r.element_analysis && r.element_analysis.length > 0) {
     const hasData = r.element_analysis.some(e => e.observed > 0);
     if (hasData) {
       analysisEl.style.display = 'block';
       const rows = r.element_analysis.filter(e => e.observed > 0).map(e => {
+        const obs = e.observed;
         const perN = e.observed_per_n ? `1/${e.observed_per_n.toFixed(0)}` : '-';
-        const arrow = e.direction === 'up' ? '↑' : '↓';
-        const arrowColor = e.direction === 'up' ? 'var(--success)' : 'var(--danger)';
-        // 最も近い設定を見やすく表示
         const cs = e.closest_setting;
-        const csColor = `var(--s${cs})`;
-        return `<tr>
-          <td style="padding:6px 8px;font-size:.78rem;color:var(--text2)">${esc(e.name)}</td>
-          <td style="padding:6px 8px;font-size:.78rem;text-align:center;font-weight:600">${perN}</td>
-          <td style="padding:6px 8px;font-size:.78rem;text-align:center;color:${csColor};font-weight:700">設${cs}</td>
-          <td style="padding:6px 8px;font-size:.9rem;text-align:center;color:${arrowColor};font-weight:700">${arrow}</td>
-        </tr>`;
+        const csColors = {'1':'var(--s1)','2':'var(--s2)','3':'var(--s3)','4':'var(--s4)','5':'var(--s5)','6':'var(--s6)'};
+        const csColor = csColors[cs] || 'var(--text)';
+        const theory = e.theoretical || {};
+        const settingKeys = Object.keys(theory).sort((a,b) => parseInt(a)-parseInt(b));
+
+        // 理論値の最小〜最大でバーの位置を計算
+        const vals = settingKeys.map(s => theory[s]).filter(Boolean);
+        const tMin = vals.length ? Math.min(...vals) : obs;
+        const tMax = vals.length ? Math.max(...vals) : obs;
+        const range = tMax - tMin || 1;
+        // 実測値のバー上の位置 (0〜100%)
+        const obsPos = Math.max(0, Math.min(100, ((obs - tMin) / range) * 100));
+        // 矢印・色
+        const up = e.direction === 'up';
+        const dirColor = up ? 'var(--success)' : 'var(--danger)';
+        const dirText  = up ? '↑ 高め' : '↓ 低め';
+
+        // 設定ごとの理論値ドット文字列
+        const theoryDots = settingKeys.map(s => {
+          const tp = theory[s];
+          const tPerN = tp && tp < 0.05 ? `1/${(1/tp).toFixed(0)}` : tp ? `${(tp*100).toFixed(1)}%` : '-';
+          return `<span style="color:${csColors[s]||'var(--text3)'};font-size:.63rem">設${s}:${tPerN}</span>`;
+        }).join(' ');
+
+        return `<div style="padding:9px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+            <span style="font-size:.78rem;color:var(--text2);flex:1">${esc(e.name)}</span>
+            <span style="font-size:.85rem;font-weight:800">${perN}</span>
+            <span style="font-size:.75rem;font-weight:800;color:${csColor};background:${csColor}22;padding:1px 7px;border-radius:4px">設${cs}</span>
+            <span style="font-size:.72rem;font-weight:700;color:${dirColor}">${dirText}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+            <span style="font-size:.6rem;color:var(--text3);flex-shrink:0">設1</span>
+            <div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;position:relative">
+              <div style="position:absolute;top:50%;left:${obsPos}%;transform:translate(-50%,-50%);width:8px;height:8px;border-radius:50%;background:var(--primary-h);border:2px solid var(--bg2);z-index:1"></div>
+            </div>
+            <span style="font-size:.6rem;color:var(--text3);flex-shrink:0">設${settingKeys[settingKeys.length-1]}</span>
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">${theoryDots}</div>
+        </div>`;
       }).join('');
+
       analysisEl.innerHTML = `
-        <div style="padding:10px 14px">
-          <div style="font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">要素別分析</div>
-          <table style="width:100%;border-collapse:collapse">
-            <thead>
-              <tr style="border-bottom:1px solid var(--border)">
-                <th style="padding:4px 8px;font-size:.7rem;color:var(--text3);text-align:left;font-weight:500">要素</th>
-                <th style="padding:4px 8px;font-size:.7rem;color:var(--text3);text-align:center;font-weight:500">実測</th>
-                <th style="padding:4px 8px;font-size:.7rem;color:var(--text3);text-align:center;font-weight:500">最近設定</th>
-                <th style="padding:4px 8px;font-size:.7rem;color:var(--text3);text-align:center;font-weight:500">方向</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
+        <div style="padding:12px 16px">
+          <div style="font-size:.68rem;color:var(--primary-h);font-weight:800;text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px">要素別理論値比較</div>
+          ${rows}
         </div>`;
     } else {
       analysisEl.style.display = 'none';
@@ -497,11 +519,11 @@ async function fetchAiEstimateComment(r) {
       body: JSON.stringify({
         machine_name: state.currentMachine || '',
         games,
-        bb: parseInt(document.getElementById('cnt-bb')?.value) || 0,
-        rb: parseInt(document.getElementById('cnt-rb')?.value) || 0,
+        element_counts: state.lastEstimate?.counts || {},
         posterior: r.posterior || {},
         ev: r.ev || 1.0,
         recommendation: r.should_retreat ? '撤退推奨' : '続行',
+        element_analysis: r.element_analysis || [],
       }),
     }).then(res => res.json());
     if (data.comment) {
@@ -2524,33 +2546,56 @@ async function loadTodayTargets(hall) {
       return;
     }
     card.style.display = 'block';
-    title.textContent = `🎯 今日(${data.today_weekday}曜日)の狙い台`;
+    title.textContent = `今日(${data.today_weekday}曜日)の狙い台`;
     let html = '';
     if (data.seats.length) {
-      html += `<div style="margin-bottom:10px"><div style="font-size:.73rem;color:var(--text3);margin-bottom:6px">過去${data.data_days}日の台番ランキング</div>`;
+      html += `<div style="font-size:.68rem;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">複合スコア順（曜日傾向・安定性・直近トレンド統合）</div>`;
       data.seats.forEach((s, i) => {
-        const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉';
+        const medals = ['1位', '2位', '3位'];
+        const medalCols = ['var(--warning)', 'var(--text2)', '#cd7f32'];
         const col = s.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
-        html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-          <span style="font-size:1.1rem">${medal}</span>
-          <div style="flex:1">
-            <div style="font-weight:700;font-size:.88rem">${esc(s.machine_name)} <span style="color:var(--text2)">${s.seat_number}番台</span></div>
-            <div style="font-size:.73rem;color:var(--text3)">${s.days}日分データ / 勝率${s.win_rate}%</div>
+        const sign = v => v >= 0 ? `+${v}` : `${v}`;
+        // 安定性バー (0〜1)
+        const stab = (s.stability || 0);
+        const stabW = Math.round(stab * 100);
+        const stabCol = stab >= 0.7 ? 'var(--success)' : stab >= 0.4 ? 'var(--warning)' : 'var(--danger)';
+        // 同曜日avg
+        const dowBadge = s.avg_same_dow !== undefined && s.avg_same_dow !== s.avg_diff
+          ? `<span style="font-size:.68rem;color:var(--primary-h);background:rgba(124,127,245,.12);padding:1px 6px;border-radius:4px">${data.today_weekday}曜 ${sign(s.avg_same_dow)}枚</span>`
+          : '';
+        // 直近7日
+        const trendBadge = s.avg_7d !== null && s.avg_7d !== undefined
+          ? `<span style="font-size:.68rem;color:${s.avg_7d >= s.avg_diff ? 'var(--success)' : 'var(--text3)'};background:var(--bg3);padding:1px 6px;border-radius:4px">直近7日 ${sign(s.avg_7d)}枚</span>`
+          : '';
+        html += `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+            <span style="font-size:.65rem;font-weight:900;color:${medalCols[i]};background:rgba(255,255,255,.04);padding:2px 7px;border-radius:4px;flex-shrink:0">${medals[i]}</span>
+            <div style="font-weight:800;font-size:.92rem;flex:1">${esc(s.machine_name)} <span style="color:var(--text3);font-weight:400">${s.seat_number}番</span></div>
+            <div style="font-weight:900;color:${col};font-size:1.05rem">${sign(s.avg_diff)}枚</div>
           </div>
-          <div style="font-weight:700;color:${col};font-size:.95rem">${s.avg_diff >= 0 ? '+' : ''}${s.avg_diff}枚</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
+            ${dowBadge}${trendBadge}
+            <span style="font-size:.68rem;color:var(--text3);background:var(--bg3);padding:1px 6px;border-radius:4px">${s.days}日 / 勝率${s.win_rate}%</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:.62rem;color:var(--text3);flex-shrink:0">安定性</span>
+            <div style="flex:1;height:4px;background:var(--bg3);border-radius:2px">
+              <div style="width:${stabW}%;height:100%;background:${stabCol};border-radius:2px;transition:width .6s"></div>
+            </div>
+            <span style="font-size:.62rem;color:var(--text3)">${stabW}%</span>
+          </div>
         </div>`;
       });
-      html += `</div>`;
     }
     if (data.best_tail || data.best_machine) {
-      html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">`;
+      html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">`;
       if (data.best_tail) {
-        html += `<div style="background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);border-radius:8px;padding:6px 12px;font-size:.8rem">
-          好調末尾: <strong>${data.best_tail.replace('末尾', '')}</strong></div>`;
+        html += `<div style="background:rgba(124,127,245,.1);border:1px solid rgba(124,127,245,.25);border-radius:8px;padding:7px 13px;font-size:.8rem">
+          好調末尾: <strong style="color:var(--primary-h)">${data.best_tail.replace('末尾', '末尾 ')}</strong></div>`;
       }
       if (data.best_machine) {
-        html += `<div style="background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.3);border-radius:8px;padding:6px 12px;font-size:.8rem">
-          好調機種: <strong>${esc(data.best_machine)}</strong></div>`;
+        html += `<div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:8px;padding:7px 13px;font-size:.8rem">
+          好調機種: <strong style="color:var(--success)">${esc(data.best_machine)}</strong></div>`;
       }
       html += `</div>`;
     }

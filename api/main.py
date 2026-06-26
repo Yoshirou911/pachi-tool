@@ -100,6 +100,9 @@ class EstimateResponse(BaseModel):
     element_analysis: list[dict]      # [{name, observed, theoretical_by_setting, direction}]
     sample_warning: Optional[str] = None   # 少サンプル警告
     recommended_games: Optional[int] = None  # 推奨最低G数
+    credible_interval: Optional[list[float]] = None  # 90%信用区間 [lo, hi]
+    element_powers: Optional[dict[str, float]] = None  # 各要素の識別力
+    correlated_elements: Optional[list[list]] = None  # 相関の強い要素ペア
 
 
 class SessionCreate(BaseModel):
@@ -268,6 +271,11 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
         elif observed_games < max_needed * 0.5:
             sample_warning = f"サンプル不足（{observed_games}G / 推奨{max_needed}G）"
 
+    # 信用区間・識別力・相関チェック
+    ci_lo, ci_hi = estimator.credible_interval(posterior, prob=0.90)
+    powers = {k: round(v, 3) for k, v in estimator.element_discrimination_power().items()}
+    correlated = [[a, b, r] for a, b, r in estimator.find_correlated_elements(threshold=0.95)]
+
     return EstimateResponse(
         posterior=posterior,
         expected_setting=estimator.expected_setting(posterior),
@@ -284,6 +292,9 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
         element_analysis=element_analysis,
         sample_warning=sample_warning,
         recommended_games=recommended_games,
+        credible_interval=[ci_lo, ci_hi],
+        element_powers=powers,
+        correlated_elements=correlated if correlated else None,
     )
 
 

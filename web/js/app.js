@@ -415,11 +415,55 @@ function renderEstimateResult(r) {
   }
 
   expectedEl.textContent = r.expected_setting.toFixed(2);
+
+  // 90%信用区間をサブテキストで表示
+  let ciEl = document.getElementById('res-credible-interval');
+  if (!ciEl) {
+    ciEl = document.createElement('div');
+    ciEl.id = 'res-credible-interval';
+    ciEl.style.cssText = 'font-size:.7rem;color:var(--text3);margin-top:2px';
+    expectedEl.parentNode.appendChild(ciEl);
+  }
+  if (r.credible_interval) {
+    ciEl.textContent = `90%信用区間: 設定${r.credible_interval[0].toFixed(0)}〜${r.credible_interval[1].toFixed(0)}`;
+  }
+
   const highPct = (r.high_setting_prob * 100).toFixed(0);
   highEl.textContent = highPct + '%';
   highEl.style.color = r.high_setting_prob > 0.5 ? 'var(--success)' : r.high_setting_prob > 0.3 ? 'var(--warning)' : 'var(--danger)';
   evEl.textContent = r.ev_pct.toFixed(1) + '%';
   evEl.style.color = r.ev >= 1.0 ? 'var(--success)' : r.ev >= 0.98 ? 'var(--warning)' : 'var(--danger)';
+
+  // 要素識別力ランキング（折りたたみ）
+  let powerEl = document.getElementById('res-element-powers');
+  if (!powerEl) {
+    powerEl = document.createElement('div');
+    powerEl.id = 'res-element-powers';
+    powerEl.style.cssText = 'margin-top:10px;padding:8px 10px;background:rgba(124,127,245,0.06);border-radius:8px;border:1px solid rgba(124,127,245,0.15)';
+    barsEl.parentNode.insertBefore(powerEl, barsEl);
+  }
+  if (r.element_powers && Object.keys(r.element_powers).length > 0) {
+    const sorted = Object.entries(r.element_powers).sort((a,b) => b[1]-a[1]);
+    const maxPow = sorted[0]?.[1] || 1;
+    const corrWarning = r.correlated_elements?.length
+      ? `<div style="color:#f97316;font-size:.7rem;margin-top:6px">相関要素あり（二重計上の可能性）: ${r.correlated_elements.map(([a,b]) => `${a}↔${b}`).join(', ')}</div>`
+      : '';
+    powerEl.style.display = 'block';
+    powerEl.innerHTML = `<div style="font-size:.68rem;color:var(--text3);margin-bottom:5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">要素別識別力</div>
+      ${sorted.map(([name, pow]) => {
+        const pct = Math.round(pow / maxPow * 100);
+        const col = pct >= 70 ? 'var(--success)' : pct >= 40 ? 'var(--warning)' : 'var(--text3)';
+        return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+          <div style="font-size:.72rem;color:var(--text2);width:120px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</div>
+          <div style="flex:1;height:4px;background:var(--bg3);border-radius:2px">
+            <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
+          </div>
+          <div style="font-size:.68rem;color:${col};width:32px;text-align:right;flex-shrink:0">${pow.toFixed(1)}</div>
+        </div>`;
+      }).join('')}${corrWarning}`;
+  } else {
+    powerEl.style.display = 'none';
+  }
 
   // コイン単価別期待収益
   const profitRow = document.getElementById('res-profit-row');

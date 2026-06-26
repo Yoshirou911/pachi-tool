@@ -178,6 +178,79 @@ class SettingEstimator:
         """設定 threshold 以上の合計確率(高設定期待度)。"""
         return sum(p for s, p in posterior.items() if float(s) >= threshold)
 
+    def credible_interval(
+        self, posterior: Mapping[str, float], prob: float = 0.90
+    ) -> tuple[float, float]:
+        """posterior の prob% 信用区間（設定値のCDF ベース）。
+
+        例: (2.0, 5.0) → 「90%の確率で期待設定は2〜5の間」。
+        設定値を離散値として扱い、累積確率でlo/hiをサンプリング。
+        """
+        tail = (1.0 - prob) / 2.0
+        items = sorted(
+            ((float(s), p) for s, p in posterior.items()),
+            key=lambda x: x[0]
+        )
+        cumsum = 0.0
+        lo = items[0][0]
+        hi = items[-1][0]
+        for setting_val, p in items:
+            if cumsum < tail:
+                lo = setting_val
+            cumsum += p
+            if cumsum >= 1.0 - tail and hi == items[-1][0]:
+                hi = setting_val
+        return lo, hi
+
+    def element_discrimination_power(self) -> dict[str, float]:
+        """各要素の「設定識別力」をlog-odds比で計算（大きいほど識別しやすい）。
+
+        discrimination = log(max_p / min_p) across settings.
+        これが大きい要素ほど設定間の差が大きく、精度に貢献する。
+        """
+        result = {}
+        for el in self.profile.elements:
+            ps = list(el.probabilities.values())
+            if not ps:
+                continue
+            max_p = max(ps)
+            min_p = min(ps)
+            if min_p > 0:
+                result[el.name] = log(max_p / min_p)
+            else:
+                result[el.name] = 0.0
+        return result
+
+    def find_correlated_elements(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
+        """相関が強い要素ペアを検出する（同じ情報を重複計上していないかチェック）。
+
+        各設定にわたる確率ベクトル間の相関係数が threshold を超えるペアを返す。
+        例: [("BB確率", "合算確率", 0.98)] → 合算確率にBBが含まれているため高相関
+        """
+        import math as _math
+        elements = list(self.profile.elements)
+        correlated = []
+        for i in range(len(elements)):
+            for j in range(i + 1, len(elements)):
+                a = elements[i]
+                b = elements[j]
+                settings = list(self.profile.settings)
+                pa = [a.probabilities[s] for s in settings]
+                pb = [b.probabilities[s] for s in settings]
+                n = len(pa)
+                if n < 2:
+                    continue
+                ma = sum(pa) / n
+                mb = sum(pb) / n
+                cov = sum((pa[k] - ma) * (pb[k] - mb) for k in range(n)) / n
+                sa = _math.sqrt(sum((x - ma)**2 for x in pa) / n)
+                sb = _math.sqrt(sum((x - mb)**2 for x in pb) / n)
+                if sa > 0 and sb > 0:
+                    r = cov / (sa * sb)
+                    if abs(r) >= threshold:
+                        correlated.append((a.name, b.name, round(r, 3)))
+        return correlated
+
 
 # --------------------------------------------------------------------------
 # デモ(直接実行で動作確認)

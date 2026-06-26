@@ -33,7 +33,8 @@ except ImportError:
     DB_PATH = Path(__file__).parent.parent / "data" / "hall_reports.db"
 
 BASE_URL = "https://ana-slo.com"
-DELAY = 10.0
+DELAY = 60.0       # Cloudflare対策: 60秒待機
+MAX_PER_RUN = 10   # 1回の実行で最大10日分まで
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -348,6 +349,7 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
         return
 
     total_saved = 0
+    fetched = 0  # 今回のセッションで実際にリクエストした数
     for i, (date_str, date_url) in enumerate(date_links[:max_days]):
         existing = conn.execute(
             "SELECT COUNT(*) FROM hall_day_seat WHERE hall_name=? AND report_date=? AND source='anaslo'",
@@ -357,7 +359,12 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
             print(f"  [{i+1:3d}] {date_str} スキップ ({existing}件取得済み)")
             continue
 
+        if fetched >= MAX_PER_RUN:
+            print(f"\n  ⚠ 1回の実行制限 ({MAX_PER_RUN}件) に達しました。時間をおいて再実行してください。")
+            break
+
         print(f"  [{i+1:3d}/{min(len(date_links), max_days)}] {date_str} 取得中...", end=" ", flush=True)
+        fetched += 1
         day_soup = _get(scraper, date_url)
         if day_soup is None:
             print("失敗")

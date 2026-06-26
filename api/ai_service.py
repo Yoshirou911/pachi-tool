@@ -206,6 +206,74 @@ def _today_targets_summary(hall_name: str) -> str:
         return ""
 
 
+def _machine_setting_tendency(hall_name: str) -> str:
+    """機種別推定設定傾向サマリー（AIレポート用）"""
+    try:
+        import datetime
+        from hall.prior import _estimate_prior_from_anaslo
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        rows = conn.execute(
+            """SELECT machine_name, COUNT(*) as records,
+                      ROUND(AVG(diff_coins)) as avg_diff,
+                      ROUND(AVG(bb_prob)*100, 4) as avg_bb_pct
+               FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND report_date >= date('now', '-60 days')
+               GROUP BY machine_name HAVING records >= 5
+               ORDER BY records DESC LIMIT 10""",
+            (hall_name,)
+        ).fetchall()
+        conn.close()
+        if not rows:
+            return ""
+        today_dow = datetime.date.today().weekday()
+        lines = ["【機種別推定設定傾向（60日）】"]
+        for r in rows[:8]:
+            mname = r[0]
+            avg_diff = r[2] or 0
+            prior = _estimate_prior_from_anaslo(hall_name, mname, ["1","2","3","4","5","6"], today_dow)
+            if prior:
+                exp_s = sum(int(s)*p for s,p in prior.items())
+                high_p = sum(p for s,p in prior.items() if int(s) >= 4)
+                lines.append(f"  {mname}: 推定設定{exp_s:.1f} / 高設定{high_p:.0%} / 平均{avg_diff:+}枚 ({r[1]}件)")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _today_dow_best(hall_name: str) -> str:
+    """本日曜日に強い機種TOP5"""
+    try:
+        import datetime
+        today = datetime.date.today()
+        sql_dow = str((today.weekday()+1) % 7)
+        dow_ja = ["月","火","水","木","金","土","日"][today.weekday()]
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        rows = conn.execute(
+            """SELECT machine_name, COUNT(*) as cnt,
+                      ROUND(AVG(diff_coins)) as avg_diff,
+                      ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
+               FROM hall_day_seat
+               WHERE hall_name=? AND strftime('%w',report_date)=?
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
+                 AND report_date >= date('now', '-120 days')
+               GROUP BY machine_name HAVING cnt >= 3
+               ORDER BY avg_diff DESC LIMIT 5""",
+            (hall_name, sql_dow)
+        ).fetchall()
+        conn.close()
+        if not rows:
+            return ""
+        lines = [f"【{dow_ja}曜日に強い機種TOP5（過去120日同曜日）】"]
+        for i, r in enumerate(rows, 1):
+            lines.append(f"  {i}. {r[0]}: 平均{r[2]:+}枚 / 勝率{r[3]}% ({r[1]}日)")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def _load_machine_theory(machine_name: str) -> str:
     """機種の設定別理論値テーブルを文字列で返す（AIへの参考データ）"""
     path = MACHINES_DIR / f"{machine_name}.json"
@@ -299,6 +367,8 @@ def generate_report(hall_name: str) -> str:
         _hall_summary(hall_name, days=30),
         _tail_summary(hall_name),
         _weekday_summary(hall_name),
+        _today_dow_best(hall_name),
+        _machine_setting_tendency(hall_name),
         _today_targets_summary(hall_name),
         _session_summary(10),
     ]))
@@ -309,14 +379,15 @@ def generate_report(hall_name: str) -> str:
 
 レポートに含める内容（データがある部分のみ）:
 1. 狙い目の台番ベスト3（機種名・台番・理由を明記。平均差枚・勝率を根拠にする）
-2. 避けるべき台番ワースト2（具体的な数字で理由を示す）
-3. 末尾傾向から見た立ち回り方針（最も有望な末尾と根拠）
-4. 曜日傾向コメント（今日の曜日と期待度）
-5. 自分の実戦履歴から見た課題点（もしあれば）
-6. 今日のひとこと総括
+2. 機種別推定設定傾向から判断した「今日打つべき機種」TOP2（推定設定と高設定確率を根拠に）
+3. 本日曜日に強い機種（曜日特化傾向から）
+4. 末尾傾向から見た立ち回り方針
+5. 避けるべき台番ワースト2（具体的な数字で理由を示す）
+6. 今日のひとこと総括と最重要狙い台
 
 ・データが少ない場合は「データ不足のため参考程度」と明記
-・具体的な数字（差枚・勝率・G数）を使って信頼性を示すこと"""
+・具体的な数字（差枚・勝率・推定設定）を使って信頼性を示すこと
+・推奨台は「○○の△番台（平均+□□枚、高設定確率○○%）」の形式で示すこと"""
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

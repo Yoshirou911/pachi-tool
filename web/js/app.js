@@ -3229,6 +3229,44 @@ async function loadMapPage() {
   } catch(e) {
     hint.textContent = 'マップデータ取得失敗: ' + e.message;
   }
+
+  // ホール比較カード
+  loadHallCompare();
+}
+
+async function loadHallCompare() {
+  const card = document.getElementById('hall-compare-card');
+  const body = document.getElementById('hall-compare-body');
+  if (!card) return;
+  try {
+    const rows = await apiFetch('/api/hall/compare?days=30');
+    if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const maxAbs = Math.max(...rows.map(r => Math.abs(r.avg_diff)), 1);
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    body.innerHTML = rows.map((r, i) => {
+      const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+      const pct = Math.round(Math.abs(r.avg_diff) / maxAbs * 100);
+      const encH = encodeURIComponent(r.hall_name);
+      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+        onclick="switchToHall(decodeURIComponent('${encH}'))">
+        <span style="font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.85rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}</div>
+          <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
+            <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
+          </div>
+          <div style="font-size:.6rem;color:var(--text3);margin-top:2px">${r.days_cnt}日 ${r.machine_cnt}機種 ${r.records}件 勝率${r.win_rate}% → タップで分析</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
+          <div style="font-size:.6rem;color:var(--text3)">${r.last_date || ''}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    if (card) card.style.display = 'none';
+  }
 }
 
 // ポップアップから店傾向へ遷移

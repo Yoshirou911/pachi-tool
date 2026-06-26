@@ -1564,6 +1564,50 @@ def get_map_halls(days: int = Query(30)) -> list[dict]:
     return result
 
 
+@app.get("/api/hall/compare", tags=["hall"])
+def get_hall_compare(days: int = Query(30)) -> list[dict]:
+    """
+    全ホールの設定レベルを比較。
+    ホール間の機種別推定設定と差枚を一覧化することで、どのホールが出ているかを分析。
+    """
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        """SELECT hall_name,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  COUNT(*) as records,
+                  COUNT(DISTINCT machine_name) as machine_cnt,
+                  COUNT(DISTINCT report_date) as days_cnt,
+                  ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate,
+                  ROUND(AVG(bb_prob)*100, 4) as avg_bb_pct,
+                  MAX(report_date) as last_date
+           FROM hall_day_seat
+           WHERE machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND machine_name NOT LIKE '%データ%'
+             AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY hall_name
+           HAVING records >= 10
+           ORDER BY avg_diff DESC""",
+        (days,)
+    ).fetchall()
+    conn.close()
+    return [
+        {
+            "hall_name": r[0],
+            "avg_diff": int(r[1] or 0),
+            "records": r[2],
+            "machine_cnt": r[3],
+            "days_cnt": r[4],
+            "win_rate": float(r[5] or 0),
+            "avg_bb_pct": float(r[6] or 0),
+            "last_date": r[7],
+        }
+        for r in rows
+    ]
+
+
 # ---------------------------------------------------------------------------
 # AI エンドポイント
 # ---------------------------------------------------------------------------

@@ -156,14 +156,46 @@ async function loadRecentSessions(machineName) {
   const el = document.getElementById('est-recent-sessions');
   if (!el) return;
   try {
-    const sessions = await api.getSessions({ machine_name: machineName, limit: 5 });
+    const [sessions, stats] = await Promise.all([
+      api.getSessions({ machine_name: machineName, limit: 5 }),
+      apiFetch(`/api/machine/stats?machine_name=${encodeURIComponent(machineName)}`).catch(() => null),
+    ]);
     if (!sessions || sessions.length === 0) { el.style.display = 'none'; return; }
     el.style.display = 'block';
+    // 集計バッジ
+    let summaryHtml = '';
+    if (stats && stats.total_sessions > 0) {
+      const wr = Math.round((stats.win_rate || 0) * 100);
+      const d = stats.diff_yen || 0;
+      const sg = d >= 0 ? '+' : '';
+      const avgG = stats.total_games && stats.total_sessions ? Math.round(stats.total_games / stats.total_sessions) : 0;
+      const wrColor = wr >= 50 ? 'var(--success)' : 'var(--danger)';
+      const dColor = d >= 0 ? 'var(--success)' : 'var(--danger)';
+      summaryHtml = `
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+          <span style="font-size:.75rem;background:rgba(124,127,245,0.12);border:1px solid rgba(124,127,245,0.25);border-radius:6px;padding:3px 8px">
+            <span style="color:var(--text3)">計</span> <strong>${stats.total_sessions}回</strong>
+          </span>
+          <span style="font-size:.75rem;background:rgba(124,127,245,0.12);border:1px solid rgba(124,127,245,0.25);border-radius:6px;padding:3px 8px">
+            <span style="color:var(--text3)">勝率</span> <strong style="color:${wrColor}">${wr}%</strong>
+          </span>
+          <span style="font-size:.75rem;background:rgba(124,127,245,0.12);border:1px solid rgba(124,127,245,0.25);border-radius:6px;padding:3px 8px">
+            <span style="color:var(--text3)">収支</span> <strong style="color:${dColor}">${sg}${d.toLocaleString()}円</strong>
+          </span>
+          ${avgG ? `<span style="font-size:.75rem;background:rgba(124,127,245,0.12);border:1px solid rgba(124,127,245,0.25);border-radius:6px;padding:3px 8px">
+            <span style="color:var(--text3)">平均G</span> <strong>${avgG.toLocaleString()}</strong>
+          </span>` : ''}
+          ${stats.avg_estimated_setting ? `<span style="font-size:.75rem;background:rgba(124,127,245,0.12);border:1px solid rgba(124,127,245,0.25);border-radius:6px;padding:3px 8px">
+            <span style="color:var(--text3)">平均設定</span> <strong style="color:var(--primary-h)">${stats.avg_estimated_setting}</strong>
+          </span>` : ''}
+        </div>`;
+    }
     el.innerHTML = `
       <div class="card" style="padding:10px 14px">
         <div style="font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">
-          この機種の直近${sessions.length}セッション
+          この機種の記録
         </div>
+        ${summaryHtml}
         ${sessions.map(s => {
           const diffYen = s.diff_yen || 0;
           const diffColor = diffYen > 0 ? 'var(--success)' : diffYen < 0 ? 'var(--danger)' : 'var(--text3)';
@@ -173,7 +205,7 @@ async function loadRecentSessions(machineName) {
             <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border)">
               <div>
                 <div style="font-size:.8rem;color:var(--text2)">${esc(s.date)}${s.hall_name ? ' · ' + esc(s.hall_name) : ''}</div>
-                <div style="font-size:.72rem;color:var(--text3)">${(s.games_total||0).toLocaleString()}G · 推測設定${expSetting}${s.is_event_day ? ' 🎉' : ''}${s.is_corner ? ' 角' : ''}</div>
+                <div style="font-size:.72rem;color:var(--text3)">${(s.games_total||0).toLocaleString()}G · 推測設定${expSetting}${s.is_event_day ? ' イベ' : ''}${s.is_corner ? ' 角' : ''}</div>
               </div>
               <div style="text-align:right">
                 <div style="font-weight:700;font-size:.88rem;color:${diffColor}">${fmt(diffYen)}</div>
@@ -1938,12 +1970,30 @@ function renderMachineList(profiles) {
                 const wr = Math.round((stats.win_rate || 0) * 100);
                 const diff = stats.diff_yen || 0;
                 const sign = diff >= 0 ? '+' : '';
+                const avgG = stats.total_sessions > 0 ? Math.round((stats.total_games||0) / stats.total_sessions) : 0;
+                const recentRows = (stats.recent_sessions || []).map(s => {
+                  const d = s.diff_yen || 0;
+                  const sg = d >= 0 ? '+' : '';
+                  const est = s.posterior ? (() => {
+                    const p = typeof s.posterior === 'string' ? JSON.parse(s.posterior) : s.posterior;
+                    const e = Object.entries(p).reduce((a,[k,v]) => a + parseInt(k)*v, 0);
+                    return `<span style="color:var(--text3);font-size:.7rem">推測設定${e.toFixed(1)}</span>`;
+                  })() : '';
+                  return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:.75rem">
+                    <span style="color:var(--text3)">${s.date||''} ${s.hall_name||''} #${s.seat_number||'-'}</span>
+                    <span style="display:flex;align-items:center;gap:8px">${est}<strong style="color:${d>=0?'var(--success)':'var(--danger)'}">${sg}${(d||0).toLocaleString()}円</strong></span>
+                  </div>`;
+                }).join('');
                 statsWrap.innerHTML = `
-                  <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:.78rem;padding:6px 0;border-top:1px solid var(--border);margin-top:8px">
-                    <span><span style="color:var(--text3)">回数</span> <strong>${stats.total_sessions}</strong></span>
-                    <span><span style="color:var(--text3)">勝率</span> <strong style="color:${wr>=50?'var(--success)':'var(--danger)'}">${wr}%</strong></span>
-                    <span><span style="color:var(--text3)">収支</span> <strong style="color:${diff>=0?'var(--success)':'var(--danger)'}">${sign}${diff.toLocaleString()}円</strong></span>
-                    ${stats.avg_estimated_setting ? `<span><span style="color:var(--text3)">平均推測設定</span> <strong>${stats.avg_estimated_setting}</strong></span>` : ''}
+                  <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:.78rem;margin-bottom:8px">
+                      <span><span style="color:var(--text3)">回数</span> <strong>${stats.total_sessions}</strong></span>
+                      <span><span style="color:var(--text3)">勝率</span> <strong style="color:${wr>=50?'var(--success)':'var(--danger)'}">${wr}%</strong></span>
+                      <span><span style="color:var(--text3)">累計収支</span> <strong style="color:${diff>=0?'var(--success)':'var(--danger)'}">${sign}${diff.toLocaleString()}円</strong></span>
+                      <span><span style="color:var(--text3)">平均G数</span> <strong>${avgG.toLocaleString()}</strong></span>
+                      ${stats.avg_estimated_setting ? `<span><span style="color:var(--text3)">平均推測設定</span> <strong style="color:var(--primary-h)">${stats.avg_estimated_setting}</strong></span>` : ''}
+                    </div>
+                    ${recentRows ? `<div style="font-size:.7rem;color:var(--text3);margin-bottom:4px;font-weight:600">直近${(stats.recent_sessions||[]).length}回</div>${recentRows}` : ''}
                   </div>
                 `;
               }

@@ -1044,6 +1044,23 @@ function renderSessions(sessions) {
     ].filter(Boolean).join('');
     const expectedSetting = s.posterior ? calcExpectedSetting(s.posterior) : null;
 
+    // 設定分布バー（推測結果がある場合）
+    let posteriorBar = '';
+    if (s.posterior) {
+      const entries = Object.entries(s.posterior).sort((a,b) => parseInt(a[0])-parseInt(b[0]));
+      const bars = entries.map(([setting, prob]) => {
+        const w = Math.round(prob * 100);
+        const col = parseInt(setting) >= 4 ? 'var(--primary-h)' : parseInt(setting) >= 2 ? 'var(--text3)' : 'rgba(255,255,255,0.2)';
+        return `<div title="設定${setting}: ${Math.round(prob*100)}%" style="flex:${w||1};height:3px;background:${col};border-radius:1px"></div>`;
+      }).join('');
+      const high_p = entries.filter(([s]) => parseInt(s) >= 4).reduce((a,[,p]) => a+p, 0);
+      const eSetting = expectedSetting !== null ? expectedSetting.toFixed(1) : '';
+      const highCol = high_p >= 0.5 ? 'var(--success)' : high_p >= 0.3 ? 'var(--warning)' : 'var(--text3)';
+      posteriorBar = `<div style="margin-top:5px">
+        <div style="display:flex;gap:1px;height:3px;border-radius:2px;overflow:hidden;margin-bottom:3px">${bars}</div>
+        <div style="font-size:.65rem;color:var(--text3)">推測設定 <strong style="color:var(--text2)">${eSetting}</strong> 高設定 <strong style="color:${highCol}">${Math.round(high_p*100)}%</strong></div>
+      </div>`;
+    }
     return `
       <div class="session-item ${diffYen >= 0 ? 'pos' : 'neg'}" data-id="${s.id}">
         <div class="session-item-header">
@@ -1055,8 +1072,8 @@ function renderSessions(sessions) {
         <div class="session-stats" style="margin-top:6px">
           <span class="session-stat">G数: <span class="val">${(s.games_total || 0).toLocaleString()}</span></span>
           <span class="session-stat">収支: <span class="val ${diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow'}" style="font-weight:800">${fmt(diffYen)}</span></span>
-          ${expectedSetting !== null ? `<span class="session-stat">推測設定: <span class="val">${expectedSetting.toFixed(1)}</span></span>` : ''}
         </div>
+        ${posteriorBar}
       </div>
     `;
   }).join('');

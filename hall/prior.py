@@ -152,6 +152,40 @@ def compute_prior(
     return {s: weights[s] / total for s in settings}
 
 
+# 機種名の表記ゆれ正規化マップ（DB名 → JSON名）
+_MACHINE_NAME_ALIASES: dict[str, str] = {
+    "マイジャグラーV":          "マイジャグラー5",
+    "マイジャグラーIV":         "マイジャグラーIV",
+    "ゴーゴージャグラー2":      "ゴーゴージャグラー2",
+    "アイムジャグラーEX-TP":    "アイムジャグラーEX Anniversary",
+    "ウルトラミラクルジャグラー":"ウルトラミラクルジャグラー",
+    "スマスロ サンダーV":       "スマスロ サンダーV",
+    "スマスロ ハナビ":          "スマスロ ハナビ",
+    "バジリスク絆2 BLACK EDITION": "スマスロバジリスク絆3",
+    "スマスロ北斗の拳":         "スマスロ北斗の拳",
+    "スマスロまどかマギカ2":    "スマスロまどかマギカ2",
+}
+
+
+def _load_machine_theory(machine_name: str) -> Optional[dict]:
+    """機種JSONの理論確率を読み込む。表記ゆれはエイリアスマップで正規化。"""
+    import json
+    try:
+        machines_dir = Path(__file__).parent.parent / "data" / "machines"
+        # エイリアスによる名前正規化
+        lookup_name = _MACHINE_NAME_ALIASES.get(machine_name, machine_name)
+        for f in machines_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if data.get("machine_name") in (machine_name, lookup_name):
+                    return data
+            except Exception:
+                continue
+        return None
+    except Exception:
+        return None
+
+
 def _estimate_prior_from_anaslo(
     hall_name: str,
     machine_name: str,
@@ -159,24 +193,23 @@ def _estimate_prior_from_anaslo(
     weekday: Optional[int],
 ) -> Optional[dict[str, float]]:
     """
-    アナスロ差枚データから設定分布を推定する。
+    アナスロ差枚データ + BB/RB実測確率から設定分布を推定する。
 
-    アルゴリズム:
-    - 差枚の分布を機種の機械割に照らし合わせてソフトマックス分類。
-    - 差枚が高い日ほど「高設定」とみなす確率を計算。
-    - 曜日フィルタリングで今日の曜日の傾向を重視。
+    アルゴリズム v2:
+    1. 差枚の加重平均 → ガウス尤度で設定推定
+    2. BB確率・RB確率の加重平均 → 理論値と照合してガウス尤度追加
+    3. 両者の対数尤度を加算してブレンド
     """
     if not machine_name:
         return None
     try:
         conn = sqlite3.connect(HALL_REPORTS_DB)
-        # 同機種の差枚データを取得（同曜日を2倍重み）
         sql_dow = str((weekday + 1) % 7) if weekday is not None else None
 
         rows = conn.execute(
-            """SELECT diff_coins, report_date
+            """SELECT diff_coins, bb_prob, rb_prob, games, report_date
                FROM hall_day_seat
-               WHERE hall_name=? AND machine_name=? AND bb_prob IS NOT NULL
+               WHERE hall_name=? AND machine_name=? AND bb_prob IS NOT NULL AND games > 0
                ORDER BY report_date DESC
                LIMIT 200""",
             (hall_name, machine_name)
@@ -186,53 +219,84 @@ def _estimate_prior_from_anaslo(
         if len(rows) < 3:
             return None
 
-        # 差枚リスト（曜日重み付き）
-        diffs_weighted: list[tuple[float, float]] = []
         today = datetime.date.today()
-        for diff, rdate in rows:
+        diffs_weighted: list[tuple[float, float]] = []
+        bb_probs_weighted: list[tuple[float, float]] = []
+        rb_probs_weighted: list[tuple[float, float]] = []
+
+        for diff, bb_p, rb_p, games, rdate in rows:
             try:
                 d = datetime.date.fromisoformat(rdate)
                 age = max(0, (today - d).days)
                 w = RECENCY_DECAY ** age
                 if sql_dow and str((d.weekday() + 1) % 7) == sql_dow:
                     w *= 2.0
-                diffs_weighted.append((float(diff), w))
+                # ゲーム数が多いほど信頼度が高い（重みを補正）
+                games_factor = math.log1p(float(games or 0)) / math.log1p(1000.0)
+                w_adj = w * max(0.3, games_factor)
             except Exception:
-                diffs_weighted.append((float(diff), 1.0))
+                w_adj = 0.5
+            diffs_weighted.append((float(diff or 0), w_adj))
+            if bb_p and bb_p > 0:
+                bb_probs_weighted.append((float(bb_p), w_adj))
+            if rb_p and rb_p > 0:
+                rb_probs_weighted.append((float(rb_p), w_adj))
 
-        if not diffs_weighted:
-            return None
-
-        # 差枚の加重平均・標準偏差
+        # ── 差枚ガウス尤度 ──────────────────────────────────────────────
         total_w = sum(w for _, w in diffs_weighted)
         mean_d  = sum(d*w for d, w in diffs_weighted) / total_w
         var_d   = sum((d - mean_d)**2 * w for d, w in diffs_weighted) / total_w
         std_d   = math.sqrt(max(var_d, 1.0))
 
-        # 設定1〜6の「期待差枚」をマッピング（機械割から概算: 1000コイン消費・RTP換算）
-        # 機械割を差枚に変換: (kw-1)*1000 ≈ 差枚/1000G の期待値
-        # ここでは -500 〜 +500 の簡易マッピングを使用
         setting_expected: dict[str, float] = {}
         if len(settings) == 6:
-            # 標準的な設定差: -500〜+500の線形補間
-            ref = {
-                "1": -350, "2": -200, "3":  -50,
-                "4":  +100, "5": +250, "6": +450
-            }
+            ref = {"1": -350, "2": -200, "3": -50, "4": +100, "5": +250, "6": +450}
             for s in settings:
                 setting_expected[s] = ref.get(s, 0.0)
         else:
-            # 非標準設定数（北斗の拳など設定1,2,4,5,6）
             vals = [-350, -200, 0, +150, +300, +500][:len(settings)]
             for i, s in enumerate(settings):
                 setting_expected[s] = vals[i]
 
-        # ガウス尤度: P(観測平均差枚 | 設定s) ∝ exp(-0.5 * ((mean_d - exp[s])/std)^2)
-        log_likes: dict[str, float] = {}
-        sigma = max(std_d, 300.0)  # 下限 300 で過信を防ぐ
-        for s in settings:
-            diff_from_exp = mean_d - setting_expected[s]
-            log_likes[s] = -0.5 * (diff_from_exp / sigma) ** 2
+        sigma_d = max(std_d, 300.0)
+        log_likes: dict[str, float] = {
+            s: -0.5 * ((mean_d - setting_expected[s]) / sigma_d) ** 2
+            for s in settings
+        }
+
+        # ── BB/RB 実測確率 vs 理論値 ガウス尤度 ─────────────────────────
+        theory = _load_machine_theory(machine_name)
+        if theory and bb_probs_weighted and len(bb_probs_weighted) >= 3:
+            tw_bb = sum(w for _, w in bb_probs_weighted)
+            mean_bb = sum(p*w for p, w in bb_probs_weighted) / tw_bb
+            var_bb = sum((p - mean_bb)**2 * w for p, w in bb_probs_weighted) / tw_bb
+            std_bb = math.sqrt(max(var_bb, 1e-8))
+
+            # BBに相当する要素を探す
+            bb_el = next((el for el in theory.get("elements", [])
+                          if any(kw in el["name"] for kw in ["BB", "BIG", "ボーナス合算", "AT初当"])), None)
+            if bb_el:
+                # 理論BBプロブ (分数表現: 1/300 → 0.00333)
+                for s in settings:
+                    theo_p = bb_el.get("p", {}).get(s, 0.0)
+                    if theo_p > 0:
+                        sigma_bb = max(std_bb, theo_p * 0.15)  # 理論値の±15%を下限に
+                        log_likes[s] += -0.5 * ((mean_bb - theo_p) / sigma_bb) ** 2
+
+        if theory and rb_probs_weighted and len(rb_probs_weighted) >= 3:
+            tw_rb = sum(w for _, w in rb_probs_weighted)
+            mean_rb = sum(p*w for p, w in rb_probs_weighted) / tw_rb
+            var_rb = sum((p - mean_rb)**2 * w for p, w in rb_probs_weighted) / tw_rb
+            std_rb = math.sqrt(max(var_rb, 1e-8))
+
+            rb_el = next((el for el in theory.get("elements", [])
+                          if any(kw in el["name"] for kw in ["RB", "REG", "単独RB"])), None)
+            if rb_el:
+                for s in settings:
+                    theo_p = rb_el.get("p", {}).get(s, 0.0)
+                    if theo_p > 0:
+                        sigma_rb = max(std_rb, theo_p * 0.20)
+                        log_likes[s] += -0.5 * ((mean_rb - theo_p) / sigma_rb) ** 2
 
         # softmax 正規化
         max_ll = max(log_likes.values())

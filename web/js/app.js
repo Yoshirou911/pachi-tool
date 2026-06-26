@@ -2701,9 +2701,63 @@ async function renderMachineTrendChart(hall, machineName) {
         }
       }
     });
+    // 機種クリック後、台番ランキングも表示
+    loadMachineSeatRanking(hall, machineName);
   } catch(e) {
     card.style.display = 'none';
     showToast('トレンドデータ取得失敗: ' + e.message, 'error');
+  }
+}
+
+async function loadMachineSeatRanking(hall, machineName) {
+  let card = document.getElementById('machine-seat-ranking-card');
+  if (!card) {
+    // カードが存在しない場合は動的生成
+    card = document.createElement('div');
+    card.id = 'machine-seat-ranking-card';
+    card.className = 'card';
+    const trendCard = document.getElementById('machine-trend-card');
+    if (trendCard && trendCard.parentNode)
+      trendCard.parentNode.insertBefore(card, trendCard.nextSibling);
+  }
+  card.style.display = 'block';
+  card.innerHTML = `<div class="card-title">${esc(machineName)} — 台番スコアランキング</div><p class="hint">読み込み中...</p>`;
+
+  try {
+    const rows = await apiFetch(
+      `/api/hall/machine_seat_ranking?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machineName)}&days=30`
+    );
+    if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
+
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    const items = rows.slice(0, 10).map((r, i) => {
+      const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+      const stabW = Math.round((r.stability || 0) * 100);
+      const stabCol = r.stability >= 0.7 ? 'var(--success)' : r.stability >= 0.4 ? 'var(--warning)' : 'var(--danger)';
+      const dowTxt = r.avg_same_dow !== r.avg_diff
+        ? `<span style="font-size:.65rem;color:var(--primary-h);background:rgba(124,127,245,.1);padding:1px 5px;border-radius:3px">今日曜 ${sign(r.avg_same_dow)}</span>` : '';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:.7rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
+        <div style="flex:1">
+          <div style="font-size:.88rem;font-weight:700">${r.seat_number}番台 ${dowTxt}</div>
+          <div style="display:flex;align-items:center;gap:5px;margin-top:3px">
+            <div style="flex:1;height:3px;background:var(--bg3);border-radius:2px">
+              <div style="width:${stabW}%;height:100%;background:${stabCol};border-radius:2px"></div>
+            </div>
+            <span style="font-size:.6rem;color:var(--text3)">安定${stabW}%</span>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-weight:900;color:${col};font-size:.95rem">${sign(r.avg_diff)}枚</div>
+          <div style="font-size:.62rem;color:var(--text3)">${r.days}日 勝${r.win_rate}%</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    card.innerHTML = `<div class="card-title">${esc(machineName)} — 台番スコアランキング</div>${items}`;
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch(e) {
+    card.style.display = 'none';
   }
 }
 

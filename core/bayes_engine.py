@@ -118,32 +118,42 @@ class SettingEstimator:
         self,
         obs: Observation,
         prior: Mapping[str, float] | None = None,
+        laplace_alpha: float = 0.5,
     ) -> dict[str, float]:
         """事後分布 P(設定 | 観測) を返す。
 
         prior を渡すと事前分布を差し替えられる(店傾向の出力などを注入可能)。
         渡さなければ一様事前。
+
+        laplace_alpha: ラプラス平滑化の疑似カウント (0.5 = Jeffreys prior)。
+            N が小さい時に確率が 0/1 に張り付くのを防ぐ。
         """
         settings = self.profile.settings
         if prior is None:
-            log_post = {s: 0.0 for s in settings}           # 一様事前 = log(1/n) 定数は無視可
+            log_post = {s: 0.0 for s in settings}
         else:
             total = sum(prior.values())
-            log_post = {s: log(prior[s] / total) for s in settings}
+            # ゼロ事前を防ぐため微小値でクランプ
+            log_post = {
+                s: log(max(prior.get(s, 0) / total, 1e-10))
+                for s in settings
+            }
 
         N = obs.total_games
         for name, k in obs.counts.items():
             el = self._elem_by_name.get(name)
             if el is None:
-                continue  # 未知の要素名は無視
+                continue
             if k < 0 or k > N:
                 raise ValueError(f"要素 '{name}' の回数 {k} が 0..{N} の範囲外です")
             for s in settings:
                 p = el.probabilities[s]
-                # 二項対数尤度(組合せ係数は設定間で共通なので省略)
-                log_lik = k * log(p)
-                if N - k > 0:
-                    log_lik += (N - k) * log(1.0 - p)
+                # ラプラス平滑化: k → k+α, N-k → N-k+α
+                k_s   = k + laplace_alpha
+                nk_s  = (N - k) + laplace_alpha
+                n_s   = N + 2 * laplace_alpha
+                # 平滑化後の二項対数尤度
+                log_lik = k_s * log(p) + nk_s * log(1.0 - p)
                 log_post[s] += log_lik
 
         return self._normalize(log_post)

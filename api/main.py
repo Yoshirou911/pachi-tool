@@ -483,6 +483,39 @@ def get_machine_ranking(hall_name: str = Query(...)) -> list[dict]:
     return machine_ranking(hall_name)
 
 
+@app.get("/api/hall/weekday_machine_stats", tags=["hall"])
+def get_weekday_machine_stats(
+    hall_name: str = Query(...),
+    days: int = Query(90),
+) -> list[dict]:
+    """曜日×機種のクロス集計（どの曜日にどの機種が強いか）"""
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        """SELECT strftime('%w', report_date) as dow,
+                  machine_name,
+                  COUNT(*) as cnt,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
+             AND machine_name != '_NODATA_' AND bb_prob IS NOT NULL
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY dow, machine_name
+           HAVING cnt >= 3
+           ORDER BY dow, avg_diff DESC""",
+        (hall_name, days)
+    ).fetchall()
+    conn.close()
+    dow_map = {"0":"日","1":"月","2":"火","3":"水","4":"木","5":"金","6":"土"}
+    return [
+        {"weekday": dow_map.get(r[0], r[0]), "machine_name": r[1],
+         "count": r[2], "avg_diff": r[3] or 0, "win_rate": r[4] or 0}
+        for r in rows
+    ]
+
+
 @app.get("/api/hall/stats", tags=["hall"])
 def get_hall_stats(
     hall_name: str = Query(...),
@@ -910,6 +943,138 @@ def get_tail_analysis(
         {"tail": r[0], "count": r[1], "avg_diff": round(r[2] or 0), "win_rate": round(r[3] or 0, 1)}
         for r in rows
     ]
+
+
+@app.get("/api/hall/seat_detail", tags=["hall"])
+def get_seat_detail(
+    hall_name: str = Query(...),
+    machine_name: str = Query(...),
+    seat_number: int = Query(...),
+    days: int = Query(90),
+) -> dict:
+    """特定台番の詳細: 日別履歴・曜日別実績・直近トレンド"""
+    conn = _get_reports_conn()
+    if not conn:
+        return {}
+
+    # 日別履歴
+    history = conn.execute(
+        """SELECT report_date, diff_coins, games, bb_prob, rb_prob
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name=? AND seat_number=?
+             AND report_date >= date('now', '-' || ? || ' days')
+           ORDER BY report_date DESC""",
+        (hall_name, machine_name, seat_number, days)
+    ).fetchall()
+
+    # 曜日別集計 (SQLite %w: 0=日,1=月,...,6=土)
+    weekday_rows = conn.execute(
+        """SELECT strftime('%w', report_date) as dow,
+                  COUNT(*) as cnt,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name=? AND seat_number=?
+           GROUP BY dow ORDER BY dow""",
+        (hall_name, machine_name, seat_number)
+    ).fetchall()
+    conn.close()
+
+    dow_map = {"0":"日","1":"月","2":"火","3":"水","4":"木","5":"金","6":"土"}
+    weekday_stats = [
+        {"weekday": dow_map.get(r[0], r[0]), "count": r[1],
+         "avg_diff": r[2] or 0, "win_rate": r[3] or 0}
+        for r in weekday_rows
+    ]
+
+    hist_list = [
+        {"date": r[0], "diff": r[1], "games": r[2],
+         "bb_prob": r[3], "rb_prob": r[4]}
+        for r in history
+    ]
+
+    if not hist_list:
+        return {"machine_name": machine_name, "seat_number": seat_number, "history": []}
+
+    diffs = [h["diff"] for h in hist_list]
+    avg = round(sum(diffs) / len(diffs))
+    win_rate = round(sum(1 for d in diffs if d > 0) / len(diffs) * 100, 1)
+    best = max(diffs)
+    worst = min(diffs)
+
+    import math as _math
+    variance = sum((d - avg)**2 for d in diffs) / len(diffs)
+    std = round(_math.sqrt(variance))
+
+    return {
+        "machine_name": machine_name,
+        "seat_number": seat_number,
+        "total_days": len(hist_list),
+        "avg_diff": avg,
+        "win_rate": win_rate,
+        "best": best,
+        "worst": worst,
+        "std": std,
+        "history": hist_list[:60],
+        "weekday_stats": weekday_stats,
+    }
+
+
+@app.get("/api/hall/machine_seat_ranking", tags=["hall"])
+def get_machine_seat_ranking(
+    hall_name: str = Query(...),
+    machine_name: str = Query(...),
+    days: int = Query(30),
+) -> list[dict]:
+    """特定機種の全台番ランキング（複合スコア付き）"""
+    import datetime, math as _math
+    today = datetime.date.today()
+    sql_dow = str((today.weekday() + 1) % 7)
+
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        """SELECT seat_number,
+                  COUNT(*) as total_days,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  ROUND(AVG(diff_coins*diff_coins) - AVG(diff_coins)*AVG(diff_coins)) as variance,
+                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END)*100.0/COUNT(*) as win_rate,
+                  ROUND(AVG(CASE WHEN strftime('%w',report_date)=? THEN diff_coins END)) as avg_dow,
+                  COUNT(CASE WHEN strftime('%w',report_date)=? THEN 1 END) as cnt_dow,
+                  ROUND(AVG(CASE WHEN report_date >= date('now','-7 days') THEN diff_coins END)) as avg_7d
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name=? AND bb_prob IS NOT NULL
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY seat_number
+           HAVING total_days >= 2
+           ORDER BY avg_diff DESC""",
+        (sql_dow, sql_dow, hall_name, machine_name, days)
+    ).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        avg = r[2] or 0
+        var = max(r[3] or 0, 0)
+        std = _math.sqrt(var)
+        stability = max(0.0, 1.0 - std / (abs(avg) + 1500)) if avg > 0 else 0.0
+        avg_dow = r[5] if (r[5] is not None and r[6] >= 1) else avg
+        avg_7d  = r[7] if r[7] is not None else avg
+        trend   = avg_7d - avg
+        score   = avg * 0.40 + avg_dow * 0.25 + avg * stability * 0.20 + trend * 0.15
+        result.append({
+            "seat_number": r[0],
+            "days": r[1],
+            "avg_diff": int(avg),
+            "win_rate": round(r[4] or 0, 1),
+            "avg_same_dow": int(avg_dow),
+            "avg_7d": int(avg_7d) if r[7] is not None else None,
+            "stability": round(stability, 2),
+            "score": round(score, 1),
+        })
+    result.sort(key=lambda x: -x["score"])
+    return result
 
 
 @app.get("/api/hall/today_targets", tags=["hall"])

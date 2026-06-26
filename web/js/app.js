@@ -1153,7 +1153,8 @@ if (sesImportInput) {
 // Hall page
 // ---------------------------------------------------------------------------
 async function loadHallPage() {
-  const hall = document.getElementById('hall-select').value;
+  const hall = getSelectedHall();
+  if (!hall) return;
   try {
     // セッション統計を取得
     const [daitoData, hallStats] = await Promise.allSettled([
@@ -1384,7 +1385,30 @@ function renderTodayRecommend(data) {
   `).join('');
 }
 
-document.getElementById('hall-select').addEventListener('change', loadHallPage);
+document.getElementById('hall-select').addEventListener('change', () => {
+  const v = document.getElementById('hall-select').value;
+  const customInput = document.getElementById('hall-custom-input');
+  if (v === '__custom__') {
+    customInput.style.display = 'block';
+    customInput.focus();
+  } else {
+    customInput.style.display = 'none';
+    loadHallPage();
+  }
+});
+
+document.getElementById('hall-custom-input').addEventListener('change', () => {
+  const name = document.getElementById('hall-custom-input').value.trim();
+  if (name) loadHallPage();
+});
+
+function getSelectedHall() {
+  const v = document.getElementById('hall-select').value;
+  if (v === '__custom__') {
+    return document.getElementById('hall-custom-input').value.trim() || '';
+  }
+  return v;
+}
 
 // ---------------------------------------------------------------------------
 // Scrape UI (みんレポ)
@@ -1393,7 +1417,8 @@ document.getElementById('hall-select').addEventListener('change', loadHallPage);
 let _scrapePoller = null;
 
 async function loadScrapeStatus() {
-  const hall = document.getElementById('hall-select').value;
+  const hall = getSelectedHall();
+  if (!hall) return;
   const bar = document.getElementById('scrape-status-bar');
   try {
     const s = await apiFetch(`/api/hall/scrape_status?hall_name=${encodeURIComponent(hall)}`);
@@ -1505,7 +1530,7 @@ async function loadTopMachines(hall) {
 }
 
 document.getElementById('scrape-btn').addEventListener('click', async () => {
-  const hall = document.getElementById('hall-select').value;
+  const hall = getSelectedHall();
   const btn = document.getElementById('scrape-btn');
   btn.disabled = true;
   try {
@@ -1520,7 +1545,7 @@ document.getElementById('scrape-btn').addEventListener('click', async () => {
 });
 
 document.getElementById('scrape-date-select').addEventListener('change', (e) => {
-  const hall = document.getElementById('hall-select').value;
+  const hall = getSelectedHall();
   loadScrapeReport(hall, e.target.value);
 });
 

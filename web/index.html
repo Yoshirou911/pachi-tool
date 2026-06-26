@@ -434,8 +434,39 @@
 
         <div class="card">
           <select id="hall-select" class="form-select">
-            <option value="ベガスベガス大東店">ベガスベガス大東店</option>
+            <optgroup label="── 大東市 ──">
+              <option value="ベガスベガス大東店">ベガスベガス大東店</option>
+              <option value="マルハン大東店">マルハン大東店</option>
+              <option value="ニコニコ住道店">ニコニコ住道店</option>
+              <option value="スーパーコスモプレミアム大東店">スーパーコスモプレミアム大東店</option>
+            </optgroup>
+            <optgroup label="── 枚方市 ──">
+              <option value="マルハン枚方店">マルハン枚方店</option>
+              <option value="ニコニコ枚方店">ニコニコ枚方店</option>
+              <option value="ベガビック1700枚方店">ベガビック1700枚方店</option>
+              <option value="G-ONE枚方宮之阪店">G-ONE枚方宮之阪店</option>
+            </optgroup>
+            <optgroup label="── 寝屋川市 ──">
+              <option value="ニコニコ寝屋川南インター店">ニコニコ寝屋川南インター店</option>
+              <option value="キコーナ寝屋川南店">キコーナ寝屋川南店</option>
+              <option value="マルハン寝屋川店">マルハン寝屋川店</option>
+              <option value="ベラジオ寝屋川店">ベラジオ寝屋川店</option>
+              <option value="ニコニコ寝屋川店スロット館">ニコニコ寝屋川店スロット館</option>
+            </optgroup>
+            <optgroup label="── 交野市 ──">
+              <option value="123交野店">123交野店</option>
+            </optgroup>
+            <optgroup label="── 守口・門真 ──">
+              <option value="キコーナ守口店">キコーナ守口店</option>
+              <option value="テキサス門真">テキサス門真</option>
+            </optgroup>
+            <optgroup label="── カスタム ──">
+              <option value="__custom__">その他（直接入力）</option>
+            </optgroup>
           </select>
+          <input type="text" id="hall-custom-input" class="form-input"
+                 placeholder="みんレポの店舗名を入力（例: マルハン○○店）"
+                 style="display:none;margin-top:8px">
         </div>
 
         <!-- 曜日スコア -->

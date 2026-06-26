@@ -8,7 +8,10 @@
 <meta name="theme-color" content="#6366f1">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
-<title>pachi-tool</title>
+<title>PACHI TOOL — スロット設定推測 &amp; データ分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap">
 <link rel="stylesheet" href="/css/style.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -18,7 +21,7 @@
   <!-- Header -->
   <header class="app-header">
     <div class="header-inner">
-      <span class="logo">🎰 pachi-tool</span>
+      <span class="logo">PACHI TOOL</span>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="header-date" style="font-size:.72rem;color:var(--text3)"></span>
         <span id="header-status" class="status-badge"></span>
@@ -157,41 +160,41 @@
 
         <!-- Results -->
         <div id="est-result" class="card result-card" style="display:none">
-          <div class="result-header">
+          <div class="result-header" style="padding:20px 18px">
             <div class="result-stat">
               <span class="stat-label">期待設定</span>
-              <span id="res-expected" class="stat-value">--</span>
+              <span id="res-expected" class="stat-value" style="font-size:2rem;font-weight:900;letter-spacing:-.04em">--</span>
             </div>
             <div class="result-stat">
               <span class="stat-label">高設定率</span>
-              <span id="res-high-prob" class="stat-value">--%</span>
+              <span id="res-high-prob" class="stat-value" style="font-size:2rem;font-weight:900;letter-spacing:-.04em">--%</span>
             </div>
             <div class="result-stat">
               <span class="stat-label">期待値</span>
-              <span id="res-ev" class="stat-value">--%</span>
+              <span id="res-ev" class="stat-value" style="font-size:2rem;font-weight:900;letter-spacing:-.04em">--%</span>
             </div>
           </div>
 
           <!-- Denomination + profit per 1000G -->
-          <div id="res-profit-row" style="display:none;padding:8px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <select id="denom-select" class="form-select" style="flex:0 0 auto;width:auto;padding:5px 8px;font-size:.8rem">
+          <div id="res-profit-row" style="display:none;padding:10px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(255,255,255,0.02)">
+            <select id="denom-select" class="form-select" style="flex:0 0 auto;width:auto;padding:6px 10px;font-size:.8rem">
               <option value="1">1円機</option>
               <option value="2.5">2.5円機</option>
               <option value="5">5円機</option>
               <option value="20">20円機</option>
             </select>
-            <span style="font-size:.78rem;color:var(--text3)">1000Gあたり期待収益:</span>
-            <span id="res-profit-1k" style="font-weight:700;font-size:.9rem">--</span>
+            <span style="font-size:.75rem;color:var(--text3)">1000G期待収益:</span>
+            <span id="res-profit-1k" style="font-weight:800;font-size:1rem;letter-spacing:-.01em">--</span>
           </div>
 
           <!-- Confidence indicator -->
-          <div id="res-confidence" style="padding:8px 16px;border-bottom:1px solid var(--border);display:none">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-              <span style="font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em">推測信頼度</span>
-              <span id="res-confidence-label" style="font-size:.75rem;font-weight:700"></span>
+          <div id="res-confidence" style="padding:10px 18px;border-bottom:1px solid var(--border);display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <span style="font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;font-weight:700">推測信頼度</span>
+              <span id="res-confidence-label" style="font-size:.76rem;font-weight:800"></span>
             </div>
-            <div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
-              <div id="res-confidence-bar" style="height:100%;border-radius:2px;transition:width .5s,background .3s"></div>
+            <div style="height:6px;background:rgba(255,255,255,0.07);border-radius:99px;overflow:hidden">
+              <div id="res-confidence-bar" style="height:100%;border-radius:99px;transition:width .6s cubic-bezier(.4,0,.2,1),background .4s;box-shadow:0 0 8px currentColor"></div>
             </div>
           </div>
 
@@ -220,14 +223,14 @@
           </div>
 
           <!-- Retreat advice -->
-          <div id="res-advice" style="display:none;margin:10px 16px;border-radius:8px;padding:10px 14px;font-size:.82rem">
-            <div id="res-advice-icon" style="font-size:1.2rem;margin-bottom:2px"></div>
-            <div id="res-advice-text" style="font-weight:700"></div>
-            <div id="res-advice-detail" style="color:var(--text2);font-size:.75rem;margin-top:2px"></div>
+          <div id="res-advice" style="display:none;margin:14px 16px 0;border-radius:10px;padding:12px 16px;font-size:.85rem">
+            <div id="res-advice-icon" style="font-size:1.3rem;margin-bottom:4px"></div>
+            <div id="res-advice-text" style="font-weight:800;font-size:.9rem;letter-spacing:-.01em"></div>
+            <div id="res-advice-detail" style="color:var(--text2);font-size:.76rem;margin-top:4px;line-height:1.5"></div>
           </div>
 
           <!-- Save session button -->
-          <button id="est-save-btn" class="btn btn-secondary btn-full" style="margin-top:12px">
+          <button id="est-save-btn" class="btn btn-secondary btn-full" style="margin:16px 16px 16px;width:calc(100% - 32px)">
             このセッションを記録する
           </button>
         </div>
@@ -320,21 +323,23 @@
         </div>
 
         <!-- Stats summary -->
-        <div class="card stats-row" id="session-summary">
-          <div class="stat-box">
-            <span class="stat-label">総セッション</span>
-            <span class="stat-value" id="sum-count">0</span>
+        <div class="card" id="session-summary" style="padding:0">
+          <div style="display:flex">
+            <div class="stat-box" style="padding:18px 0 14px">
+              <span class="stat-label">セッション数</span>
+              <span class="stat-value" id="sum-count" style="font-size:1.6rem;font-weight:900">0</span>
+            </div>
+            <div class="stat-box" style="padding:18px 0 14px">
+              <span class="stat-label">総収支</span>
+              <span class="stat-value" id="sum-diff" style="font-size:1.6rem;font-weight:900">¥0</span>
+            </div>
+            <div class="stat-box" style="padding:18px 0 14px">
+              <span class="stat-label">勝率</span>
+              <span class="stat-value" id="sum-wr" style="font-size:1.6rem;font-weight:900">--%</span>
+            </div>
           </div>
-          <div class="stat-box">
-            <span class="stat-label">収支</span>
-            <span class="stat-value" id="sum-diff">¥0</span>
-          </div>
-          <div class="stat-box">
-            <span class="stat-label">勝率</span>
-            <span class="stat-value" id="sum-wr">--%</span>
-          </div>
+          <div id="sum-streak" style="text-align:center;padding:6px 0 10px;min-height:24px;font-size:.85rem;font-weight:700"></div>
         </div>
-        <div id="sum-streak" style="text-align:center;padding:4px 0;min-height:20px"></div>
 
         <!-- Quick entry toggle -->
         <button id="quick-entry-btn" class="btn btn-secondary btn-full" style="margin-bottom:8px">
@@ -605,43 +610,49 @@
     <section id="page-ai" class="page">
       <div class="page-inner">
 
-        <!-- AI ステータス -->
-        <div id="ai-status-card" class="card" style="margin-bottom:8px">
-          <div style="display:flex;align-items:center;justify-content:space-between">
-            <span style="font-size:.8rem;font-weight:600">AI分析</span>
-            <span id="ai-status-badge" style="font-size:.72rem;padding:2px 8px;border-radius:9px;background:var(--bg3);color:var(--text2)">確認中...</span>
+        <!-- AI ヘッダーバナー -->
+        <div class="card" id="ai-status-card" style="background:linear-gradient(135deg,rgba(99,102,241,0.18) 0%,rgba(6,182,212,0.10) 100%);border-color:rgba(99,102,241,0.25)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div>
+              <div style="font-size:1rem;font-weight:800;letter-spacing:-.02em">AI データアナリスト</div>
+              <div style="font-size:.72rem;color:var(--text2);margin-top:2px">Llama 3.3 70B · Groq</div>
+            </div>
+            <span id="ai-status-badge" style="font-size:.68rem;padding:3px 10px;border-radius:99px;background:var(--bg3);color:var(--text2)">確認中...</span>
           </div>
-          <div style="margin-top:6px">
-            <select id="ai-hall-select" class="form-input" style="font-size:.8rem;padding:6px 8px">
-              <option>ベガスベガス大東店</option>
-            </select>
-          </div>
+          <select id="ai-hall-select" class="form-select" style="font-size:.82rem">
+            <option>ベガスベガス大東店</option>
+          </select>
         </div>
 
         <!-- B. 自動レポート -->
-        <div class="card" style="margin-bottom:8px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-            <span style="font-size:.82rem;font-weight:600">今日の攻略レポート</span>
-            <button id="ai-report-btn" class="btn btn-primary" style="font-size:.75rem;padding:5px 12px">生成</button>
+        <div class="card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div>
+              <div class="card-title" style="margin-bottom:2px">今日の攻略レポート</div>
+              <div style="font-size:.72rem;color:var(--text3)">曜日傾向・台番・末尾データを総合分析</div>
+            </div>
+            <button id="ai-report-btn" class="btn btn-primary btn-sm">生成</button>
           </div>
-          <div id="ai-report-output" style="font-size:.78rem;line-height:1.7;color:var(--text2);white-space:pre-wrap;display:none"></div>
+          <div id="ai-report-output" style="font-size:.82rem;line-height:1.75;color:var(--text2);white-space:pre-wrap;display:none;border-top:1px solid var(--border);padding-top:12px"></div>
         </div>
 
         <!-- A. チャット -->
         <div class="card">
-          <div style="font-size:.82rem;font-weight:600;margin-bottom:8px">データに質問する</div>
-          <div id="ai-chat-messages" style="min-height:120px;max-height:340px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:8px"></div>
-          <div style="display:flex;gap:6px">
+          <div class="card-title">データに質問する</div>
+          <div id="ai-chat-messages"
+               style="min-height:100px;max-height:320px;overflow-y:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:6px;padding:2px"></div>
+          <div class="grad-line"></div>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
             <input type="text" id="ai-chat-input" class="form-input"
                    placeholder="例: どの台番が一番強い？"
-                   style="flex:1;font-size:.8rem">
-            <button id="ai-chat-send" class="btn btn-primary" style="font-size:.8rem;padding:6px 14px;white-space:nowrap">送信</button>
+                   style="flex:1;font-size:.85rem">
+            <button id="ai-chat-send" class="btn btn-primary btn-sm" style="white-space:nowrap;padding:0 18px">送信</button>
           </div>
-          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
-            <button class="ai-quick-btn btn btn-ghost" style="font-size:.7rem;padding:3px 8px" data-q="狙い目の台番ベスト3を教えて">狙い目ベスト3</button>
-            <button class="ai-quick-btn btn btn-ghost" style="font-size:.7rem;padding:3px 8px" data-q="最近の自分の実戦で改善すべき点は？">実戦の課題</button>
-            <button class="ai-quick-btn btn btn-ghost" style="font-size:.7rem;padding:3px 8px" data-q="末尾の傾向から今日の立ち回りを提案して">末尾傾向</button>
-            <button class="ai-quick-btn btn btn-ghost" style="font-size:.7rem;padding:3px 8px" data-q="今月の収支傾向と改善策は？">今月の傾向</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="狙い目の台番ベスト3を教えて">狙い目ベスト3</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分の実戦で改善すべき点は？">実戦の課題</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="末尾の傾向から今日の立ち回りを提案して">末尾傾向</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今月の収支傾向と改善策は？">今月の傾向</button>
           </div>
         </div>
 

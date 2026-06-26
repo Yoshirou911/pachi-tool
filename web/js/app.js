@@ -530,7 +530,8 @@ function renderAdvice(r) {
   // データ不足（信頼度低すぎ）
   if (games < 1000 || conf < 0.15) {
     el.style.display = 'block';
-    el.style.background = 'rgba(100,116,139,.15)';
+    el.style.background = 'rgba(100,116,139,.1)';
+    el.style.border = '1px solid rgba(100,116,139,.2)';
     icon.textContent = '⏳';
     text.textContent = 'データ収集中';
     text.style.color = 'var(--text2)';
@@ -540,21 +541,24 @@ function renderAdvice(r) {
 
   if (ev >= 1.05 || (highProb >= 0.6 && expected >= 5.0)) {
     el.style.display = 'block';
-    el.style.background = 'rgba(34,197,94,.1)';
+    el.style.background = 'rgba(16,185,129,.1)';
+    el.style.border = '1px solid rgba(16,185,129,.25)';
     icon.textContent = '✅';
     text.textContent = 'ヤメ時ではありません — 継続推奨';
     text.style.color = 'var(--success)';
     detail.textContent = `期待値 ${r.ev_pct?.toFixed(1)}% / 高設定率 ${(highProb*100).toFixed(0)}%`;
   } else if (ev >= 1.00 || highProb >= 0.35) {
     el.style.display = 'block';
-    el.style.background = 'rgba(245,158,11,.1)';
+    el.style.background = 'rgba(245,158,11,.08)';
+    el.style.border = '1px solid rgba(245,158,11,.25)';
     icon.textContent = '⚠️';
     text.textContent = '要判断 — 状況次第で続行';
     text.style.color = 'var(--warning)';
     detail.textContent = `期待値 ${r.ev_pct?.toFixed(1)}% / 高設定率 ${(highProb*100).toFixed(0)}%`;
   } else if (r.should_retreat || ev < 0.98) {
     el.style.display = 'block';
-    el.style.background = 'rgba(239,68,68,.1)';
+    el.style.background = 'rgba(244,63,94,.1)';
+    el.style.border = '1px solid rgba(244,63,94,.25)';
     icon.textContent = '🚨';
     text.textContent = '撤退推奨';
     text.style.color = 'var(--danger)';
@@ -844,7 +848,7 @@ function renderSessionSummary(sessions) {
   document.getElementById('sum-count').textContent = total;
   const diffEl = document.getElementById('sum-diff');
   diffEl.textContent = fmt(diffYen);
-  diffEl.className = 'stat-value ' + (diffYen >= 0 ? 'diff-pos' : 'diff-neg');
+  diffEl.className = 'stat-value ' + (diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow');
   document.getElementById('sum-wr').textContent = total ? Math.round(wins / total * 100) + '%' : '--%';
 
   // 連続記録（直近のW/L streak）
@@ -882,7 +886,7 @@ function renderSessions(sessions) {
     const expectedSetting = s.posterior ? calcExpectedSetting(s.posterior) : null;
 
     return `
-      <div class="session-item" data-id="${s.id}">
+      <div class="session-item ${diffYen >= 0 ? 'pos' : 'neg'}" data-id="${s.id}">
         <div class="session-item-header">
           <span class="session-date">${s.date}</span>
           <span class="session-machine">${esc(s.machine_name)}</span>
@@ -891,7 +895,7 @@ function renderSessions(sessions) {
         <div class="session-hall">${esc(s.hall_name || '')} ${s.seat_number ? '台' + s.seat_number : ''}</div>
         <div class="session-stats" style="margin-top:6px">
           <span class="session-stat">G数: <span class="val">${(s.games_total || 0).toLocaleString()}</span></span>
-          <span class="session-stat">収支: <span class="val ${diffYen >= 0 ? 'diff-pos' : 'diff-neg'}">${fmt(diffYen)}</span></span>
+          <span class="session-stat">収支: <span class="val ${diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow'}" style="font-weight:800">${fmt(diffYen)}</span></span>
           ${expectedSetting !== null ? `<span class="session-stat">推測設定: <span class="val">${expectedSetting.toFixed(1)}</span></span>` : ''}
         </div>
       </div>
@@ -2059,30 +2063,49 @@ function renderPnLChart(sessions) {
   const areaBottom = ` ${toX(points.length - 1).toFixed(1)},${zeroY.toFixed(1)} ${toX(0).toFixed(1)},${zeroY.toFixed(1)}`;
 
   const lastVal = points[points.length - 1];
-  const lastColor = lastVal >= 0 ? '#22c55e' : '#ef4444';
-  const fillColor = lastVal >= 0 ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)';
+  const isPos = lastVal >= 0;
+  const lastColor = isPos ? '#10b981' : '#f43f5e';
+  const glowColor = isPos ? 'rgba(16,185,129,0.5)' : 'rgba(244,63,94,0.5)';
+  const gradId = `pnl-grad-${Date.now()}`;
+  const fillId = `pnl-fill-${Date.now()}`;
 
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = `
-    <!-- Grid lines -->
-    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT+innerH}" stroke="#334155" stroke-width="1"/>
-    <line x1="${padL}" y1="${padT+innerH}" x2="${padL+innerW}" y2="${padT+innerH}" stroke="#334155" stroke-width="1"/>
+    <defs>
+      <linearGradient id="${gradId}" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="${lastColor}" stop-opacity="0.8"/>
+        <stop offset="100%" stop-color="${isPos ? '#34d399' : '#fb7185'}" stop-opacity="1"/>
+      </linearGradient>
+      <linearGradient id="${fillId}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="${lastColor}" stop-opacity="0.25"/>
+        <stop offset="100%" stop-color="${lastColor}" stop-opacity="0.02"/>
+      </linearGradient>
+      <filter id="pnl-glow">
+        <feGaussianBlur stdDeviation="2.5" result="blur"/>
+        <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+      </filter>
+    </defs>
+    <!-- Zero line -->
     ${zeroY > padT && zeroY < padT+innerH
-      ? `<line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${padL+innerW}" y2="${zeroY.toFixed(1)}" stroke="#475569" stroke-width="1" stroke-dasharray="4,3"/>`
+      ? `<line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${padL+innerW}" y2="${zeroY.toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="4,4"/>`
       : ''}
     <!-- Area fill -->
-    <polygon points="${areaTop}${areaBottom}" fill="${fillColor}"/>
-    <!-- Line -->
-    <polyline points="${linePts}" fill="none" stroke="${lastColor}" stroke-width="2" stroke-linejoin="round"/>
+    <polygon points="${areaTop}${areaBottom}" fill="url(#${fillId})"/>
+    <!-- Glow line (wide, blurred) -->
+    <polyline points="${linePts}" fill="none" stroke="${glowColor}" stroke-width="5" stroke-linejoin="round" filter="url(#pnl-glow)" opacity="0.6"/>
+    <!-- Main line -->
+    <polyline points="${linePts}" fill="none" stroke="url(#${gradId})" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <!-- Last point dot -->
+    <circle cx="${toX(points.length-1).toFixed(1)}" cy="${toY(lastVal).toFixed(1)}" r="4" fill="${lastColor}" stroke="rgba(7,9,15,0.8)" stroke-width="2"/>
     <!-- Labels -->
-    <text x="${padL - 4}" y="${(padT + 4).toFixed(0)}" text-anchor="end" font-size="9" fill="#64748b">${(maxV/1000).toFixed(0)}k</text>
-    <text x="${padL - 4}" y="${(padT + innerH).toFixed(0)}" text-anchor="end" font-size="9" fill="#64748b">${(minV/1000).toFixed(0)}k</text>
+    <text x="${padL - 5}" y="${(padT + 5).toFixed(0)}" text-anchor="end" font-size="9" fill="rgba(180,200,230,0.45)" font-family="Inter,sans-serif">${(maxV/1000).toFixed(0)}k</text>
+    <text x="${padL - 5}" y="${(padT + innerH + 1).toFixed(0)}" text-anchor="end" font-size="9" fill="rgba(180,200,230,0.45)" font-family="Inter,sans-serif">${(minV/1000).toFixed(0)}k</text>
     <!-- Current value label -->
-    <text x="${(padL+innerW).toFixed(0)}" y="${Math.max(padT+12, Math.min(padT+innerH-4, toY(lastVal)-4)).toFixed(0)}"
-          text-anchor="end" font-size="10" font-weight="700" fill="${lastColor}">${fmt(lastVal)}</text>
-    <!-- Session count -->
-    <text x="${padL}" y="${(H-6).toFixed(0)}" font-size="9" fill="#475569">${sorted.length}回</text>
-    <text x="${padL+innerW}" y="${(H-6).toFixed(0)}" text-anchor="end" font-size="9" fill="#475569">${sorted[sorted.length-1]?.date || ''}</text>
+    <text x="${(padL+innerW).toFixed(0)}" y="${Math.max(padT+13, Math.min(padT+innerH-4, toY(lastVal)-6)).toFixed(0)}"
+          text-anchor="end" font-size="11" font-weight="700" fill="${lastColor}" font-family="Inter,sans-serif">${fmt(lastVal)}</text>
+    <!-- Footer labels -->
+    <text x="${padL}" y="${(H-5).toFixed(0)}" font-size="9" fill="rgba(180,200,230,0.35)" font-family="Inter,sans-serif">${sorted.length}回</text>
+    <text x="${padL+innerW}" y="${(H-5).toFixed(0)}" text-anchor="end" font-size="9" fill="rgba(180,200,230,0.35)" font-family="Inter,sans-serif">${sorted[sorted.length-1]?.date || ''}</text>
   `;
 }
 
@@ -2308,23 +2331,31 @@ let _monthlyBarChart = null;
 let _machineBreakdownChart = null;
 
 const CHART_COLORS = {
-  up:   '#22c55e',
-  down: '#ef4444',
-  line: '#6366f1',
-  grid: 'rgba(255,255,255,0.08)',
-  text: 'rgba(255,255,255,0.5)',
+  up:   '#10b981',
+  down: '#f43f5e',
+  line: '#818cf8',
+  grid: 'rgba(255,255,255,0.05)',
+  text: 'rgba(180,200,230,0.55)',
 };
 
 function chartDefaults() {
   return {
     responsive: true,
     maintainAspectRatio: true,
+    animation: { duration: 500, easing: 'easeOutQuart' },
     plugins: {
       legend: { display: false },
       tooltip: {
+        backgroundColor: 'rgba(12,17,32,0.95)',
+        borderColor: 'rgba(255,255,255,0.1)',
+        borderWidth: 1,
+        titleColor: 'rgba(180,200,230,0.7)',
+        bodyColor: '#eef2ff',
+        padding: 10,
+        cornerRadius: 8,
         callbacks: {
           label: ctx => {
-            const v = ctx.parsed.y;
+            const v = ctx.parsed.y ?? ctx.parsed.x;
             return (v > 0 ? '+' : '') + v.toLocaleString() + (ctx.dataset.unit || '');
           }
         }
@@ -2334,11 +2365,13 @@ function chartDefaults() {
       x: {
         ticks: { color: CHART_COLORS.text, maxRotation: 45, font: { size: 10 } },
         grid: { color: CHART_COLORS.grid },
+        border: { color: 'rgba(255,255,255,0.06)' },
       },
       y: {
         ticks: { color: CHART_COLORS.text, font: { size: 10 },
           callback: v => (v > 0 ? '+' : '') + v.toLocaleString() },
         grid: { color: CHART_COLORS.grid },
+        border: { color: 'rgba(255,255,255,0.06)' },
       }
     }
   };
@@ -2371,9 +2404,10 @@ async function renderDailyProfitChart(sessions) {
       labels: dates.map(d => d.slice(5)), // MM-DD
       datasets: [{
         data: values,
-        backgroundColor: values.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'),
-        borderColor:     values.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+        backgroundColor: values.map(v => v >= 0 ? 'rgba(16,185,129,0.75)' : 'rgba(244,63,94,0.75)'),
+        borderColor:     values.map(v => v >= 0 ? '#10b981' : '#f43f5e'),
         borderWidth: 1,
+        borderRadius: 4,
         unit: '円',
       }]
     },
@@ -2412,9 +2446,10 @@ function renderMonthlyBarChart(sessions) {
       labels: months.map(m => m.slice(5) + '月'),
       datasets: [{
         data: values,
-        backgroundColor: values.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'),
-        borderColor: values.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+        backgroundColor: values.map(v => v >= 0 ? 'rgba(16,185,129,0.75)' : 'rgba(244,63,94,0.75)'),
+        borderColor: values.map(v => v >= 0 ? '#10b981' : '#f43f5e'),
         borderWidth: 1,
+        borderRadius: 5,
       }]
     },
     options: {
@@ -2454,9 +2489,10 @@ function renderMachineBreakdownChart(sessions) {
         labels,
         datasets: [{
           data: values,
-          backgroundColor: values.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'),
-          borderColor: values.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+          backgroundColor: values.map(v => v >= 0 ? 'rgba(16,185,129,0.75)' : 'rgba(244,63,94,0.75)'),
+          borderColor: values.map(v => v >= 0 ? '#10b981' : '#f43f5e'),
           borderWidth: 1,
+          borderRadius: 4,
         }]
       },
       options: {
@@ -2820,9 +2856,8 @@ document.addEventListener('DOMContentLoaded', () => {
 function appendChatMessage(role, text) {
   const container = document.getElementById('ai-chat-messages');
   const el = document.createElement('div');
-  el.style.cssText = role === 'user'
-    ? 'align-self:flex-end;background:var(--accent);color:#fff;padding:8px 12px;border-radius:12px 12px 2px 12px;max-width:85%;font-size:.78rem;line-height:1.5'
-    : 'align-self:flex-start;background:var(--bg3);color:var(--text1);padding:8px 12px;border-radius:12px 12px 12px 2px;max-width:90%;font-size:.78rem;line-height:1.6;white-space:pre-wrap';
+  el.className = `chat-bubble ${role === 'user' ? 'user' : 'assistant'}`;
+  el.style.whiteSpace = 'pre-wrap';
   el.textContent = text;
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;

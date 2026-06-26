@@ -1180,9 +1180,10 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
   overlay.style.display = 'flex';
 
   try {
-    const data = await apiFetch(
-      `/api/hall/seat_detail?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machineName)}&seat_number=${seatNumber}&days=90`
-    );
+    const [data, bbRank] = await Promise.all([
+      apiFetch(`/api/hall/seat_detail?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machineName)}&seat_number=${seatNumber}&days=90`),
+      apiFetch(`/api/hall/seat_bb_ranking?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machineName)}&days=60`).catch(() => []),
+    ]);
     if (!data || !data.history?.length) {
       body.innerHTML = `<div style="padding:20px;color:var(--text3)">データなし</div>`;
       return;
@@ -1233,6 +1234,29 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       </div>` : ''}
       <div style="font-size:.68rem;color:var(--text3);margin-bottom:4px;font-weight:600;text-transform:uppercase">直近履歴</div>
       ${histRows}
+      ${bbRank && bbRank.length > 1 ? (() => {
+        const thisSeat = bbRank.find(r => r.seat_number === seatNumber);
+        const rank = bbRank.findIndex(r => r.seat_number === seatNumber) + 1;
+        const rankColor = rank === 1 ? 'var(--success)' : rank <= 3 ? 'var(--warning)' : 'var(--text3)';
+        const rows = bbRank.slice(0, 8).map(r => {
+          const isCur = r.seat_number === seatNumber;
+          const zCol = r.z_score > 0.5 ? 'var(--success)' : r.z_score < -0.5 ? 'var(--danger)' : 'var(--text3)';
+          return `<div style="display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;
+            background:${isCur?'rgba(124,127,245,.15)':'transparent'};margin-bottom:2px">
+            <span style="font-size:.68rem;color:${isCur?'var(--primary-h)':'var(--text3)'};width:40px;font-weight:${isCur?'700':'400'}">${r.seat_number}番台</span>
+            <span style="font-size:.68rem;color:var(--text3)">BB ${r.avg_bb.toFixed(3)}%</span>
+            <span style="font-size:.68rem;font-weight:700;color:${zCol}">${r.z_score > 0 ? '+' : ''}${r.z_score}σ</span>
+            ${isCur ? '<span style="font-size:.6rem;background:var(--primary-h);color:#fff;border-radius:3px;padding:0 4px">この台</span>' : ''}
+          </div>`;
+        }).join('');
+        return `<div style="margin-top:12px">
+          <div style="font-size:.68rem;color:var(--text3);margin-bottom:6px;font-weight:600;text-transform:uppercase">
+            同機種BB確率ランキング
+            ${thisSeat ? `<span style="color:${rankColor};margin-left:6px">この台: ${rank}位 (${thisSeat.z_score > 0 ? '+' : ''}${thisSeat.z_score}σ)</span>` : ''}
+          </div>
+          ${rows}
+        </div>`;
+      })() : ''}
     `;
 
     // Chart.js で差枚推移グラフ

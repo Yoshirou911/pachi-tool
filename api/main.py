@@ -1033,6 +1033,71 @@ def get_tail_analysis(
     ]
 
 
+@app.get("/api/hall/seat_bb_ranking", tags=["hall"])
+def get_seat_bb_ranking(
+    hall_name: str = Query(...),
+    machine_name: str = Query(...),
+    days: int = Query(60),
+) -> list[dict]:
+    """
+    同一機種内での台番別BB/RB確率ランキング。
+    同機種の平均BB確率との差（z-score）で「この台は高設定が多い」かを判定。
+    設定判別の根拠となる最強シグナル。
+    """
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+
+    rows = conn.execute(
+        """SELECT seat_number,
+                  COUNT(*) as cnt,
+                  AVG(bb_prob) as avg_bb,
+                  AVG(rb_prob) as avg_rb,
+                  AVG(diff_coins) as avg_diff,
+                  MAX(report_date) as last_date,
+                  AVG(CASE WHEN strftime('%w',report_date)=? THEN bb_prob END) as dow_bb
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name=? AND bb_prob IS NOT NULL
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY seat_number
+           HAVING cnt >= 3
+           ORDER BY avg_bb DESC""",
+        (str((date.today().weekday()+1) % 7), hall_name, machine_name, days)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return []
+
+    # 機種内平均・標準偏差を計算してz-score
+    import statistics as _stats
+    bbs = [r[2] for r in rows if r[2] is not None]
+    if len(bbs) < 2:
+        return []
+    mean_bb = _stats.mean(bbs)
+    std_bb = _stats.stdev(bbs) if len(bbs) > 1 else 0.001
+
+    result = []
+    for r in rows:
+        seat, cnt, avg_bb, avg_rb, avg_diff, last_date, dow_bb = r
+        if avg_bb is None:
+            continue
+        z = (avg_bb - mean_bb) / max(std_bb, 0.00001)
+        result.append({
+            "seat_number": seat,
+            "cnt": cnt,
+            "avg_bb": round(avg_bb * 100, 4),
+            "avg_rb": round((avg_rb or 0) * 100, 4),
+            "avg_diff": int(avg_diff or 0),
+            "last_date": last_date,
+            "dow_bb": round(dow_bb * 100, 4) if dow_bb else None,
+            "z_score": round(z, 2),
+        })
+
+    result.sort(key=lambda x: -x["z_score"])
+    return result
+
+
 @app.get("/api/hall/seat_detail", tags=["hall"])
 def get_seat_detail(
     hall_name: str = Query(...),

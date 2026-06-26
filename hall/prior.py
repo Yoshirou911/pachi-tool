@@ -129,7 +129,7 @@ def compute_prior(
 
     # ── Step2: アナスロ差枚データから機種別設定分布を推定 ───────────────
     anaslo_weights: dict[str, float] | None = _estimate_prior_from_anaslo(
-        hall_name, machine_name, settings, weekday
+        hall_name, machine_name, settings, weekday, seat_number=seat_number
     )
 
     # ── Step3: 一様事前 + Dirichlet スムージング ────────────────────────
@@ -196,6 +196,7 @@ def _estimate_prior_from_anaslo(
     machine_name: str,
     settings: list[str],
     weekday: Optional[int],
+    seat_number: Optional[int] = None,
 ) -> Optional[dict[str, float]]:
     """
     アナスロ差枚データ + BB/RB実測確率から設定分布を推定する。
@@ -212,13 +213,33 @@ def _estimate_prior_from_anaslo(
         sql_dow = str((weekday + 1) % 7) if weekday is not None else None
 
         rows = conn.execute(
-            """SELECT diff_coins, bb_prob, rb_prob, games, report_date
+            """SELECT diff_coins, bb_prob, rb_prob, games, report_date, ev_pct, seat_number
                FROM hall_day_seat
-               WHERE hall_name=? AND machine_name=? AND bb_prob IS NOT NULL AND games > 0
+               WHERE hall_name=? AND machine_name=? AND games > 0
+                 AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
                ORDER BY report_date DESC
                LIMIT 200""",
             (hall_name, machine_name)
         ).fetchall()
+
+        # 同機種内のBB確率z-score（台番特定時）
+        seat_bb_z: Optional[float] = None
+        if seat_number is not None:
+            all_bbs_by_seat: dict[int, list[float]] = {}
+            for rr in rows:
+                s_num = rr[6]
+                bb_v = rr[1]
+                if bb_v and bb_v > 0 and s_num is not None:
+                    all_bbs_by_seat.setdefault(int(s_num), []).append(float(bb_v))
+            if len(all_bbs_by_seat) >= 2:
+                seat_means = {k: sum(v)/len(v) for k, v in all_bbs_by_seat.items() if len(v) >= 2}
+                if seat_number in seat_means and len(seat_means) >= 2:
+                    all_m = list(seat_means.values())
+                    global_mean = sum(all_m) / len(all_m)
+                    global_std = math.sqrt(sum((x - global_mean)**2 for x in all_m) / len(all_m))
+                    if global_std > 0:
+                        seat_bb_z = (seat_means[seat_number] - global_mean) / global_std
+
         conn.close()
 
         if len(rows) < 3:
@@ -229,13 +250,20 @@ def _estimate_prior_from_anaslo(
         bb_probs_weighted: list[tuple[float, float]] = []
         rb_probs_weighted: list[tuple[float, float]] = []
 
-        for diff, bb_p, rb_p, games, rdate in rows:
+        for diff, bb_p, rb_p, games, rdate, ev_p, row_seat in rows:
             try:
                 d = datetime.date.fromisoformat(rdate)
                 age = max(0, (today - d).days)
                 w = RECENCY_DECAY ** age
-                if sql_dow and str((d.weekday() + 1) % 7) == sql_dow:
-                    w *= 2.0
+                if sql_dow:
+                    row_dow = str((d.weekday() + 1) % 7)
+                    if row_dow == sql_dow:
+                        w *= 2.0  # 同曜日2倍
+                    else:
+                        w *= 0.6  # 異曜日は60%に縮小
+                # 同台番なら3倍重視
+                if seat_number is not None and row_seat is not None and int(row_seat) == seat_number:
+                    w *= 3.0
                 # ゲーム数が多いほど信頼度が高い（重みを補正）
                 games_factor = math.log1p(float(games or 0)) / math.log1p(1000.0)
                 w_adj = w * max(0.3, games_factor)
@@ -302,6 +330,19 @@ def _estimate_prior_from_anaslo(
                     if theo_p > 0:
                         sigma_rb = max(std_rb, theo_p * 0.20)
                         log_likes[s] += -0.5 * ((mean_rb - theo_p) / sigma_rb) ** 2
+
+        # 台番z-scoreを事前に反映（+1σ以上 = 高設定寄りに補正）
+        if seat_bb_z is not None and abs(seat_bb_z) >= 0.3:
+            high_settings = [s for s in settings if int(s) >= 4]
+            low_settings  = [s for s in settings if int(s) < 4]
+            # z-scoreのtanh変換で±30%まで補正
+            shift = math.tanh(seat_bb_z * 0.6) * 0.3
+            if shift > 0:
+                for s in high_settings:
+                    log_likes[s] += shift
+            else:
+                for s in low_settings:
+                    log_likes[s] += -shift
 
         # softmax 正規化
         max_ll = max(log_likes.values())

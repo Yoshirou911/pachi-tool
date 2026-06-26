@@ -337,6 +337,9 @@ def comment_estimate(
     ev: float,
     recommendation: str,
     element_analysis: list | None = None,
+    credible_interval: list | None = None,
+    element_powers: dict | None = None,
+    correlated_elements: list | None = None,
 ) -> str:
     client = _get_client()
     if not client:
@@ -375,6 +378,19 @@ def comment_estimate(
 
     count_str = " / ".join(f"{k}:{v}" for k,v in element_counts.items()) if element_counts else "（未入力）"
 
+    ci_str = ""
+    if credible_interval and len(credible_interval) == 2:
+        ci_str = f"\n90%信用区間: 設定{credible_interval[0]:.0f}〜設定{credible_interval[1]:.0f}"
+
+    powers_str = ""
+    if element_powers:
+        sorted_powers = sorted(element_powers.items(), key=lambda x: -x[1])
+        powers_str = "\n要素識別力ランキング: " + ", ".join(f"{n}({v:.1f})" for n,v in sorted_powers[:4])
+
+    corr_str = ""
+    if correlated_elements:
+        corr_str = f"\n注意: 要素間に高相関あり（二重計上の可能性）: {', '.join(f'{a}↔{b}' for a,b,_ in correlated_elements)}"
+
     prompt = f"""機種: {machine_name}
 総ゲーム数: {games}G
 入力カウント: {count_str}
@@ -384,17 +400,17 @@ def comment_estimate(
 
 【設定推測結果】
 事後確率: {post_str}
-期待設定値: {exp_setting:.2f} / 高設定(4以上)確率: {high_prob:.1%}
+期待設定値: {exp_setting:.2f} / 高設定(4以上)確率: {high_prob:.1%}{ci_str}
 期待値: {ev:+.0f}枚/1000G
-推奨: {recommendation}
+推奨: {recommendation}{powers_str}{corr_str}
 
 {theory_text}
 
 上記の推測結果について、4〜5文で実践的にコメントしてください:
 1. 現在のデータが示す設定の可能性（理論値との比較を使って）
-2. このゲーム数での信頼性（サンプル数の評価）
+2. このゲーム数での信頼性（信用区間と識別力の高い要素に言及）
 3. 続行・撤退の具体的判断ポイント
-4. 追加で観察すべき要素（あれば）"""
+4. 追加で観察すべき最重要要素（識別力ランキングから選ぶ）"""
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

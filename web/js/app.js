@@ -615,6 +615,9 @@ async function fetchAiEstimateComment(r) {
         ev: r.ev || 1.0,
         recommendation: r.should_retreat ? '撤退推奨' : '続行',
         element_analysis: r.element_analysis || [],
+        credible_interval: r.credible_interval || null,
+        element_powers: r.element_powers || null,
+        correlated_elements: r.correlated_elements || null,
       }),
     }).then(res => res.json());
     if (data.comment) {

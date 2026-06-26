@@ -1469,6 +1469,9 @@ def api_ai_estimate_comment(body: dict):
         ev=body.get("ev", 0),
         recommendation=body.get("recommendation", ""),
         element_analysis=body.get("element_analysis", []),
+        credible_interval=body.get("credible_interval"),
+        element_powers=body.get("element_powers"),
+        correlated_elements=body.get("correlated_elements"),
     )
     return {"comment": comment}
 

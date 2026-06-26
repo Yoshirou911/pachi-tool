@@ -1262,6 +1262,7 @@ async function loadHallPage() {
   loadScrapeStatus();
   loadAnasloStatus();
   loadTodayTargets(hall);
+  loadTodayDowMachines(hall);
 }
 
 function renderMySessionStats(stats) {
@@ -2534,6 +2535,56 @@ function renderMachineBreakdownChart(sessions) {
 }
 
 // 今日の狙い台セレクター（店傾向ページ）
+async function loadTodayDowMachines(hall) {
+  const card  = document.getElementById('today-dow-machines-card');
+  const title = document.getElementById('today-dow-machines-title');
+  const body  = document.getElementById('today-dow-machines-body');
+  if (!card) return;
+  try {
+    const rows = await apiFetch(
+      `/api/hall/weekday_machine_stats?hall_name=${encodeURIComponent(hall)}&days=90`
+    );
+    if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
+
+    // 今日の曜日を取得
+    const dowNames = ['日','月','火','水','木','金','土'];
+    const todayDow = dowNames[new Date().getDay()];
+
+    // 今日の曜日で絞り込み
+    const todayRows = rows.filter(r => r.weekday === todayDow)
+                          .sort((a, b) => b.avg_diff - a.avg_diff)
+                          .slice(0, 5);
+
+    if (todayRows.length === 0) { card.style.display = 'none'; return; }
+
+    card.style.display = 'block';
+    title.textContent = `${todayDow}曜日に強い機種`;
+
+    const maxAbs = Math.max(...todayRows.map(r => Math.abs(r.avg_diff)), 1);
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+
+    body.innerHTML = todayRows.map((r, i) => {
+      const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+      const pct = Math.round(Math.abs(r.avg_diff) / maxAbs * 100);
+      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:.68rem;color:var(--text3);width:16px;text-align:center;flex-shrink:0">${i+1}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.88rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.machine_name)}</div>
+          <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:4px">
+            <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
+          </div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
+          <div style="font-size:.62rem;color:var(--text3)">${r.count}日 勝${r.win_rate}%</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    if (card) card.style.display = 'none';
+  }
+}
+
 async function loadTodayTargets(hall) {
   const card = document.getElementById('today-targets-card');
   const title = document.getElementById('today-targets-title');

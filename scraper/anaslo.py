@@ -1,0 +1,425 @@
+"""
+アナスロ (ana-slo.com) スクレーパー - cloudscraper版
+
+台番別データ（差枚・G数・BB確率・RB確率）を取得してSQLiteに保存する。
+cloudscraper で Cloudflare を回避。
+
+必要パッケージ:
+    pip install cloudscraper beautifulsoup4 lxml
+
+使い方:
+    # 大阪府の店舗一覧確認
+    python -m scraper.anaslo --explore --pref 大阪府
+
+    # データ取得
+    python -m scraper.anaslo --hall "キコーナ四條畷店" --days 30
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import sqlite3
+import time
+from datetime import date
+from pathlib import Path
+from typing import Optional
+
+import cloudscraper
+from bs4 import BeautifulSoup
+
+try:
+    from config import HALL_REPORTS_DB as DB_PATH
+except ImportError:
+    DB_PATH = Path(__file__).parent.parent / "data" / "hall_reports.db"
+
+BASE_URL = "https://ana-slo.com"
+DELAY = 10.0
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "same-origin",
+    "upgrade-insecure-requests": "1",
+    "Referer": BASE_URL + "/",
+}
+
+
+def _make_scraper():
+    scraper = cloudscraper.create_scraper(
+        browser={"browser": "chrome", "platform": "windows", "mobile": False}
+    )
+    # ChromeのCookieからcf_clearanceを注入してCloudflare回避
+    try:
+        import browser_cookie3
+        cj = browser_cookie3.chrome(domain_name=".ana-slo.com")
+        cookies = {c.name: c.value for c in cj}
+        if "cf_clearance" in cookies:
+            scraper.cookies.update(cookies)
+            print(f"  [Chrome Cookie使用: cf_clearance={cookies['cf_clearance'][:20]}...]")
+        else:
+            print("  [警告] ChromeにCloudflareのCookieがありません。ブラウザでアナスロを開いてから再実行してください。")
+    except Exception as e:
+        print(f"  [Cookie取得失敗: {e}]")
+    return scraper
+
+
+# ---------------------------------------------------------------------------
+# DB
+# ---------------------------------------------------------------------------
+
+def init_db() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hall_day_seat (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            hall_name    TEXT NOT NULL,
+            report_date  TEXT NOT NULL,
+            machine_name TEXT NOT NULL,
+            seat_number  INTEGER,
+            diff_coins   INTEGER,
+            games        INTEGER,
+            ev_pct       REAL,
+            bb_prob      REAL,
+            rb_prob      REAL,
+            source       TEXT DEFAULT 'anaslo',
+            source_url   TEXT,
+            scraped_at   TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(hall_name, report_date, machine_name, seat_number)
+        )
+    """)
+    for col, typ in [("bb_prob", "REAL"), ("rb_prob", "REAL"), ("source", "TEXT DEFAULT 'anaslo'")]:
+        try:
+            conn.execute(f"ALTER TABLE hall_day_seat ADD COLUMN {col} {typ}")
+        except Exception:
+            pass
+    conn.commit()
+    return conn
+
+
+# ---------------------------------------------------------------------------
+# パーサー
+# ---------------------------------------------------------------------------
+
+def _int(s: str) -> Optional[int]:
+    if not s:
+        return None
+    try:
+        cleaned = re.sub(r'[^\d\-]', '', s.replace('−', '-').replace('▲', '-').replace(',', ''))
+        return int(cleaned) if cleaned and cleaned != '-' else None
+    except Exception:
+        return None
+
+
+def _float(s: str) -> Optional[float]:
+    if not s:
+        return None
+    try:
+        cleaned = re.sub(r'[^\d\.\-]', '', s)
+        return float(cleaned) if cleaned else None
+    except Exception:
+        return None
+
+
+def _parse_date(text: str, year: int) -> str:
+    """'6/25(木)' '2026/6/25' '06月25日' → '2026-06-25'"""
+    m = re.search(r'(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})', text)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    m = re.search(r'(\d{1,2})/(\d{1,2})', text)
+    if m:
+        month, day = int(m.group(1)), int(m.group(2))
+        today = date.today()
+        y = year if month <= today.month + 1 else year - 1
+        return f"{y}-{month:02d}-{day:02d}"
+    m = re.search(r'(\d{1,2})月(\d{1,2})日', text)
+    if m:
+        month, day = int(m.group(1)), int(m.group(2))
+        today = date.today()
+        y = year if month <= today.month + 1 else year - 1
+        return f"{y}-{month:02d}-{day:02d}"
+    return ""
+
+
+def _get(scraper, url: str) -> Optional[BeautifulSoup]:
+    try:
+        resp = scraper.get(url, headers=HEADERS, timeout=20)
+        if resp.status_code != 200:
+            print(f"  HTTP {resp.status_code}: {url}")
+            return None
+        return BeautifulSoup(resp.text, "lxml")
+    except Exception as e:
+        print(f"  取得エラー: {e}")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# 店舗一覧
+# ---------------------------------------------------------------------------
+
+def explore_halls(prefecture: str):
+    """アナスロの指定都道府県の店舗一覧を表示"""
+    list_url = f"{BASE_URL}/ホールデータ/{prefecture}/"
+    print(f"\n--- {prefecture} の店舗一覧 ---")
+    print(f"URL: {list_url}\n")
+
+    scraper = _make_scraper()
+    soup = _get(scraper, list_url)
+    if soup is None:
+        print("ページ取得失敗")
+        return
+
+    # データ一覧リンクを探す
+    links = soup.find_all("a", href=True)
+    halls = []
+    for a in links:
+        href = a["href"]
+        text = a.get_text(strip=True)
+        if "データ一覧" in href or "データ一覧" in text:
+            full_url = href if href.startswith("http") else BASE_URL + href
+            halls.append((text, full_url))
+
+    if not halls:
+        print("店舗リンクが見つかりません。")
+        print(f"ページ内容（先頭800文字）:\n{soup.get_text()[:800]}")
+        return
+
+    print(f"{len(halls)} 店舗見つかりました:\n")
+    for name, url in halls:
+        print(f"  {name}")
+        print(f"    {url}")
+
+
+# ---------------------------------------------------------------------------
+# 日付リンク収集
+# ---------------------------------------------------------------------------
+
+def _collect_date_links(soup: BeautifulSoup, base_url: str) -> list[tuple[str, str]]:
+    """店舗ページから (date_str, url) リストを収集"""
+    year = date.today().year
+    results = []
+
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        text = a.get_text(strip=True)
+        full_url = href if href.startswith("http") else BASE_URL + href
+
+        date_str = ""
+
+        # アナスロ日付URLパターン: /2026-06-24-店名-data/
+        m = re.search(r'/(\d{4})-(\d{2})-(\d{2})-', href)
+        if m:
+            date_str = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+
+        # テキストから日付パース: "2026/06/24(火)" など
+        if not date_str:
+            date_str = _parse_date(text, year)
+
+        # URLから /YYYY/MM/DD/ パターン
+        if not date_str:
+            m2 = re.search(r'/(\d{4})/(\d{2})/(\d{2})/?', href)
+            if m2:
+                date_str = f"{m2.group(1)}-{m2.group(2)}-{m2.group(3)}"
+
+        if date_str and full_url.startswith("http") and full_url != base_url:
+            results.append((date_str, full_url))
+
+    # 重複除去・日付降順
+    seen: set[str] = set()
+    unique = []
+    for item in results:
+        if item[0] not in seen:
+            seen.add(item[0])
+            unique.append(item)
+    unique.sort(key=lambda x: x[0], reverse=True)
+    return unique
+
+
+# ---------------------------------------------------------------------------
+# 台番別データ解析
+# ---------------------------------------------------------------------------
+
+def _parse_seat_tables(soup: BeautifulSoup, url: str) -> list[dict]:
+    """HTMLから台番別データを抽出"""
+    rows: list[dict] = []
+
+    for table in soup.find_all("table"):
+        headers = [th.get_text(strip=True) for th in table.find_all("th")]
+        if not headers:
+            continue
+
+        has_seat = any(re.search(r'台番|台No|番号|No\.', h) for h in headers)
+        has_diff = any("差枚" in h for h in headers)
+        if not (has_seat and has_diff):
+            continue
+
+        # カラムインデックス
+        idx: dict[str, int] = {}
+        for i, h in enumerate(headers):
+            if re.search(r'台番|台No|番号', h): idx.setdefault('seat', i)
+            if '差枚' in h: idx.setdefault('diff', i)
+            if re.search(r'G数|ゲーム|回転数', h): idx.setdefault('games', i)
+            if re.search(r'出率|RTP|機械割', h): idx.setdefault('ev', i)
+            if re.search(r'^BB|ビッグ', h): idx.setdefault('bb', i)
+            if re.search(r'^RB|レギュラー', h): idx.setdefault('rb', i)
+
+        # テーブル直前の見出しを機種名に
+        machine_name = ""
+        for prev in table.find_all_previous(["h2", "h3", "h4", "strong", "caption"]):
+            t = prev.get_text(strip=True)
+            if t and len(t) < 60:
+                machine_name = t
+                break
+
+        for tr in table.find_all("tr")[1:]:
+            tds = tr.find_all("td")
+            if len(tds) < 2:
+                continue
+
+            def td(key: str) -> str:
+                i = idx.get(key)
+                if i is None or i >= len(tds):
+                    return ''
+                return tds[i].get_text(strip=True)
+
+            seat = _int(td('seat'))
+            if seat is None:
+                continue
+
+            rows.append({
+                'machine_name': machine_name or "不明",
+                'seat_number': seat,
+                'diff_coins': _int(td('diff')),
+                'games': _int(td('games')),
+                'ev_pct': _float(td('ev')),
+                'bb_prob': _float(td('bb')),
+                'rb_prob': _float(td('rb')),
+                'source_url': url,
+            })
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# メイン
+# ---------------------------------------------------------------------------
+
+def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 30, cf_cookie: str = "", cookie_str: str = ""):
+    """指定ホールの台番別データをスクレイプ"""
+    conn = init_db()
+    scraper = _make_scraper()
+    if cookie_str:
+        # "key=val; key2=val2" 形式でまとめて注入
+        for part in cookie_str.split(";"):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                scraper.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
+        print(f"  [全Cookie注入完了]")
+    elif cf_cookie:
+        scraper.cookies.set("cf_clearance", cf_cookie, domain=".ana-slo.com")
+        print(f"  [手動Cookie設定: cf_clearance={cf_cookie[:20]}...]")
+    store_url = f"{BASE_URL}/ホールデータ/{prefecture}/{hall_name}-データ一覧/"
+
+    print(f"\n=== アナスロ スクレーパー ===")
+    print(f"ホール: {hall_name}")
+    print(f"URL  : {store_url}\n")
+
+    soup = _get(scraper, store_url)
+    if soup is None:
+        print("店舗ページ取得失敗")
+        conn.close()
+        return
+
+    date_links = _collect_date_links(soup, store_url)
+    print(f"{len(date_links)} 件の日付データを発見\n")
+
+    if not date_links:
+        print("⚠ 日付リンクが見つかりません。")
+        print(f"ページ内容（先頭600文字）:\n{page_text[:600]}")
+        conn.close()
+        return
+
+    total_saved = 0
+    for i, (date_str, date_url) in enumerate(date_links[:max_days]):
+        existing = conn.execute(
+            "SELECT COUNT(*) FROM hall_day_seat WHERE hall_name=? AND report_date=? AND source='anaslo'",
+            (hall_name, date_str),
+        ).fetchone()[0]
+        if existing > 0:
+            print(f"  [{i+1:3d}] {date_str} スキップ ({existing}件取得済み)")
+            continue
+
+        print(f"  [{i+1:3d}/{min(len(date_links), max_days)}] {date_str} 取得中...", end=" ", flush=True)
+        day_soup = _get(scraper, date_url)
+        if day_soup is None:
+            print("失敗")
+            continue
+
+        seat_rows = _parse_seat_tables(day_soup, date_url)
+        saved = 0
+        if not seat_rows:
+            # データなしマーカーを保存して次回スキップ
+            conn.execute("""
+                INSERT OR IGNORE INTO hall_day_seat
+                (hall_name, report_date, machine_name, seat_number, source)
+                VALUES (?, ?, '_NODATA_', 0, 'anaslo')
+            """, (hall_name, date_str))
+            conn.commit()
+            print("データなし")
+            time.sleep(DELAY)
+            continue
+        for row in seat_rows:
+            try:
+                conn.execute("""
+                    INSERT OR REPLACE INTO hall_day_seat
+                    (hall_name, report_date, machine_name, seat_number,
+                     diff_coins, games, ev_pct, bb_prob, rb_prob, source, source_url)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """, (
+                    hall_name, date_str, row['machine_name'], row['seat_number'],
+                    row['diff_coins'], row['games'], row.get('ev_pct'),
+                    row.get('bb_prob'), row.get('rb_prob'), 'anaslo', row['source_url'],
+                ))
+                saved += 1
+            except Exception as e:
+                print(f"\n    DB保存エラー: {e}")
+
+        conn.commit()
+        total_saved += saved
+        print(f"{saved}件保存")
+        time.sleep(DELAY)
+
+    print(f"\n=== 完了: 合計 {total_saved} 件保存 → {DB_PATH} ===")
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(description="アナスロ 台番別データスクレーパー")
+    parser.add_argument("--hall", default="キコーナ四條畷店", help="ホール名")
+    parser.add_argument("--pref", default="大阪府", help="都道府県")
+    parser.add_argument("--days", type=int, default=30, help="最大取得日数")
+    parser.add_argument("--explore", action="store_true", help="都道府県の店舗一覧を表示")
+    parser.add_argument("--cf-cookie", default="", help="Cloudflare cf_clearance Cookieを手動指定")
+    parser.add_argument("--cookie-str", default="", help="ブラウザからコピーしたCookie文字列全体 (key=val; key2=val2 形式)")
+    args = parser.parse_args()
+
+    if args.explore:
+        explore_halls(args.pref)
+    else:
+        scrape_hall(args.hall, args.pref, args.days, cf_cookie=args.cf_cookie, cookie_str=args.cookie_str)
+
+
+if __name__ == "__main__":
+    main()

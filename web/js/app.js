@@ -68,6 +68,7 @@ function switchTab(tabId) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${tabId}`));
   if (tabId === 'session') loadSessions();
   if (tabId === 'hall') loadHallPage();
+  if (tabId === 'map') loadMapPage();
   if (tabId === 'machines') loadMachinesPage();
 }
 
@@ -1191,6 +1192,7 @@ async function loadHallPage() {
   }
   // スクレイプステータスを非同期で読み込み
   loadScrapeStatus();
+  loadAnasloStatus();
 }
 
 function renderMySessionStats(stats) {
@@ -1547,6 +1549,154 @@ document.getElementById('scrape-btn').addEventListener('click', async () => {
 document.getElementById('scrape-date-select').addEventListener('change', (e) => {
   const hall = getSelectedHall();
   loadScrapeReport(hall, e.target.value);
+});
+
+// ---------------------------------------------------------------------------
+// アナスロ 台番別データ
+// ---------------------------------------------------------------------------
+let _anasloPoller = null;
+let _anasloTab = 'seat';
+
+async function loadAnasloStatus() {
+  const hall = getSelectedHall();
+  if (!hall) return;
+  const bar = document.getElementById('anaslo-status-bar');
+  try {
+    const s = await fetch(`/api/hall/anaslo_status?hall_name=${encodeURIComponent(hall)}`).then(r => r.json());
+    if (s.status === 'running') {
+      bar.textContent = '⏳ データ取得中...';
+      document.getElementById('anaslo-scrape-btn').disabled = true;
+      if (!_anasloPoller) {
+        _anasloPoller = setInterval(() => loadAnasloStatus(), 3000);
+      }
+    } else {
+      document.getElementById('anaslo-scrape-btn').disabled = false;
+      if (_anasloPoller) { clearInterval(_anasloPoller); _anasloPoller = null; }
+      if (s.scraped_days > 0) {
+        bar.textContent = `${s.scraped_days}日分のデータあり（最新: ${s.latest_date}）`;
+        await loadAnasloSeatDates(hall);
+        if (_anasloTab === 'tail') loadAnasloTailAnalysis(hall);
+      } else {
+        bar.textContent = 'データなし。「取得」ボタンでアナスロからデータを取得します。';
+      }
+    }
+  } catch(e) {
+    bar.textContent = 'ステータス取得失敗';
+  }
+}
+
+async function loadAnasloSeatDates(hall) {
+  const dates = await fetch(`/api/hall/seat_dates?hall_name=${encodeURIComponent(hall)}`).then(r => r.json());
+  const sel = document.getElementById('anaslo-date-select');
+  const row = document.getElementById('anaslo-date-row');
+  if (!dates.length) { row.style.display = 'none'; return; }
+  sel.innerHTML = dates.map(d => `<option value="${d}">${d}</option>`).join('');
+  row.style.display = '';
+  loadAnasloSeatReport(hall, dates[0]);
+}
+
+async function loadAnasloSeatReport(hall, date) {
+  const container = document.getElementById('anaslo-seat-table');
+  container.innerHTML = '<p class="hint center">読み込み中...</p>';
+  try {
+    const rows = await fetch(`/api/hall/seat_report?hall_name=${encodeURIComponent(hall)}&date=${date}&limit=50`).then(r => r.json());
+    if (!rows.length) { container.innerHTML = '<p class="hint center">データなし</p>'; return; }
+    const html = `<div style="overflow-x:auto">
+      <table style="width:100%;font-size:.78rem;border-collapse:collapse">
+        <thead><tr style="background:var(--bg2);color:var(--text2)">
+          <th style="padding:4px 6px;text-align:center">台番</th>
+          <th style="padding:4px 6px;text-align:left">機種</th>
+          <th style="padding:4px 6px;text-align:right">差枚</th>
+          <th style="padding:4px 6px;text-align:right">G数</th>
+          <th style="padding:4px 6px;text-align:right">BB</th>
+          <th style="padding:4px 6px;text-align:right">RB</th>
+        </tr></thead>
+        <tbody>${rows.map((r, i) => {
+          const color = r.diff_coins > 3000 ? 'color:#e85' : r.diff_coins > 0 ? '' : 'color:var(--text3)';
+          return `<tr style="border-bottom:1px solid var(--bg2);${color}">
+            <td style="padding:4px 6px;text-align:center;font-weight:${i < 5 ? 'bold' : 'normal'}">${r.seat_number}</td>
+            <td style="padding:4px 6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.machine_name)}</td>
+            <td style="padding:4px 6px;text-align:right;font-weight:bold">${r.diff_coins > 0 ? '+' : ''}${r.diff_coins?.toLocaleString() ?? '-'}</td>
+            <td style="padding:4px 6px;text-align:right">${r.games?.toLocaleString() ?? '-'}</td>
+            <td style="padding:4px 6px;text-align:right">${r.bb_count ?? '-'}</td>
+            <td style="padding:4px 6px;text-align:right">${r.rb_count ?? '-'}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>`;
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = `<p class="hint center">取得失敗</p>`;
+  }
+}
+
+async function loadAnasloTailAnalysis(hall) {
+  const container = document.getElementById('anaslo-tail-table');
+  container.innerHTML = '<p class="hint center">読み込み中...</p>';
+  try {
+    const rows = await fetch(`/api/hall/tail_analysis?hall_name=${encodeURIComponent(hall)}&days=30`).then(r => r.json());
+    if (!rows.length) { container.innerHTML = '<p class="hint center">データなし（末尾データなし）</p>'; return; }
+    const html = `<p style="font-size:.75rem;color:var(--text3);margin-bottom:6px">過去30日・末尾別平均差枚</p>
+      <div style="overflow-x:auto">
+      <table style="width:100%;font-size:.8rem;border-collapse:collapse">
+        <thead><tr style="background:var(--bg2);color:var(--text2)">
+          <th style="padding:4px 8px;text-align:center">末尾</th>
+          <th style="padding:4px 8px;text-align:right">平均差枚</th>
+          <th style="padding:4px 8px;text-align:right">勝率</th>
+          <th style="padding:4px 8px;text-align:right">サンプル</th>
+        </tr></thead>
+        <tbody>${rows.map(r => {
+          const tail = r.tail.replace('末尾', '');
+          const color = r.avg_diff > 500 ? 'color:#e85;font-weight:bold' : r.avg_diff < -500 ? 'color:var(--text3)' : '';
+          return `<tr style="border-bottom:1px solid var(--bg2);${color}">
+            <td style="padding:4px 8px;text-align:center;font-size:1rem;font-weight:bold">${esc(tail)}</td>
+            <td style="padding:4px 8px;text-align:right">${r.avg_diff > 0 ? '+' : ''}${r.avg_diff.toLocaleString()}</td>
+            <td style="padding:4px 8px;text-align:right">${r.win_rate}%</td>
+            <td style="padding:4px 8px;text-align:right;color:var(--text3)">${r.count}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>`;
+    container.innerHTML = html;
+  } catch(e) {
+    container.innerHTML = `<p class="hint center">取得失敗</p>`;
+  }
+}
+
+document.getElementById('anaslo-scrape-btn').addEventListener('click', async () => {
+  const hall = getSelectedHall();
+  if (!hall) { showToast('店舗を選択してください', 'error'); return; }
+  const btn = document.getElementById('anaslo-scrape-btn');
+  btn.disabled = true;
+  document.getElementById('anaslo-status-bar').textContent = '⏳ 開始中...';
+  try {
+    await fetch(`/api/hall/anaslo_scrape?hall_name=${encodeURIComponent(hall)}&days=30`, { method: 'POST' });
+    showToast('アナスロ取得開始。約3〜5分かかります。');
+    _anasloPoller = setInterval(() => loadAnasloStatus(), 3000);
+  } catch(e) {
+    showToast('取得開始失敗: ' + e.message, 'error');
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('anaslo-date-select').addEventListener('change', (e) => {
+  const hall = getSelectedHall();
+  loadAnasloSeatReport(hall, e.target.value);
+});
+
+document.getElementById('anaslo-tab-seat').addEventListener('click', () => {
+  _anasloTab = 'seat';
+  document.getElementById('anaslo-tab-seat').className = 'btn btn-primary';
+  document.getElementById('anaslo-tab-tail').className = 'btn btn-ghost';
+  document.getElementById('anaslo-seat-section').style.display = '';
+  document.getElementById('anaslo-tail-section').style.display = 'none';
+});
+
+document.getElementById('anaslo-tab-tail').addEventListener('click', () => {
+  _anasloTab = 'tail';
+  document.getElementById('anaslo-tab-tail').className = 'btn btn-primary';
+  document.getElementById('anaslo-tab-seat').className = 'btn btn-ghost';
+  document.getElementById('anaslo-seat-section').style.display = 'none';
+  document.getElementById('anaslo-tail-section').style.display = '';
+  loadAnasloTailAnalysis(getSelectedHall());
 });
 
 // ---------------------------------------------------------------------------
@@ -2298,3 +2448,99 @@ async function renderMachineTrendChart(hall, machineName) {
 }
 
 init();
+
+// ---------------------------------------------------------------------------
+// マップページ
+// ---------------------------------------------------------------------------
+let _hallMap = null;
+let _mapLoaded = false;
+
+async function loadMapPage() {
+  const hint = document.getElementById('map-hint');
+
+  // Leaflet マップ初期化（1回だけ）
+  if (!_hallMap) {
+    _hallMap = L.map('hall-map', { zoomControl: true }).setView([34.76, 135.63], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 18,
+    }).addTo(_hallMap);
+  }
+
+  hint.textContent = 'データ読み込み中...';
+
+  try {
+    const halls = await fetch('/api/map/halls?days=30').then(r => r.json());
+
+    // 既存マーカーをクリア
+    _hallMap.eachLayer(layer => {
+      if (layer instanceof L.CircleMarker) _hallMap.removeLayer(layer);
+    });
+
+    if (!halls.length) {
+      hint.textContent = 'データのある店舗がありません。店傾向タブから「取得」してください。';
+      return;
+    }
+
+    hint.textContent = `${halls.length}店舗表示中 / マーカーをタップで詳細`;
+
+    halls.forEach(h => {
+      const radius = 10 + Math.round(h.score * 14); // 強いほど大きく
+      const marker = L.circleMarker([h.lat, h.lng], {
+        radius,
+        color: h.color,
+        fillColor: h.color,
+        fillOpacity: 0.82,
+        weight: 2,
+        opacity: 1,
+      }).addTo(_hallMap);
+
+      const sign = h.avg_diff >= 0 ? '+' : '';
+      marker.bindPopup(`
+        <div style="min-width:160px;font-size:13px;line-height:1.7">
+          <strong>${h.hall_name}</strong><br>
+          <span style="color:${h.color};font-weight:bold">平均差枚 ${sign}${h.avg_diff.toLocaleString()}</span><br>
+          <span style="color:#888">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span><br>
+          <button onclick="switchToHall('${h.hall_name}')"
+            style="margin-top:6px;width:100%;padding:5px;background:#6366f1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">
+            店傾向を見る
+          </button>
+        </div>
+      `);
+    });
+
+    // 全マーカーが見えるようにズーム調整（初回のみ）
+    if (!_mapLoaded) {
+      _mapLoaded = true;
+      const coords = halls.map(h => [h.lat, h.lng]);
+      if (coords.length === 1) {
+        _hallMap.setView(coords[0], 14);
+      } else {
+        _hallMap.fitBounds(coords, { padding: [30, 30] });
+      }
+    }
+    // マップサイズ再計算（タブ切り替え後に必要）
+    setTimeout(() => _hallMap.invalidateSize(), 100);
+
+  } catch(e) {
+    hint.textContent = 'マップデータ取得失敗: ' + e.message;
+  }
+}
+
+// ポップアップから店傾向へ遷移
+window.switchToHall = function(hallName) {
+  const sel = document.getElementById('hall-select');
+  // セレクターに存在するか確認
+  let found = false;
+  for (const opt of sel.options) {
+    if (opt.value === hallName) { sel.value = hallName; found = true; break; }
+  }
+  if (!found) {
+    // カスタム入力
+    sel.value = '__custom__';
+    const ci = document.getElementById('hall-custom-input');
+    ci.style.display = '';
+    ci.value = hallName;
+  }
+  switchTab('hall');
+};

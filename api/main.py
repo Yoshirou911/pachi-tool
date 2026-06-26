@@ -778,6 +778,238 @@ def get_scrape_status(hall_name: str = Query(...)) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# アナスロ 台番別データ
+# ---------------------------------------------------------------------------
+
+_anaslo_scrape_status: dict[str, str] = {}
+
+
+def _run_anaslo_scrape(hall_name: str, days: int):
+    _anaslo_scrape_status[hall_name] = "running"
+    try:
+        from scraper.anaslo import scrape_hall as anaslo_scrape
+        anaslo_scrape(hall_name, days=days)
+        _anaslo_scrape_status[hall_name] = "done"
+    except Exception as e:
+        _anaslo_scrape_status[hall_name] = f"error: {e}"
+
+
+@app.post("/api/hall/anaslo_scrape", tags=["hall"])
+def trigger_anaslo_scrape(
+    hall_name: str = Query(...),
+    days: int = Query(30),
+    background_tasks: BackgroundTasks = None,
+):
+    if _anaslo_scrape_status.get(hall_name) == "running":
+        return {"status": "already_running"}
+    background_tasks.add_task(_run_anaslo_scrape, hall_name, days)
+    return {"status": "started"}
+
+
+@app.get("/api/hall/anaslo_status", tags=["hall"])
+def get_anaslo_status(hall_name: str = Query(...)) -> dict:
+    conn = _get_reports_conn()
+    count, latest = 0, ""
+    if conn:
+        row = conn.execute(
+            "SELECT COUNT(DISTINCT report_date), MAX(report_date) FROM hall_day_seat WHERE hall_name=? AND bb_prob IS NOT NULL",
+            (hall_name,)
+        ).fetchone()
+        if row:
+            count = row[0] or 0
+            latest = row[1] or ""
+        conn.close()
+    return {
+        "status": _anaslo_scrape_status.get(hall_name, "idle"),
+        "scraped_days": count,
+        "latest_date": latest,
+    }
+
+
+@app.get("/api/hall/seat_dates", tags=["hall"])
+def get_seat_dates(hall_name: str = Query(...)) -> list[str]:
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        "SELECT DISTINCT report_date FROM hall_day_seat WHERE hall_name=? AND bb_prob IS NOT NULL ORDER BY report_date DESC LIMIT 60",
+        (hall_name,)
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+@app.get("/api/hall/seat_report", tags=["hall"])
+def get_seat_report(
+    hall_name: str = Query(...),
+    date: str = Query(...),
+    machine_name: Optional[str] = Query(None),
+    limit: int = Query(100),
+) -> list[dict]:
+    """指定日の台番別データ（差枚降順）"""
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+
+    if machine_name:
+        rows = conn.execute(
+            """SELECT seat_number, machine_name, diff_coins, games, bb_prob, rb_prob, ev_pct
+               FROM hall_day_seat
+               WHERE hall_name=? AND report_date=? AND machine_name=? AND bb_prob IS NOT NULL
+               ORDER BY diff_coins DESC LIMIT ?""",
+            (hall_name, date, machine_name, limit)
+        ).fetchall()
+    else:
+        # 全データ一覧（末尾・機種別行を除く）
+        rows = conn.execute(
+            """SELECT seat_number, machine_name, diff_coins, games, bb_prob, rb_prob, ev_pct
+               FROM hall_day_seat
+               WHERE hall_name=? AND report_date=? AND bb_prob IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '全データ一覧'
+               GROUP BY seat_number
+               ORDER BY diff_coins DESC LIMIT ?""",
+            (hall_name, date, limit)
+        ).fetchall()
+
+    conn.close()
+    return [
+        {
+            "seat_number": r[0],
+            "machine_name": r[1],
+            "diff_coins": r[2],
+            "games": r[3],
+            "bb_count": r[4],
+            "rb_count": r[5],
+            "ev_pct": r[6],
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/hall/tail_analysis", tags=["hall"])
+def get_tail_analysis(
+    hall_name: str = Query(...),
+    days: int = Query(30),
+) -> list[dict]:
+    """末尾別の平均差枚分析"""
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        """SELECT machine_name AS tail, COUNT(*) AS cnt,
+                  AVG(diff_coins) AS avg_diff, SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS win_rate
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL AND machine_name LIKE '末尾%'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name HAVING cnt >= 5
+           ORDER BY avg_diff DESC""",
+        (hall_name, days)
+    ).fetchall()
+    conn.close()
+    return [
+        {"tail": r[0], "count": r[1], "avg_diff": round(r[2] or 0), "win_rate": round(r[3] or 0, 1)}
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# マップ
+# ---------------------------------------------------------------------------
+
+import urllib.parse, urllib.request, time as _time
+
+_COORDS_FILE = Path(__file__).parent.parent / "data" / "hall_coords.json"
+
+
+def _load_coords() -> dict:
+    if _COORDS_FILE.exists():
+        return json.loads(_COORDS_FILE.read_text(encoding="utf-8"))
+    return {}
+
+
+def _save_coords(cache: dict):
+    _COORDS_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _geocode(hall_name: str) -> Optional[list]:
+    cache = _load_coords()
+    if hall_name in cache:
+        return cache[hall_name]
+    query = f"{hall_name} 大阪府"
+    url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(query)}&format=json&limit=1&countrycodes=jp"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "pachi-tool/1.0 (local research)"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read())
+        if data:
+            coords = [float(data[0]["lat"]), float(data[0]["lon"])]
+            cache[hall_name] = coords
+            _save_coords(cache)
+            _time.sleep(1.1)
+            return coords
+    except Exception:
+        pass
+    return None
+
+
+@app.get("/api/map/halls", tags=["map"])
+def get_map_halls(days: int = Query(30)) -> list[dict]:
+    """マップ用ホール強度データ（差枚スコアで色分け）"""
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+
+    rows = conn.execute("""
+        SELECT hall_name,
+               AVG(diff_coins) AS avg_diff,
+               COUNT(DISTINCT report_date) AS days_cnt,
+               SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS win_rate
+        FROM hall_day_seat
+        WHERE bb_prob IS NOT NULL
+          AND report_date >= date('now', '-' || ? || ' days')
+          AND machine_name NOT LIKE '末尾%' AND machine_name != '全データ一覧'
+        GROUP BY hall_name
+        HAVING days_cnt >= 1
+        ORDER BY avg_diff DESC
+    """, (days,)).fetchall()
+    conn.close()
+
+    if not rows:
+        return []
+
+    diffs = [r[1] or 0 for r in rows]
+    mn, mx = min(diffs), max(diffs)
+    rng = max(mx - mn, 1)
+
+    result = []
+    for r in rows:
+        coords = _geocode(r[0])
+        if not coords:
+            continue
+        score = (r[1] - mn) / rng  # 0.0（弱）〜 1.0（強）
+        # 赤(強) → 黄 → 緑(弱)
+        if score >= 0.7:
+            color = "#e53e3e"
+        elif score >= 0.4:
+            color = "#dd8800"
+        elif score >= 0.2:
+            color = "#c8b800"
+        else:
+            color = "#38a169"
+        result.append({
+            "hall_name": r[0],
+            "lat": coords[0],
+            "lng": coords[1],
+            "avg_diff": round(r[1] or 0),
+            "win_rate": round(r[3] or 0, 1),
+            "days_cnt": r[2],
+            "score": round(score, 3),
+            "color": color,
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Static frontend
 # ---------------------------------------------------------------------------
 

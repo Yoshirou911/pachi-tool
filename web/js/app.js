@@ -1188,8 +1188,8 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
 
     const hist = data.history.slice().reverse(); // 古い順
     const diffs = hist.map(h => h.diff || 0);
-    const avgDiff = data.summary?.avg_diff || 0;
-    const winRate = data.summary?.win_rate || 0;
+    const avgDiff = data.avg_diff || 0;
+    const winRate = data.win_rate || 0;
     const sign = v => v >= 0 ? `+${v}` : `${v}`;
     const totalDays = hist.length;
 

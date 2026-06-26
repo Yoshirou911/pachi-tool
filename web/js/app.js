@@ -354,6 +354,21 @@ function renderEstimateResult(r) {
   const confBar = document.getElementById('res-confidence-bar');
   const confLabel = document.getElementById('res-confidence-label');
 
+  // サンプル不足警告
+  let warnEl = document.getElementById('res-sample-warning');
+  if (!warnEl) {
+    warnEl = document.createElement('div');
+    warnEl.id = 'res-sample-warning';
+    warnEl.style.cssText = 'display:none;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:#fbbf24;font-size:0.82rem;line-height:1.4';
+    confEl.parentNode.insertBefore(warnEl, confEl);
+  }
+  if (r.sample_warning) {
+    warnEl.style.display = 'block';
+    warnEl.innerHTML = `<span style="font-size:1em;margin-right:6px">&#9888;</span>${r.sample_warning}`;
+  } else {
+    warnEl.style.display = 'none';
+  }
+
   // 信頼度表示
   if (confEl && r.confidence !== undefined) {
     confEl.style.display = 'block';

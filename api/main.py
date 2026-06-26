@@ -98,6 +98,8 @@ class EstimateResponse(BaseModel):
     confidence_label: str
     observed_rates: dict[str, float]  # 実測出現率: {element_name: rate}
     element_analysis: list[dict]      # [{name, observed, theoretical_by_setting, direction}]
+    sample_warning: Optional[str] = None   # 少サンプル警告
+    recommended_games: Optional[int] = None  # 推奨最低G数
 
 
 class SessionCreate(BaseModel):
@@ -249,6 +251,23 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
                 "direction": direction,
             })
 
+    # ゲーム数不足警告: 最低でも「最も出にくい要素の期待出現数 >= 30」が信頼できるライン
+    sample_warning = None
+    recommended_games = None
+    if profile.elements:
+        # 各要素の最高設定確率で期待出現数30回に必要なG数を計算
+        max_needed = 0
+        for el in profile.elements:
+            max_p = max(el.probabilities.get(sv, 0.01) for sv in profile.settings)
+            needed = int(30 / max_p) if max_p > 0 else 10000
+            max_needed = max(max_needed, needed)
+        recommended_games = max_needed
+        if observed_games < max_needed:
+            pct = int(observed_games / max_needed * 100)
+            sample_warning = f"現在{observed_games}G（推奨{max_needed}Gの{pct}%）— サンプル不足のため推測精度が低い可能性があります"
+        elif observed_games < max_needed * 0.5:
+            sample_warning = f"サンプル不足（{observed_games}G / 推奨{max_needed}G）"
+
     return EstimateResponse(
         posterior=posterior,
         expected_setting=estimator.expected_setting(posterior),
@@ -263,6 +282,8 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
         confidence_label=confidence_label,
         observed_rates=observed_rates,
         element_analysis=element_analysis,
+        sample_warning=sample_warning,
+        recommended_games=recommended_games,
     )
 
 

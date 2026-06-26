@@ -1170,6 +1170,101 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
   if (e.target === document.getElementById('modal-overlay')) closeModal();
 });
 
+// 台詳細モーダル（BB/RBヒストリー）
+async function showSeatDetailModal(hall, machineName, seatNumber) {
+  const body = document.getElementById('modal-body');
+  const overlay = document.getElementById('modal-overlay');
+  body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text3)">読み込み中...</div>`;
+  overlay.style.display = 'flex';
+
+  try {
+    const data = await apiFetch(
+      `/api/hall/seat_detail?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machineName)}&seat_number=${seatNumber}&days=90`
+    );
+    if (!data || !data.history?.length) {
+      body.innerHTML = `<div style="padding:20px;color:var(--text3)">データなし</div>`;
+      return;
+    }
+
+    const hist = data.history.slice().reverse(); // 古い順
+    const diffs = hist.map(h => h.diff || 0);
+    const avgDiff = data.summary?.avg_diff || 0;
+    const winRate = data.summary?.win_rate || 0;
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    const totalDays = hist.length;
+
+    // 曜日別テーブル
+    const dowRows = (data.weekday_stats || []).map(w => {
+      const c = w.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+      return `<tr>
+        <td style="padding:4px 8px;font-size:.78rem">${w.weekday}</td>
+        <td style="padding:4px 8px;font-size:.78rem;color:${c};font-weight:700">${sign(w.avg_diff)}枚</td>
+        <td style="padding:4px 8px;font-size:.75rem;color:var(--text3)">${w.count}日 / 勝率${w.win_rate}%</td>
+      </tr>`;
+    }).join('');
+
+    // 差枚ヒストリーリスト
+    const histRows = [...hist].reverse().slice(0, 15).map(h => {
+      const c = h.diff >= 0 ? 'var(--success)' : 'var(--danger)';
+      const bbStr = h.bb_prob ? `BB 1/${(1/h.bb_prob).toFixed(0)}` : '';
+      const rbStr = h.rb_prob ? `RB 1/${(1/h.rb_prob).toFixed(0)}` : '';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:.75rem">
+        <span style="color:var(--text3)">${h.date} ${h.games ? h.games+'G' : ''}</span>
+        <span style="color:var(--text3);font-size:.68rem">${[bbStr,rbStr].filter(Boolean).join(' / ')}</span>
+        <strong style="color:${c}">${sign(h.diff)}枚</strong>
+      </div>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div style="margin-bottom:10px">
+        <div style="font-size:1.05rem;font-weight:800;margin-bottom:4px">${esc(machineName)} ${seatNumber}番台</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.8rem">
+          <span style="color:var(--text3)">期間 <strong style="color:var(--text2)">${totalDays}日</strong></span>
+          <span style="color:var(--text3)">平均差枚 <strong style="color:${avgDiff>=0?'var(--success)':'var(--danger)'}">${sign(avgDiff)}枚</strong></span>
+          <span style="color:var(--text3)">勝率 <strong style="color:${winRate>=50?'var(--success)':'var(--danger)'}">${winRate}%</strong></span>
+        </div>
+      </div>
+      <canvas id="seat-detail-chart" height="150" style="margin-bottom:12px;display:block;width:100%"></canvas>
+      ${dowRows ? `<div style="margin-bottom:10px">
+        <div style="font-size:.68rem;color:var(--text3);margin-bottom:4px;font-weight:600;text-transform:uppercase">曜日別実績</div>
+        <table style="width:100%;border-collapse:collapse">${dowRows}</table>
+      </div>` : ''}
+      <div style="font-size:.68rem;color:var(--text3);margin-bottom:4px;font-weight:600;text-transform:uppercase">直近履歴</div>
+      ${histRows}
+    `;
+
+    // Chart.js で差枚推移グラフ
+    const ctx = document.getElementById('seat-detail-chart')?.getContext('2d');
+    if (ctx && hist.length > 1) {
+      const labels = hist.map(h => h.date.slice(5)); // MM-DD
+      const values = diffs;
+      const bgColors = values.map(v => v >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(244,63,94,0.3)');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            backgroundColor: bgColors,
+            borderColor: values.map(v => v >= 0 ? '#10b981' : '#f43f5e'),
+            borderWidth: 1,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { ticks: { font: { size: 9 }, color: '#6b7280', maxTicksLimit: 12 }, grid: { display: false } },
+            y: { ticks: { font: { size: 9 }, color: '#6b7280' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+          }
+        }
+      });
+    }
+  } catch(e) {
+    body.innerHTML = `<div style="padding:20px;color:var(--danger)">エラー: ${esc(e.message)}</div>`;
+  }
+}
+
 // クイック記録フォーム
 const quickEntryBtn = document.getElementById('quick-entry-btn');
 const quickEntryForm = document.getElementById('quick-entry-form');
@@ -2784,7 +2879,10 @@ async function loadTodayTargets(hall) {
         const trendBadge = s.avg_7d !== null && s.avg_7d !== undefined
           ? `<span style="font-size:.68rem;color:${s.avg_7d >= s.avg_diff ? 'var(--success)' : 'var(--text3)'};background:var(--bg3);padding:1px 6px;border-radius:4px">直近7日 ${sign(s.avg_7d)}枚</span>`
           : '';
-        html += `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+        const encHall2 = encodeURIComponent(getSelectedHall());
+        const encMach2 = encodeURIComponent(s.machine_name);
+        html += `<div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer"
+          onclick="showSeatDetailModal(decodeURIComponent('${encHall2}'),decodeURIComponent('${encMach2}'),${s.seat_number})">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
             <span style="font-size:.65rem;font-weight:900;color:${medalCols[i]};background:rgba(255,255,255,.04);padding:2px 7px;border-radius:4px;flex-shrink:0">${medals[i]}</span>
             <div style="font-weight:800;font-size:.92rem;flex:1">${esc(s.machine_name)} <span style="color:var(--text3);font-weight:400">${s.seat_number}番</span></div>
@@ -2793,6 +2891,7 @@ async function loadTodayTargets(hall) {
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
             ${dowBadge}${trendBadge}
             <span style="font-size:.68rem;color:var(--text3);background:var(--bg3);padding:1px 6px;border-radius:4px">${s.days}日 / 勝率${s.win_rate}%</span>
+            <span style="font-size:.68rem;color:var(--text3)">タップで詳細</span>
           </div>
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:.62rem;color:var(--text3);flex-shrink:0">安定性</span>

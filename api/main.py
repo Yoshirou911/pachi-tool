@@ -1065,7 +1065,7 @@ def api_ai_estimate_comment(body: dict):
 @app.get("/api/ai/status")
 def api_ai_status():
     import os
-    has_key = bool(os.environ.get("ANTHROPIC_API_KEY", ""))
+    has_key = bool(os.environ.get("GROQ_API_KEY", ""))
     return {"available": has_key and AI_AVAILABLE}
 
 

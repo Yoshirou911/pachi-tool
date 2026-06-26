@@ -2752,41 +2752,35 @@ async function loadTodayDowMachines(hall) {
   if (!card) return;
   try {
     const rows = await apiFetch(
-      `/api/hall/weekday_machine_stats?hall_name=${encodeURIComponent(hall)}&days=90`
+      `/api/hall/today_machine_ranking?hall_name=${encodeURIComponent(hall)}&days=120`
     );
     if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
 
-    // 今日の曜日を取得
-    const dowNames = ['日','月','火','水','木','金','土'];
-    const todayDow = dowNames[new Date().getDay()];
-
-    // 今日の曜日で絞り込み
-    const todayRows = rows.filter(r => r.weekday === todayDow)
-                          .sort((a, b) => b.avg_diff - a.avg_diff)
-                          .slice(0, 5);
-
-    if (todayRows.length === 0) { card.style.display = 'none'; return; }
-
     card.style.display = 'block';
-    title.textContent = `${todayDow}曜日に強い機種`;
+    const dow = rows[0]?.weekday_ja || '';
+    title.textContent = `${dow}曜日に強い機種（過去120日同曜日）`;
 
-    const maxAbs = Math.max(...todayRows.map(r => Math.abs(r.avg_diff)), 1);
+    const maxAbs = Math.max(...rows.map(r => Math.abs(r.avg_diff)), 1);
     const sign = v => v >= 0 ? `+${v}` : `${v}`;
 
-    body.innerHTML = todayRows.map((r, i) => {
+    body.innerHTML = rows.map((r, i) => {
       const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       const pct = Math.round(Math.abs(r.avg_diff) / maxAbs * 100);
-      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
+      const encH = encodeURIComponent(hall);
+      const encM = encodeURIComponent(r.machine_name);
+      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+        onclick="loadMachineSeatRanking(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'))">
         <span style="font-size:.68rem;color:var(--text3);width:16px;text-align:center;flex-shrink:0">${i+1}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:.88rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.machine_name)}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:4px">
             <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>
+          <div style="font-size:.62rem;color:var(--text3);margin-top:2px">${r.count}日 ${r.unit_cnt}台 勝${r.win_rate}% → タップで台別</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
-          <div style="font-size:.62rem;color:var(--text3)">${r.count}日 勝${r.win_rate}%</div>
+          <div style="font-size:.62rem;color:var(--text3)">${r.last_date || ''}</div>
         </div>
       </div>`;
     }).join('');
@@ -2831,7 +2825,18 @@ async function loadMachineSettingTendency(hall) {
         const inRange = obs >= lo * 0.9 && obs <= hi * 1.1;
         bbNote = `<span style="font-size:.65rem;color:${inRange?'var(--text3)':'#f97316'}">BB実測${obs.toFixed(3)}% [${lo.toFixed(3)}〜${hi.toFixed(3)}%]</span>`;
       }
-      return `<div style="padding:7px 0;border-bottom:1px solid var(--border)">
+      const encHallT = encodeURIComponent(hall);
+      const encMachT = encodeURIComponent(r.machine_name);
+      // トレンド表示
+      let trendBadge = '';
+      if (r.trend_delta !== null && r.trend_delta !== undefined) {
+        const td = r.trend_delta;
+        const tCol = td > 50 ? 'var(--success)' : td < -50 ? 'var(--danger)' : 'var(--text3)';
+        const tArrow = td > 50 ? '↑' : td < -50 ? '↓' : '→';
+        trendBadge = `<span style="font-size:.62rem;color:${tCol};margin-left:4px">${tArrow}${td > 0 ? '+' : ''}${td}枚/日(2週)</span>`;
+      }
+      return `<div style="padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+        onclick="loadMachineSeatRankingInline(decodeURIComponent('${encHallT}'),decodeURIComponent('${encMachT}'),this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div style="font-size:.85rem;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.machine_name)}</div>
           <div style="text-align:right;flex-shrink:0;margin-left:8px">
@@ -2840,7 +2845,8 @@ async function loadMachineSettingTendency(hall) {
           </div>
         </div>
         <div style="display:flex;gap:2px;margin:4px 0">${distBar}</div>
-        <div style="display:flex;gap:8px;align-items:center">${bbNote}<span style="font-size:.65rem;color:var(--text3)">${r.unit_cnt}台 ${r.records}件</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${bbNote}<span style="font-size:.65rem;color:var(--text3)">${r.unit_cnt}台 ${r.records}件</span>${trendBadge}<span style="font-size:.63rem;color:var(--text3)">タップ→台別</span></div>
+        <div class="inline-seat-ranking" style="display:none;margin-top:8px"></div>
       </div>`;
     }).join('');
   } catch(e) {
@@ -3076,6 +3082,48 @@ async function loadMachineSeatRanking(hall, machineName) {
     card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch(e) {
     card.style.display = 'none';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 機種傾向カード内インライン台ランキング
+// ---------------------------------------------------------------------------
+async function loadMachineSeatRankingInline(hall, machineName, rowEl) {
+  const slot = rowEl.querySelector('.inline-seat-ranking');
+  if (!slot) return;
+
+  if (slot.style.display === 'block') {
+    slot.style.display = 'none';
+    return;
+  }
+
+  slot.style.display = 'block';
+  slot.innerHTML = '<span style="font-size:.75rem;color:var(--text3)">台ランキング読み込み中...</span>';
+
+  try {
+    const rows = await apiFetch(
+      `/api/hall/machine_seat_ranking?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machineName)}&days=30`
+    );
+    if (!rows || rows.length === 0) {
+      slot.innerHTML = '<span style="font-size:.75rem;color:var(--text3)">台番データなし</span>';
+      return;
+    }
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    const items = rows.slice(0, 5).map((r, i) => {
+      const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+      const encH = encodeURIComponent(hall);
+      const encM = encodeURIComponent(machineName);
+      return `<div onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${r.seat_number})"
+        style="display:flex;justify-content:space-between;align-items:center;
+               padding:5px 8px;border-radius:6px;background:var(--bg2);margin-bottom:3px;cursor:pointer">
+        <span style="font-size:.78rem;font-weight:700">#${i+1} ${r.seat_number}番台</span>
+        <span style="font-size:.78rem;font-weight:900;color:${col}">${sign(r.avg_diff)}枚</span>
+        <span style="font-size:.63rem;color:var(--text3)">${r.days}日 勝${r.win_rate}%</span>
+      </div>`;
+    }).join('');
+    slot.innerHTML = items;
+  } catch(e) {
+    slot.innerHTML = '<span style="font-size:.75rem;color:var(--danger)">エラー</span>';
   }
 }
 

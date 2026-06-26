@@ -534,7 +534,8 @@ def get_weekday_machine_stats(
                   ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
            FROM hall_day_seat
            WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
-             AND machine_name != '_NODATA_' AND bb_prob IS NOT NULL
+             AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
+             AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
              AND report_date >= date('now', '-' || ? || ' days')
            GROUP BY dow, machine_name
            HAVING cnt >= 3
@@ -546,6 +547,59 @@ def get_weekday_machine_stats(
     return [
         {"weekday": dow_map.get(r[0], r[0]), "machine_name": r[1],
          "count": r[2], "avg_diff": r[3] or 0, "win_rate": r[4] or 0}
+        for r in rows
+    ]
+
+
+@app.get("/api/hall/today_machine_ranking", tags=["hall"])
+def get_today_machine_ranking(
+    hall_name: str = Query(...),
+    days: int = Query(120),
+) -> list[dict]:
+    """
+    本日の曜日に絞った機種別成績ランキング。
+    過去の同曜日データのみで集計し、「今日どの機種が強いか」を提示する。
+    """
+    import datetime
+    today_dow = datetime.date.today().weekday()  # 0=月 … 6=日
+    sqlite_dow = str((today_dow + 1) % 7)        # SQLite は 0=日 … 6=土
+
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        """SELECT machine_name,
+                  COUNT(*) as cnt,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate,
+                  MAX(report_date) as last_date,
+                  COUNT(DISTINCT seat_number) as unit_cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND strftime('%w', report_date)=?
+             AND machine_name NOT LIKE '末尾%'
+             AND machine_name != '_NODATA_'
+             AND machine_name NOT LIKE '%データ%'
+             AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name
+           HAVING cnt >= 3
+           ORDER BY avg_diff DESC
+           LIMIT 10""",
+        (hall_name, sqlite_dow, days)
+    ).fetchall()
+    conn.close()
+
+    dow_ja = ["月","火","水","木","金","土","日"]
+    return [
+        {
+            "machine_name": r[0],
+            "count": r[1],
+            "avg_diff": int(r[2] or 0),
+            "win_rate": float(r[3] or 0),
+            "last_date": r[4],
+            "unit_cnt": r[5],
+            "weekday_ja": dow_ja[today_dow],
+        }
         for r in rows
     ]
 
@@ -1271,7 +1325,27 @@ def get_machine_setting_tendency(
            ORDER BY records DESC""",
         (hall_name, days)
     ).fetchall()
+
+    # トレンド計算: 直近14日 vs 前14-28日の平均差枚比較
+    trend_rows = conn.execute(
+        """SELECT machine_name,
+                  ROUND(AVG(CASE WHEN report_date >= date('now','-14 days') THEN diff_coins END)) as recent,
+                  ROUND(AVG(CASE WHEN report_date < date('now','-14 days')
+                                 AND report_date >= date('now','-28 days') THEN diff_coins END)) as prev
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND machine_name NOT LIKE '%データ%'
+             AND report_date >= date('now','-28 days')
+           GROUP BY machine_name""",
+        (hall_name,)
+    ).fetchall()
     conn.close()
+
+    trend_map: dict[str, float] = {}
+    for tr in trend_rows:
+        if tr[1] is not None and tr[2] is not None:
+            trend_map[tr[0]] = round(float(tr[1]) - float(tr[2]))
 
     from hall.prior import _estimate_prior_from_anaslo, _load_machine_theory
     import datetime
@@ -1307,6 +1381,8 @@ def get_machine_setting_tendency(
                 hi = max(p_by_s.values()) * 100 if p_by_s else None
                 theory_bb_range = [round(lo, 4), round(hi, 4)] if lo and hi else None
 
+        trend_delta = trend_map.get(machine_name)
+
         result.append({
             "machine_name": machine_name,
             "records": records,
@@ -1318,6 +1394,7 @@ def get_machine_setting_tendency(
             "est_setting": est_setting,
             "high_setting_prob": high_prob,
             "theory_bb_range": theory_bb_range,
+            "trend_delta": int(trend_delta) if trend_delta is not None else None,
         })
 
     # 推定設定（高いほど高設定店の証拠）でソート

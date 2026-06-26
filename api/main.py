@@ -1564,6 +1564,82 @@ def get_map_halls(days: int = Query(30)) -> list[dict]:
     return result
 
 
+@app.get("/api/hall/prior_quality", tags=["hall"])
+def get_prior_quality(
+    hall_name: str = Query(...),
+    machine_name: str = Query(...),
+) -> dict:
+    """
+    ホール×機種の事前分布品質スコアを返す。
+    - records: アナスロデータ件数
+    - bb_coverage: BB/RBデータ有率
+    - avg_games: 平均ゲーム数
+    - theory_match: 機種JSONが存在するか
+    - quality_score: 0-100の総合スコア
+    - quality_label: テキスト評価
+    """
+    conn = _get_reports_conn()
+    if not conn:
+        return {"quality_score": 0, "quality_label": "データなし"}
+    row = conn.execute(
+        """SELECT COUNT(*) as total,
+                  SUM(CASE WHEN bb_prob IS NOT NULL THEN 1 ELSE 0 END) as bb_cnt,
+                  ROUND(AVG(games)) as avg_games,
+                  COUNT(DISTINCT seat_number) as seat_cnt,
+                  MAX(report_date) as last_date,
+                  COUNT(DISTINCT report_date) as date_cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name=?""",
+        (hall_name, machine_name)
+    ).fetchone()
+    conn.close()
+
+    total = row[0] or 0
+    bb_cnt = row[1] or 0
+    avg_games = float(row[2] or 0)
+    seat_cnt = row[3] or 0
+    last_date = row[4]
+    date_cnt = row[5] or 0
+
+    if total == 0:
+        return {"quality_score": 0, "quality_label": "データなし", "records": 0}
+
+    from hall.prior import _load_machine_theory
+    theory = _load_machine_theory(machine_name)
+    theory_match = theory is not None
+
+    # スコア計算
+    rec_score  = min(40, total * 2)           # 件数: max 40点 (20件以上で満点)
+    bb_score   = (bb_cnt / total) * 20        # BB/RBカバレッジ: max 20点
+    game_score = min(20, avg_games / 50)      # 平均G数: max 20点 (1000G以上で満点)
+    theory_score = 15 if theory_match else 0  # 理論値あり: 15点
+    seat_score = min(5, seat_cnt)             # 台数: max 5点
+
+    total_score = int(rec_score + bb_score + game_score + theory_score + seat_score)
+    total_score = min(100, total_score)
+
+    if total_score >= 75:
+        label = "高品質 ★★★"
+    elif total_score >= 50:
+        label = "中品質 ★★"
+    elif total_score >= 25:
+        label = "低品質 ★"
+    else:
+        label = "データ不足"
+
+    return {
+        "quality_score": total_score,
+        "quality_label": label,
+        "records": total,
+        "bb_coverage": round(bb_cnt / total * 100) if total else 0,
+        "avg_games": int(avg_games),
+        "seat_cnt": seat_cnt,
+        "date_cnt": date_cnt,
+        "last_date": last_date,
+        "theory_match": theory_match,
+    }
+
+
 @app.get("/api/hall/compare", tags=["hall"])
 def get_hall_compare(days: int = Query(30)) -> list[dict]:
     """

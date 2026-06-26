@@ -147,10 +147,47 @@ estMachine.addEventListener('change', async () => {
     restoreDraft(name);
     // 直近セッション表示
     loadRecentSessions(name);
+    // 事前分布品質バッジ更新
+    loadPriorQuality();
   } catch (e) {
     showToast('機種データ取得失敗: ' + e.message, 'error');
   }
 });
+
+async function loadPriorQuality() {
+  const hall = estHall.value;
+  const machine = state.currentMachine;
+  if (!hall || !machine) return;
+
+  // インジケーターの挿入先: est-hall の親要素の直後
+  let badge = document.getElementById('prior-quality-badge');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'prior-quality-badge';
+    badge.style.cssText = 'font-size:.72rem;padding:4px 10px;border-radius:6px;margin-top:4px;display:none';
+    const hallRow = estHall.closest('.form-row') || estHall.parentElement;
+    if (hallRow) hallRow.appendChild(badge);
+  }
+
+  try {
+    const q = await apiFetch(
+      `/api/hall/prior_quality?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machine)}`
+    );
+    if (!q || q.records === 0) {
+      badge.style.display = 'none';
+      return;
+    }
+    const col = q.quality_score >= 75 ? 'var(--success)' : q.quality_score >= 50 ? 'var(--warning)' : 'var(--danger)';
+    const bg  = q.quality_score >= 75 ? 'rgba(16,185,129,.1)' : q.quality_score >= 50 ? 'rgba(251,191,36,.1)' : 'rgba(244,63,94,.1)';
+    badge.style.display = 'block';
+    badge.style.background = bg;
+    badge.style.border = `1px solid ${col}`;
+    badge.style.color = col;
+    badge.innerHTML = `事前分布品質: <strong>${q.quality_label}</strong> (${q.quality_score}/100) — ${q.records}件 BB${q.bb_coverage}%${q.theory_match ? ' 理論値あり' : ' 理論値なし'} 最終${q.last_date || '?'}`;
+  } catch(e) {
+    badge.style.display = 'none';
+  }
+}
 
 async function loadRecentSessions(machineName) {
   const el = document.getElementById('est-recent-sessions');
@@ -253,7 +290,11 @@ function renderCountInputs(profile) {
 
 // ゲーム数変更でも自動推測
 estGames.addEventListener('input', () => { saveDraft(); autoEstimate(); });
-estHall.addEventListener('change', () => { state.currentHall = estHall.value; autoEstimate(); });
+estHall.addEventListener('change', () => {
+  state.currentHall = estHall.value;
+  autoEstimate();
+  if (state.currentMachine) loadPriorQuality();
+});
 estWeekday.addEventListener('change', autoEstimate);
 estDom.addEventListener('input', autoEstimate);
 estEvent.addEventListener('change', autoEstimate);

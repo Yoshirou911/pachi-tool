@@ -159,34 +159,86 @@ def compute_prior(
 
 # 機種名の表記ゆれ正規化マップ（DB名 → JSON名）
 _MACHINE_NAME_ALIASES: dict[str, str] = {
-    "マイジャグラーV":          "マイジャグラー5",
-    "マイジャグラーIV":         "マイジャグラーIV",
-    "ゴーゴージャグラー2":      "ゴーゴージャグラー2",
-    "アイムジャグラーEX-TP":    "アイムジャグラーEX Anniversary",
-    "ウルトラミラクルジャグラー":"ウルトラミラクルジャグラー",
-    "スマスロ サンダーV":       "スマスロ サンダーV",
-    "スマスロ ハナビ":          "スマスロ ハナビ",
-    "バジリスク絆2 BLACK EDITION": "スマスロバジリスク絆3",
-    "スマスロ北斗の拳":         "スマスロ北斗の拳",
-    "スマスロまどかマギカ2":    "スマスロまどかマギカ2",
+    "マイジャグラーV":                  "マイジャグラー5",
+    "マイジャグラー5":                  "マイジャグラー5",
+    "マイジャグラーIV":                 "マイジャグラーIV",
+    "マイジャグラー4":                  "マイジャグラー4",
+    "ゴーゴージャグラー2":              "ゴーゴージャグラー2",
+    "ゴーゴージャグラーⅡ":             "ゴーゴージャグラー2",
+    "アイムジャグラーEX-TP":            "アイムジャグラーEX Anniversary",
+    "アイムジャグラーEX Anniversary":   "アイムジャグラーEX Anniversary",
+    "アイムジャグラーEX-AE":            "アイムジャグラーEX Anniversary",
+    "ウルトラミラクルジャグラー":        "ウルトラミラクルジャグラー",
+    "スマスロ サンダーV":               "スマスロ サンダーV",
+    "スマスロサンダーV":                "スマスロ サンダーV",
+    "スマスロ ハナビ":                  "スマスロ ハナビ",
+    "スマスロハナビ":                   "スマスロ ハナビ",
+    "バジリスク絆2 BLACK EDITION":      "スマスロバジリスク絆3",
+    "スマスロ北斗の拳":                 "スマスロ北斗の拳",
+    "スマスロ まどかマギカ2":           "スマスロまどかマギカ2",
+    "スマスロまどかマギカ2":            "スマスロまどかマギカ2",
+    "バイオハザード RE:3":              "バイオハザード RE:3",
+    "バイオハザードRE3":               "バイオハザード RE:3",
+    "バイオRE:3":                      "バイオハザード RE:3",
+    "ソードアートオンラインII":          "ソードアート・オンライン II",
+    "SAO II":                           "ソードアート・オンライン II",
+    "ネオアイムジャグラーEX":           "ネオアイムジャグラーEX",
+    "キングハナハナ-30":                "キングハナハナ-30",
+    "キングハナハナ30":                 "キングハナハナ-30",
+    "ニューキングハナハナV-30":         "ニューキングハナハナV-30",
+    "スーパーミラクルジャグラー":        "スーパーミラクルジャグラー",
+    "ハッピージャグラーVIII":           "ハッピージャグラーVIII",
+    "ハッピージャグラー8":              "ハッピージャグラーVIII",
+    "ファンキージャグラー2":            "ファンキージャグラー2",
+    "スマスロ北斗の拳ZERO":             "スマスロ北斗の拳ZERO",
+    "北斗の拳ZERO":                     "スマスロ北斗の拳ZERO",
+    "スマスロガンダムSEED":             "スマスロ ガンダムSEED",
+    "ガンダムSEED":                     "スマスロ ガンダムSEED",
+    "バーサスライジング":                "バーサスライジング",
+    "スーパーミラクルエース2":           "スマスロ スーパーミラクルエース2",
 }
 
 
 def _load_machine_theory(machine_name: str) -> Optional[dict]:
-    """機種JSONの理論確率を読み込む。表記ゆれはエイリアスマップで正規化。"""
+    """機種JSONの理論確率を読み込む。エイリアスマップ→完全一致→ファジーマッチの順で検索。"""
     import json
     try:
         machines_dir = Path(__file__).parent.parent / "data" / "machines"
-        # エイリアスによる名前正規化
         lookup_name = _MACHINE_NAME_ALIASES.get(machine_name, machine_name)
-        for f in machines_dir.glob("*.json"):
+        all_files = list(machines_dir.glob("*.json"))
+        all_data = []
+        for f in all_files:
             try:
                 data = json.loads(f.read_text(encoding="utf-8"))
-                if data.get("machine_name") in (machine_name, lookup_name):
-                    return data
+                all_data.append(data)
             except Exception:
                 continue
-        return None
+
+        # 1. エイリアス/完全一致
+        for data in all_data:
+            if data.get("machine_name") in (machine_name, lookup_name):
+                return data
+
+        # 2. ファジーマッチ: 名前の主要部分が含まれるか（前4文字以上が一致）
+        def _normalize(s: str) -> str:
+            return s.replace(" ","").replace("　","").replace("・","").replace("：","").replace(":","")
+
+        norm_name = _normalize(machine_name)
+        norm_lookup = _normalize(lookup_name)
+        best = None
+        best_score = 0
+        for data in all_data:
+            jname = _normalize(data.get("machine_name", ""))
+            # 両方向で部分一致チェック
+            score = 0
+            if norm_name in jname or jname in norm_name:
+                score = min(len(norm_name), len(jname))
+            elif norm_lookup in jname or jname in norm_lookup:
+                score = min(len(norm_lookup), len(jname))
+            if score >= 4 and score > best_score:
+                best = data
+                best_score = score
+        return best
     except Exception:
         return None
 

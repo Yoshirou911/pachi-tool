@@ -119,25 +119,34 @@ class SettingEstimator:
         obs: Observation,
         prior: Mapping[str, float] | None = None,
         laplace_alpha: float = 0.5,
+        use_discrimination_weights: bool = True,
+        min_discrimination: float = 0.05,
     ) -> dict[str, float]:
         """事後分布 P(設定 | 観測) を返す。
 
         prior を渡すと事前分布を差し替えられる(店傾向の出力などを注入可能)。
-        渡さなければ一様事前。
 
         laplace_alpha: ラプラス平滑化の疑似カウント (0.5 = Jeffreys prior)。
-            N が小さい時に確率が 0/1 に張り付くのを防ぐ。
+
+        use_discrimination_weights: True の場合、各要素の識別力
+            (log max_p/min_p) を尤度の重みとして適用する。
+            識別力が低い要素（ノイズ的）の影響を抑え、精度向上。
+
+        min_discrimination: この値未満の識別力を持つ要素は尤度計算から除外。
         """
         settings = self.profile.settings
         if prior is None:
             log_post = {s: 0.0 for s in settings}
         else:
             total = sum(prior.values())
-            # ゼロ事前を防ぐため微小値でクランプ
             log_post = {
                 s: log(max(prior.get(s, 0) / total, 1e-10))
                 for s in settings
             }
+
+        # 識別力を事前計算（重み付けに使用）
+        powers = self.element_discrimination_power() if use_discrimination_weights else {}
+        max_power = max(powers.values(), default=1.0) if powers else 1.0
 
         N = obs.total_games
         for name, k in obs.counts.items():
@@ -146,15 +155,19 @@ class SettingEstimator:
                 continue
             if k < 0 or k > N:
                 raise ValueError(f"要素 '{name}' の回数 {k} が 0..{N} の範囲外です")
+
+            disc = powers.get(name, 1.0)
+            if use_discrimination_weights and disc < min_discrimination:
+                continue  # 識別力が低すぎる要素はスキップ
+            # 識別力正規化重み: 0.5〜1.5の範囲で補正（過剰補正を防ぐ）
+            elem_weight = max(0.5, min(1.5, disc / max_power * 1.2 + 0.3)) if use_discrimination_weights else 1.0
+
             for s in settings:
                 p = el.probabilities[s]
-                # ラプラス平滑化: k → k+α, N-k → N-k+α
                 k_s   = k + laplace_alpha
                 nk_s  = (N - k) + laplace_alpha
-                n_s   = N + 2 * laplace_alpha
-                # 平滑化後の二項対数尤度
                 log_lik = k_s * log(p) + nk_s * log(1.0 - p)
-                log_post[s] += log_lik
+                log_post[s] += log_lik * elem_weight
 
         return self._normalize(log_post)
 

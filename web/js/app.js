@@ -751,6 +751,7 @@ async function loadSessions() {
     renderPnLChart(sessions);
     renderMonthlyStats(sessions);
     renderSeatAnalysis(sessions);
+    renderDailyProfitChart(sessions);
   } catch (e) {
     showToast('セッション取得失敗: ' + e.message, 'error');
   }
@@ -1453,9 +1454,13 @@ async function loadScrapeReport(hall, date) {
             const diff = r.avg_diff_coins;
             const diffColor = diff > 0 ? 'var(--up)' : diff < 0 ? 'var(--down)' : 'var(--text2)';
             const diffStr = diff != null ? (diff > 0 ? '+' : '') + diff.toLocaleString() : '-';
-            return `<tr style="border-bottom:1px solid var(--border-subtle)">
+            const encHall = encodeURIComponent(hall).replace(/'/g, '%27');
+            const encMachine = encodeURIComponent(r.machine_name).replace(/'/g, '%27');
+            return `<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer"
+                        onclick="renderMachineTrendChart(decodeURIComponent('${encHall}'),decodeURIComponent('${encMachine}'))">
               <td style="padding:5px 2px;max-width:130px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
-                <span style="color:var(--text3);margin-right:4px">${i+1}</span>${r.machine_name}
+                <span style="color:var(--text3);margin-right:4px">${i+1}</span>
+                <span style="color:var(--primary);text-decoration:underline dotted">${r.machine_name}</span>
               </td>
               <td style="text-align:right;padding:5px 2px;color:${diffColor};font-weight:600">${diffStr}</td>
               <td style="text-align:right;padding:5px 2px;color:var(--text3)">${r.avg_games != null ? r.avg_games.toLocaleString() : '-'}</td>
@@ -2073,6 +2078,198 @@ async function init() {
 
   // API死活監視（30秒ごと）
   setInterval(checkConnection, 30000);
+}
+
+// ---------------------------------------------------------------------------
+// Charts
+// ---------------------------------------------------------------------------
+
+let _dailyChart = null;
+let _trendChart = null;
+
+const CHART_COLORS = {
+  up:   '#22c55e',
+  down: '#ef4444',
+  line: '#6366f1',
+  grid: 'rgba(255,255,255,0.08)',
+  text: 'rgba(255,255,255,0.5)',
+};
+
+function chartDefaults() {
+  return {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => {
+            const v = ctx.parsed.y;
+            return (v > 0 ? '+' : '') + v.toLocaleString() + (ctx.dataset.unit || '');
+          }
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: CHART_COLORS.text, maxRotation: 45, font: { size: 10 } },
+        grid: { color: CHART_COLORS.grid },
+      },
+      y: {
+        ticks: { color: CHART_COLORS.text, font: { size: 10 },
+          callback: v => (v > 0 ? '+' : '') + v.toLocaleString() },
+        grid: { color: CHART_COLORS.grid },
+      }
+    }
+  };
+}
+
+// 日別収支棒グラフ（収支ページ）
+async function renderDailyProfitChart(sessions) {
+  const card = document.getElementById('daily-chart-card');
+  if (!sessions || sessions.length === 0) { card.style.display = 'none'; return; }
+
+  // 日付ごとに集計
+  const byDate = {};
+  for (const s of sessions) {
+    const d = s.date || '';
+    if (!d) continue;
+    if (!byDate[d]) byDate[d] = 0;
+    byDate[d] += (s.diff_yen || 0);
+  }
+  const dates = Object.keys(byDate).sort();
+  if (dates.length < 2) { card.style.display = 'none'; return; }
+
+  card.style.display = 'block';
+  const ctx = document.getElementById('daily-profit-chart').getContext('2d');
+  if (_dailyChart) _dailyChart.destroy();
+
+  const values = dates.map(d => byDate[d]);
+  _dailyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: dates.map(d => d.slice(5)), // MM-DD
+      datasets: [{
+        data: values,
+        backgroundColor: values.map(v => v >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)'),
+        borderColor:     values.map(v => v >= 0 ? '#22c55e' : '#ef4444'),
+        borderWidth: 1,
+        unit: '円',
+      }]
+    },
+    options: {
+      ...chartDefaults(),
+      plugins: {
+        ...chartDefaults().plugins,
+        tooltip: {
+          callbacks: {
+            label: ctx => (ctx.parsed.y >= 0 ? '+' : '') + ctx.parsed.y.toLocaleString() + '円'
+          }
+        }
+      }
+    }
+  });
+}
+
+// 機種別差枚トレンド折れ線グラフ（店傾向ページ）
+async function renderMachineTrendChart(hall, machineName) {
+  const card = document.getElementById('machine-trend-card');
+  const title = document.getElementById('machine-trend-title');
+  title.textContent = `📉 ${machineName} — 差枚推移`;
+  card.style.display = 'block';
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    const rows = await apiFetch(
+      `/api/hall/machine_trend?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machineName)}&days=60`
+    );
+    if (!rows || rows.length < 2) {
+      card.style.display = 'none';
+      showToast('データが少なすぎます（2日分以上必要）');
+      return;
+    }
+
+    const sorted = [...rows].sort((a, b) => a.report_date.localeCompare(b.report_date));
+    const labels = sorted.map(r => r.report_date.slice(5));
+    const diffs  = sorted.map(r => r.avg_diff_coins ?? null);
+    const evs    = sorted.map(r => r.ev_pct ?? null);
+
+    const ctx = document.getElementById('machine-trend-chart').getContext('2d');
+    if (_trendChart) _trendChart.destroy();
+
+    _trendChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: '平均差枚',
+            data: diffs,
+            borderColor: CHART_COLORS.line,
+            backgroundColor: 'rgba(99,102,241,0.15)',
+            borderWidth: 2,
+            pointRadius: 3,
+            tension: 0.3,
+            fill: true,
+            yAxisID: 'y',
+            unit: '枚',
+          },
+          {
+            label: '出率%',
+            data: evs,
+            borderColor: '#f59e0b',
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            pointRadius: 2,
+            tension: 0.3,
+            borderDash: [4, 3],
+            yAxisID: 'y2',
+            unit: '%',
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: {
+            display: true,
+            labels: { color: CHART_COLORS.text, font: { size: 11 }, boxWidth: 16 }
+          },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const v = ctx.parsed.y;
+                const u = ctx.dataset.unit || '';
+                return `${ctx.dataset.label}: ${v > 0 ? '+' : ''}${v}${u}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: { color: CHART_COLORS.text, maxRotation: 45, font: { size: 10 } },
+            grid: { color: CHART_COLORS.grid },
+          },
+          y: {
+            position: 'left',
+            ticks: { color: CHART_COLORS.text, font: { size: 10 },
+              callback: v => (v > 0 ? '+' : '') + v.toLocaleString() },
+            grid: { color: CHART_COLORS.grid },
+          },
+          y2: {
+            position: 'right',
+            ticks: { color: '#f59e0b', font: { size: 10 },
+              callback: v => v + '%' },
+            grid: { display: false },
+          }
+        }
+      }
+    });
+  } catch(e) {
+    card.style.display = 'none';
+    showToast('トレンドデータ取得失敗: ' + e.message, 'error');
+  }
 }
 
 init();

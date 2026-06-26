@@ -303,6 +303,12 @@
     <section id="page-session" class="page">
       <div class="page-inner">
 
+        <!-- 日別収支チャート -->
+        <div class="card" id="daily-chart-card" style="display:none">
+          <div class="card-title">📊 日別収支</div>
+          <canvas id="daily-profit-chart" height="160"></canvas>
+        </div>
+
         <!-- Stats summary -->
         <div class="card stats-row" id="session-summary">
           <div class="stat-box">
@@ -477,6 +483,12 @@
           <div id="scrape-top-machines"></div>
         </div>
 
+        <!-- 機種別トレンドチャート -->
+        <div class="card" id="machine-trend-card" style="display:none">
+          <div class="card-title" id="machine-trend-title">📉 機種トレンド</div>
+          <canvas id="machine-trend-chart" height="180"></canvas>
+        </div>
+
       </div>
     </section>
 
@@ -514,6 +526,7 @@
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="/js/app.js"></script>
 <script>
 if ('serviceWorker' in navigator) {

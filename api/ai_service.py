@@ -152,13 +152,19 @@ def chat(message: str, hall_name: str, history: list[dict]) -> str:
         "content": f"【参考データ】\n{context}\n\n【質問】\n{message}"
     })
 
-    resp = client.messages.create(
-        model=CHAT_MODEL,
-        max_tokens=800,
-        system=SYSTEM_PROMPT,
-        messages=messages,
-    )
-    return resp.content[0].text
+    try:
+        resp = client.messages.create(
+            model=CHAT_MODEL,
+            max_tokens=800,
+            system=SYSTEM_PROMPT,
+            messages=messages,
+        )
+        return resp.content[0].text
+    except Exception as e:
+        err = str(e)
+        if "credit balance is too low" in err:
+            return "クレジット残高が不足しています。console.anthropic.com でチャージしてください。"
+        return f"AIエラー: {err[:200]}"
 
 
 # ---------------------------------------------------------------------------
@@ -190,13 +196,19 @@ def generate_report(hall_name: str) -> str:
 
 データが少ない場合は「データ不足のため参考程度」と明記してください。"""
 
-    resp = client.messages.create(
-        model=REPORT_MODEL,
-        max_tokens=1200,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text
+    try:
+        resp = client.messages.create(
+            model=REPORT_MODEL,
+            max_tokens=1200,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.content[0].text
+    except Exception as e:
+        err = str(e)
+        if "credit balance is too low" in err:
+            return "クレジット残高が不足しています。console.anthropic.com でチャージしてください。"
+        return f"AIエラー: {err[:200]}"
 
 
 # ---------------------------------------------------------------------------
@@ -225,10 +237,13 @@ def comment_estimate(machine_name: str, games: int, bb: int, rb: int,
 - 続行・撤退の判断ポイント
 - 追加で注目すべき挙動（もしあれば）"""
 
-    resp = client.messages.create(
-        model=CHAT_MODEL,
-        max_tokens=300,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text
+    try:
+        resp = client.messages.create(
+            model=CHAT_MODEL,
+            max_tokens=300,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.content[0].text
+    except Exception:
+        return ""

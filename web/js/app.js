@@ -69,6 +69,7 @@ function switchTab(tabId) {
   if (tabId === 'session') loadSessions();
   if (tabId === 'hall') loadHallPage();
   if (tabId === 'map') loadMapPage();
+  if (tabId === 'ai') loadAiPage();
   if (tabId === 'machines') loadMachinesPage();
 }
 
@@ -470,8 +471,47 @@ function renderEstimateResult(r) {
   // 撤退推奨判定
   renderAdvice(r);
 
+  // C. AIコメント（非同期で後から表示）
+  fetchAiEstimateComment(r);
+
   // スクロール
   setTimeout(() => estResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
+}
+
+async function fetchAiEstimateComment(r) {
+  let el = document.getElementById('res-ai-comment');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'res-ai-comment';
+    el.style.cssText = 'margin:8px 0;padding:10px 14px;background:var(--bg3);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;font-size:.78rem;line-height:1.7;color:var(--text2);display:none';
+    estResult.appendChild(el);
+  }
+  try {
+    const games = parseInt(document.getElementById('est-games')?.value) || 0;
+    if (games < 500) return; // データが少ない場合はスキップ
+    el.style.display = 'block';
+    el.textContent = 'AIコメント生成中...';
+    const data = await fetch('/api/ai/estimate_comment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        machine_name: state.currentMachine || '',
+        games,
+        bb: parseInt(document.getElementById('cnt-bb')?.value) || 0,
+        rb: parseInt(document.getElementById('cnt-rb')?.value) || 0,
+        posterior: r.posterior || {},
+        ev: r.ev || 1.0,
+        recommendation: r.should_retreat ? '撤退推奨' : '続行',
+      }),
+    }).then(res => res.json());
+    if (data.comment) {
+      el.innerHTML = `<span style="font-size:.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:4px">AIコメント</span>${esc(data.comment)}`;
+    } else {
+      el.style.display = 'none';
+    }
+  } catch {
+    el.style.display = 'none';
+  }
 }
 
 function renderAdvice(r) {
@@ -2544,3 +2584,109 @@ window.switchToHall = function(hallName) {
   }
   switchTab('hall');
 };
+
+// ============================================================
+// AI ページ
+// ============================================================
+
+let aiChatHistory = [];
+
+async function loadAiPage() {
+  // ステータス確認
+  try {
+    const st = await fetch('/api/ai/status').then(r => r.json());
+    const badge = document.getElementById('ai-status-badge');
+    if (st.available) {
+      badge.textContent = '利用可能';
+      badge.style.background = '#276749';
+      badge.style.color = '#9ae6b4';
+    } else {
+      badge.textContent = 'APIキー未設定';
+      badge.style.background = '#744210';
+      badge.style.color = '#fbd38d';
+    }
+  } catch {}
+
+  // ホール選択を同期
+  const hallSel = document.getElementById('hall-select');
+  const aiHallSel = document.getElementById('ai-hall-select');
+  if (hallSel && aiHallSel) {
+    aiHallSel.innerHTML = hallSel.innerHTML;
+    aiHallSel.value = hallSel.value;
+  }
+}
+
+function getAiHall() {
+  const sel = document.getElementById('ai-hall-select');
+  return sel ? sel.value : 'ベガスベガス大東店';
+}
+
+// B. 自動レポート生成
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('ai-report-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('ai-report-btn');
+    const out = document.getElementById('ai-report-output');
+    btn.disabled = true;
+    btn.textContent = '生成中...';
+    out.style.display = 'block';
+    out.textContent = '分析中です。しばらくお待ちください...';
+    try {
+      const data = await fetch(`/api/ai/report?hall_name=${encodeURIComponent(getAiHall())}`).then(r => r.json());
+      out.textContent = data.report;
+    } catch (e) {
+      out.textContent = 'エラーが発生しました: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '生成';
+    }
+  });
+
+  // A. チャット送信
+  const sendChat = async () => {
+    const input = document.getElementById('ai-chat-input');
+    const msg = input.value.trim();
+    if (!msg) return;
+    input.value = '';
+    appendChatMessage('user', msg);
+
+    const thinkingEl = appendChatMessage('ai', '...');
+    try {
+      const data = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, hall_name: getAiHall(), history: aiChatHistory }),
+      }).then(r => r.json());
+      thinkingEl.textContent = data.reply;
+      aiChatHistory.push({ role: 'user', content: msg });
+      aiChatHistory.push({ role: 'assistant', content: data.reply });
+      if (aiChatHistory.length > 12) aiChatHistory = aiChatHistory.slice(-12);
+    } catch (e) {
+      thinkingEl.textContent = 'エラー: ' + e.message;
+    }
+  };
+
+  document.getElementById('ai-chat-send')?.addEventListener('click', sendChat);
+  document.getElementById('ai-chat-input')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+
+  // クイックボタン
+  document.querySelectorAll('.ai-quick-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('ai-chat-input');
+      if (input) { input.value = btn.dataset.q; sendChat(); }
+    });
+  });
+});
+
+function appendChatMessage(role, text) {
+  const container = document.getElementById('ai-chat-messages');
+  const el = document.createElement('div');
+  el.style.cssText = role === 'user'
+    ? 'align-self:flex-end;background:var(--accent);color:#fff;padding:8px 12px;border-radius:12px 12px 2px 12px;max-width:85%;font-size:.78rem;line-height:1.5'
+    : 'align-self:flex-start;background:var(--bg3);color:var(--text1);padding:8px 12px;border-radius:12px 12px 12px 2px;max-width:90%;font-size:.78rem;line-height:1.6;white-space:pre-wrap';
+  el.textContent = text;
+  container.appendChild(el);
+  container.scrollTop = container.scrollHeight;
+  return el;
+}

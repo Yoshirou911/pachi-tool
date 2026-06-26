@@ -15,3 +15,6 @@ uvicorn[standard]>=0.29.0
 
 # Pydantic (fastapi 同梱だが明示)
 pydantic>=2.0.0
+
+# AI分析
+anthropic>=0.40.0

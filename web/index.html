@@ -48,6 +48,10 @@
       <span class="tab-icon">🎮</span>
       <span class="tab-label">機種</span>
     </button>
+    <button class="tab-btn" data-tab="ai">
+      <span class="tab-icon">🤖</span>
+      <span class="tab-label">AI</span>
+    </button>
   </nav>
 
   <!-- Pages -->
@@ -581,6 +585,53 @@
                  placeholder="機種名で検索...">
         </div>
         <div id="machine-list"></div>
+      </div>
+    </section>
+
+    <!-- ======================== AIページ ======================== -->
+    <section id="page-ai" class="page">
+      <div class="page-inner">
+
+        <!-- AI ステータス -->
+        <div id="ai-status-card" class="card" style="margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <span style="font-size:.8rem;font-weight:600">AI分析</span>
+            <span id="ai-status-badge" style="font-size:.72rem;padding:2px 8px;border-radius:9px;background:var(--bg3);color:var(--text2)">確認中...</span>
+          </div>
+          <div style="margin-top:6px">
+            <select id="ai-hall-select" class="form-input" style="font-size:.8rem;padding:6px 8px">
+              <option>ベガスベガス大東店</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- B. 自動レポート -->
+        <div class="card" style="margin-bottom:8px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:.82rem;font-weight:600">今日の攻略レポート</span>
+            <button id="ai-report-btn" class="btn btn-primary" style="font-size:.75rem;padding:5px 12px">生成</button>
+          </div>
+          <div id="ai-report-output" style="font-size:.78rem;line-height:1.7;color:var(--text2);white-space:pre-wrap;display:none"></div>
+        </div>
+
+        <!-- A. チャット -->
+        <div class="card">
+          <div style="font-size:.82rem;font-weight:600;margin-bottom:8px">データに質問する</div>
+          <div id="ai-chat-messages" style="min-height:120px;max-height:340px;overflow-y:auto;margin-bottom:8px;display:flex;flex-direction:column;gap:8px"></div>
+          <div style="display:flex;gap:6px">
+            <input type="text" id="ai-chat-input" class="form-input"
+                   placeholder="例: どの台番が一番強い？"
+                   style="flex:1;font-size:.8rem">
+            <button id="ai-chat-send" class="btn btn-primary" style="font-size:.8rem;padding:6px 14px;white-space:nowrap">送信</button>
+          </div>
+          <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+            <button class="ai-quick-btn btn btn-ghost" style="font-size:.7rem;padding:3px 8px" data-q="狙い目の台番ベスト3を教えて">狙い目ベスト3</button>
+            <button class="ai-quick-btn btn btn-ghost" style="font-size:.7rem;padding:3px 8px" data-q="最近の自分の実戦で改善すべき点は？">実戦の課題</button>
+            <button class="ai-quick-btn btn btn-ghost" style="font-size:.7rem;padding:3px 8px" data-q="末尾の傾向から今日の立ち回りを提案して">末尾傾向</button>
+            <button class="ai-quick-btn btn btn-ghost" style="font-size:.7rem;padding:3px 8px" data-q="今月の収支傾向と改善策は？">今月の傾向</button>
+          </div>
+        </div>
+
       </div>
     </section>
 

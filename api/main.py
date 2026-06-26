@@ -1076,7 +1076,7 @@ def get_machine_seat_ranking(
                   COUNT(CASE WHEN strftime('%w',report_date)=? THEN 1 END) as cnt_dow,
                   ROUND(AVG(CASE WHEN report_date >= date('now','-7 days') THEN diff_coins END)) as avg_7d
            FROM hall_day_seat
-           WHERE hall_name=? AND machine_name=? AND bb_prob IS NOT NULL
+           WHERE hall_name=? AND machine_name=? AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
              AND report_date >= date('now', '-' || ? || ' days')
            GROUP BY seat_number
            HAVING total_days >= 2
@@ -1127,7 +1127,7 @@ def get_today_targets(
     if not conn:
         return {"seats": [], "best_tail": None, "best_machine": None, "today_weekday": today_name}
 
-    # 全台の過去stats（avg・分散・勝率・直近7日）
+    # 全台の過去stats（avg・分散・勝率・直近7日）bb_prob OR ev_pct があるデータを対象
     seat_rows = conn.execute(
         """SELECT machine_name, seat_number,
                   COUNT(*) as total_days,
@@ -1141,7 +1141,7 @@ def get_today_targets(
            FROM hall_day_seat
            WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
              AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
-             AND bb_prob IS NOT NULL
+             AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
              AND report_date >= date('now', '-' || ? || ' days')
            GROUP BY machine_name, seat_number
            HAVING total_days >= 3""",

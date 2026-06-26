@@ -154,7 +154,7 @@
         </div>
 
         <!-- Estimate button -->
-        <button id="est-run-btn" class="btn btn-primary btn-full" disabled>
+        <button id="est-run-btn" class="btn btn-primary btn-full" disabled style="padding:15px;font-size:.95rem;letter-spacing:.02em">
           設定を推測する
         </button>
 
@@ -237,10 +237,10 @@
 
         <!-- Setting change detection -->
         <details id="change-detect-section" style="display:none">
-          <summary style="cursor:pointer;padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);font-size:.88rem;font-weight:600;color:var(--text2);list-style:none;display:flex;align-items:center;gap:8px">
+          <summary>
             <span>🔄</span> 設定変更検知（2区間比較）
           </summary>
-          <div class="card" style="border-radius:0 0 var(--radius) var(--radius);margin-top:-1px">
+          <div class="card" style="border-radius:0 0 var(--radius) var(--radius);margin-top:-1px;border-top:none">
             <p class="hint" style="margin-bottom:12px">前半・後半でカウントを分けて入力することで、途中で設定が変わったかを検出します。</p>
             <div class="form-row-2col">
               <div>

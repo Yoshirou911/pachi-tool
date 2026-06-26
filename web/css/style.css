@@ -574,6 +574,41 @@ body::before {
   border: 1px solid var(--border);
 }
 
+/* ===== Details / Accordion ===== */
+details > summary {
+  cursor: pointer; padding: 14px 18px;
+  background: var(--bg2); background-image: var(--grad-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: .88rem; font-weight: 600; color: var(--text2);
+  list-style: none; display: flex; align-items: center; gap: 8px;
+  transition: border-color .2s, color .2s;
+  box-shadow: var(--shadow-xs);
+}
+details > summary::-webkit-details-marker { display: none; }
+details[open] > summary { border-radius: var(--radius) var(--radius) 0 0; border-color: var(--primary); color: var(--text); }
+details > summary::after { content: '›'; margin-left: auto; font-size: 1.1rem; transition: transform .25s; }
+details[open] > summary::after { transform: rotate(90deg); }
+
+/* ===== Session timer bar ===== */
+#session-timer-bar {
+  display: flex; align-items: center; gap: 10px; padding: 4px 0;
+}
+#timer-display {
+  font-variant-numeric: tabular-nums; font-weight: 800;
+  color: var(--primary-h); font-size: .95rem; letter-spacing: .02em;
+}
+
+/* ===== Confirm badge ===== */
+.confirm-btn { font-size: .78rem !important; }
+#est-confirm-badge {
+  padding: 6px 12px; border-radius: var(--radius-xs);
+  font-size: .78rem; font-weight: 700;
+  background: rgba(245,158,11,.12) !important;
+  color: var(--warning) !important;
+  border: 1px solid rgba(245,158,11,.28) !important;
+}
+
 /* ===== Desktop ===== */
 @media (min-width: 640px) {
   .page-container { padding-left: 22px; padding-right: 22px; }

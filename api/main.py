@@ -1228,6 +1228,90 @@ def get_today_targets(
     }
 
 
+@app.get("/api/hall/machine_setting_tendency", tags=["hall"])
+def get_machine_setting_tendency(
+    hall_name: str = Query(...),
+    days: int = Query(60),
+) -> list[dict]:
+    """
+    機種ごとの設定傾向を推定して返す。
+    hall/prior.py の _estimate_prior_from_anaslo を全機種に適用。
+    """
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    # データのある機種を取得
+    machine_rows = conn.execute(
+        """SELECT machine_name, COUNT(*) as records,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  ROUND(AVG(bb_prob)*100, 4) as avg_bb_pct,
+                  ROUND(AVG(rb_prob)*100, 4) as avg_rb_pct,
+                  COUNT(DISTINCT seat_number) as unit_cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%'
+             AND machine_name != '_NODATA_'
+             AND machine_name NOT LIKE '%データ%'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name
+           HAVING records >= 5
+           ORDER BY records DESC""",
+        (hall_name, days)
+    ).fetchall()
+    conn.close()
+
+    from hall.prior import _estimate_prior_from_anaslo, _load_machine_theory
+    import datetime
+    today_weekday = datetime.date.today().weekday()
+
+    result = []
+    for row in machine_rows:
+        machine_name = row[0]
+        records = row[1]
+        avg_diff = row[2] or 0
+        avg_bb_pct = row[3]
+        avg_rb_pct = row[4]
+        unit_cnt = row[5]
+
+        settings = ["1","2","3","4","5","6"]
+        prior = _estimate_prior_from_anaslo(hall_name, machine_name, settings, today_weekday)
+        theory = _load_machine_theory(machine_name)
+
+        # 推定設定分布があれば期待設定を計算
+        est_setting = None
+        high_prob = None
+        if prior:
+            est_setting = round(sum(int(s)*p for s,p in prior.items()), 2)
+            high_prob = round(sum(p for s,p in prior.items() if int(s) >= 4), 3)
+
+        # 理論値との比較（BB確率）
+        theory_bb_range = None
+        if theory:
+            bb_el = next((e for e in theory.get("elements",[]) if any(k in e["name"] for k in ["BB","BIG","ボーナス合算","AT初当"])), None)
+            if bb_el and avg_bb_pct:
+                p_by_s = bb_el.get("p", {})
+                lo = min(p_by_s.values()) * 100 if p_by_s else None
+                hi = max(p_by_s.values()) * 100 if p_by_s else None
+                theory_bb_range = [round(lo, 4), round(hi, 4)] if lo and hi else None
+
+        result.append({
+            "machine_name": machine_name,
+            "records": records,
+            "unit_cnt": unit_cnt,
+            "avg_diff": int(avg_diff),
+            "avg_bb_pct": float(avg_bb_pct or 0),
+            "avg_rb_pct": float(avg_rb_pct or 0),
+            "setting_dist": prior or {},
+            "est_setting": est_setting,
+            "high_setting_prob": high_prob,
+            "theory_bb_range": theory_bb_range,
+        })
+
+    # 推定設定（高いほど高設定店の証拠）でソート
+    result.sort(key=lambda x: -(x["est_setting"] or 0))
+    return result
+
+
 # ---------------------------------------------------------------------------
 # マップ
 # ---------------------------------------------------------------------------

@@ -1310,6 +1310,7 @@ async function loadHallPage() {
   loadAnasloStatus();
   loadTodayTargets(hall);
   loadTodayDowMachines(hall);
+  loadMachineSettingTendency(hall);
 }
 
 function renderMySessionStats(stats) {
@@ -2643,6 +2644,59 @@ async function loadTodayDowMachines(hall) {
           <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
           <div style="font-size:.62rem;color:var(--text3)">${r.count}日 勝${r.win_rate}%</div>
         </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    if (card) card.style.display = 'none';
+  }
+}
+
+async function loadMachineSettingTendency(hall) {
+  const card = document.getElementById('machine-tendency-card');
+  const body = document.getElementById('machine-tendency-body');
+  if (!card) return;
+  try {
+    const rows = await apiFetch(
+      `/api/hall/machine_setting_tendency?hall_name=${encodeURIComponent(hall)}&days=60`
+    );
+    if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
+
+    // 理論値との比較がある or est_setting が高い機種のみ表示（最大8機種）
+    const useful = rows.filter(r => r.est_setting !== null).slice(0, 8);
+    if (!useful.length) { card.style.display = 'none'; return; }
+
+    card.style.display = 'block';
+    const setColor = s => s >= 5 ? 'var(--success)' : s >= 3.5 ? 'var(--warning)' : s >= 2.5 ? '#f97316' : 'var(--danger)';
+
+    body.innerHTML = useful.map(r => {
+      const estS = r.est_setting || 0;
+      const highPct = r.high_setting_prob ? Math.round(r.high_setting_prob * 100) : 0;
+      const col = setColor(estS);
+      // 設定分布バーを小さく表示
+      const dist = r.setting_dist || {};
+      const distBar = Object.entries(dist).map(([s, p]) => {
+        const w = Math.round(p * 100);
+        const c = parseInt(s) >= 4 ? 'var(--primary-h)' : parseInt(s) >= 2 ? 'var(--text3)' : 'rgba(255,255,255,0.15)';
+        return `<div title="設定${s}: ${Math.round(p*100)}%" style="flex:${w};height:4px;background:${c};border-radius:2px"></div>`;
+      }).join('');
+      // BB確率の理論値比較
+      let bbNote = '';
+      if (r.theory_bb_range && r.avg_bb_pct) {
+        const [lo, hi] = r.theory_bb_range;
+        const obs = r.avg_bb_pct;
+        const inRange = obs >= lo * 0.9 && obs <= hi * 1.1;
+        bbNote = `<span style="font-size:.65rem;color:${inRange?'var(--text3)':'#f97316'}">BB実測${obs.toFixed(3)}% [${lo.toFixed(3)}〜${hi.toFixed(3)}%]</span>`;
+      }
+      return `<div style="padding:7px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div style="font-size:.85rem;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.machine_name)}</div>
+          <div style="text-align:right;flex-shrink:0;margin-left:8px">
+            <span style="font-size:1rem;font-weight:900;color:${col}">設定${estS.toFixed(1)}</span>
+            <span style="font-size:.65rem;color:var(--text3);margin-left:4px">高設定${highPct}%</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:2px;margin:4px 0">${distBar}</div>
+        <div style="display:flex;gap:8px;align-items:center">${bbNote}<span style="font-size:.65rem;color:var(--text3)">${r.unit_cnt}台 ${r.records}件</span></div>
       </div>`;
     }).join('');
   } catch(e) {

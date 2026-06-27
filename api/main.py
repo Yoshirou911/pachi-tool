@@ -1762,6 +1762,104 @@ def get_prior_quality(
     }
 
 
+@app.get("/api/hall/event_day_pattern", tags=["hall"])
+def get_event_day_pattern(
+    hall_name: str = Query(...),
+    days: int = Query(180),
+) -> dict:
+    """
+    日付パターン分析。「5のつく日」「月末」「毎週特定曜日」など
+    どのパターンがBB確率上昇と相関するかを統計的に分析。
+    """
+    conn = _get_reports_conn()
+    if not conn:
+        return {}
+
+    rows = conn.execute(
+        """SELECT report_date, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY report_date HAVING cnt >= 3
+           ORDER BY report_date""",
+        (hall_name, days)
+    ).fetchall()
+    conn.close()
+
+    if len(rows) < 10:
+        return {"message": "データ不足（10日以上必要）"}
+
+    import datetime as _dt
+    import statistics as _s
+
+    all_bbs = [float(r[1]) for r in rows]
+    global_mean = _s.mean(all_bbs)
+    global_std = _s.stdev(all_bbs) if len(all_bbs) > 1 else 0.001
+
+    def analyze_pattern(pattern_rows, other_rows):
+        if not pattern_rows or not other_rows:
+            return None
+        p_bbs = [float(r[1]) for r in pattern_rows]
+        o_bbs = [float(r[1]) for r in other_rows]
+        p_mean = sum(p_bbs) / len(p_bbs)
+        o_mean = sum(o_bbs) / len(o_bbs)
+        z = (p_mean - o_mean) / max(global_std, 1e-8)
+        return {"pattern_mean": round(p_mean * 100, 4), "other_mean": round(o_mean * 100, 4),
+                "z": round(z, 2), "count": len(pattern_rows)}
+
+    # 日付のlast digit（末尾パターン）
+    tail_results = {}
+    for tail in range(10):
+        p = [r for r in rows if _dt.date.fromisoformat(r[0]).day % 10 == tail]
+        o = [r for r in rows if _dt.date.fromisoformat(r[0]).day % 10 != tail]
+        if len(p) >= 3:
+            res = analyze_pattern(p, o)
+            if res:
+                tail_results[str(tail)] = res
+
+    # 曜日パターン
+    dow_results = {}
+    dow_names = {0:"月",1:"火",2:"水",3:"木",4:"金",5:"土",6:"日"}
+    for dow in range(7):
+        p = [r for r in rows if _dt.date.fromisoformat(r[0]).weekday() == dow]
+        o = [r for r in rows if _dt.date.fromisoformat(r[0]).weekday() != dow]
+        if len(p) >= 3:
+            res = analyze_pattern(p, o)
+            if res:
+                dow_results[dow_names[dow]] = res
+
+    # 5のつく日(5,15,25)
+    fives = [r for r in rows if _dt.date.fromisoformat(r[0]).day in (5, 15, 25)]
+    others_fives = [r for r in rows if _dt.date.fromisoformat(r[0]).day not in (5, 15, 25)]
+    fives_result = analyze_pattern(fives, others_fives) if len(fives) >= 2 else None
+
+    # 上位パターンを抽出
+    top_patterns = []
+    for tail, res in tail_results.items():
+        if res["z"] >= 0.5:
+            top_patterns.append({"type": f"末尾{tail}の日", "z": res["z"],
+                                  "count": res["count"], "bb_mean": res["pattern_mean"]})
+    for dow, res in dow_results.items():
+        if res["z"] >= 0.5:
+            top_patterns.append({"type": f"{dow}曜日", "z": res["z"],
+                                  "count": res["count"], "bb_mean": res["pattern_mean"]})
+    if fives_result and fives_result["z"] >= 0.5:
+        top_patterns.append({"type": "5・15・25日", "z": fives_result["z"],
+                              "count": fives_result["count"], "bb_mean": fives_result["pattern_mean"]})
+
+    top_patterns.sort(key=lambda x: -x["z"])
+
+    return {
+        "global_mean_bb": round(global_mean * 100, 4),
+        "tail_results": tail_results,
+        "dow_results": dow_results,
+        "fives_result": fives_result,
+        "top_patterns": top_patterns[:5],
+        "total_days": len(rows),
+    }
+
+
 @app.get("/api/hall/machine_high_rate", tags=["hall"])
 def get_machine_high_rate(
     hall_name: str = Query(...),

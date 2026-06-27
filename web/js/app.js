@@ -1638,6 +1638,7 @@ async function loadHallPage() {
   loadAnasloStatus();
   loadTodayTargets(hall);
   loadBBSurgeSeats(hall);
+  loadEventDayPattern(hall);
   loadTodayDowMachines(hall);
   loadMachineSettingTendency(hall);
 }
@@ -3066,6 +3067,58 @@ async function loadMachineSettingTendency(hall) {
     }).join('');
   } catch(e) {
     if (card) card.style.display = 'none';
+  }
+}
+
+async function loadEventDayPattern(hall) {
+  const card = document.getElementById('event-day-card');
+  const body = document.getElementById('event-day-body');
+  if (!card) return;
+  try {
+    const d = await apiFetch(`/api/hall/event_day_pattern?hall_name=${encodeURIComponent(hall)}&days=180`);
+    if (!d || !d.top_patterns || d.top_patterns.length === 0) {
+      card.style.display = 'none';
+      return;
+    }
+    // 今日の日付情報
+    const now = new Date();
+    const todayTail = now.getDate() % 10;
+    const todayDow = ['日','月','火','水','木','金','土'][now.getDay()];
+    const isFive = [5,15,25].includes(now.getDate());
+
+    // 今日がイベント日候補かどうか
+    const todayHits = d.top_patterns.filter(p => {
+      if (p.type === `末尾${todayTail}の日`) return true;
+      if (p.type === `${todayDow}曜日`) return true;
+      if (p.type === '5・15・25日' && isFive) return true;
+      return false;
+    });
+
+    const todayBanner = todayHits.length > 0
+      ? `<div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:.8rem">
+           <span style="color:var(--success);font-weight:600">本日 (${now.getMonth()+1}/${now.getDate()} ${todayDow}曜日) はイベント日候補です</span><br>
+           <span style="color:var(--text2);font-size:.72rem">該当パターン: ${todayHits.map(p => p.type).join('・')}</span>
+         </div>`
+      : '';
+
+    const rows = d.top_patterns.map(p => {
+      const isToday = todayHits.includes(p);
+      const zColor = p.z >= 1.5 ? 'var(--success)' : p.z >= 0.8 ? 'var(--warning)' : 'var(--text2)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
+        <span style="color:${isToday?'var(--success)':'var(--text1)'};font-weight:${isToday?'600':'400'}">${p.type}${isToday?' ◀今日':''}</span>
+        <span style="display:flex;gap:8px;align-items:center">
+          <span style="color:var(--text3);font-size:.7rem">${p.count}日分</span>
+          <span style="color:var(--text3);font-size:.7rem">BB${p.bb_mean.toFixed(3)}%</span>
+          <span style="color:${zColor};font-weight:600">+${p.z.toFixed(2)}σ</span>
+        </span>
+      </div>`;
+    }).join('');
+
+    body.innerHTML = todayBanner + rows +
+      `<div style="font-size:.65rem;color:var(--text3);margin-top:6px">過去${d.total_days}日・全台平均BB ${d.global_mean_bb?.toFixed(3)}% | σはBB確率の上昇幅</div>`;
+    card.style.display = 'block';
+  } catch (e) {
+    card.style.display = 'none';
   }
 }
 

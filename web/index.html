@@ -676,6 +676,16 @@
               <span id="scrape-run-status" style="font-size:.68rem;color:var(--text3)"></span>
             </div>
           </div>
+          <!-- ホール管理セクション -->
+          <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
+            <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">スクレイプ対象ホール</div>
+            <div id="scrape-halls-list" style="margin-bottom:8px;max-height:160px;overflow-y:auto"></div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
+              <input id="add-hall-name" type="text" placeholder="ホール名" style="flex:1;min-width:120px;font-size:.72rem;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
+              <input id="add-hall-pref" type="text" placeholder="都道府県" value="大阪府" style="width:70px;font-size:.72rem;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
+              <button onclick="addScrapeHall()" class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px">＋追加</button>
+            </div>
+          </div>
           <!-- スケジューラー状態 -->
           <div id="scrape-scheduler-info" style="font-size:.72rem;color:var(--text3);margin-bottom:8px"></div>
           <!-- 実行ログ -->

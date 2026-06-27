@@ -4210,6 +4210,8 @@ async function loadScrapeManager() {
       apiFetch('/api/scrape/status').catch(() => null),
       apiFetch('/api/scrape/cookie_status').catch(() => null),
     ]);
+    // ホール一覧
+    loadScrapeHalls();
 
     // Cookie状態バッジ（期限・CFブロック警告含む）
     const badge = document.getElementById('cookie-status-badge');
@@ -4344,3 +4346,59 @@ const _origLoadHallPage = typeof loadHallPage === 'function' ? loadHallPage : nu
 document.addEventListener('DOMContentLoaded', () => {
   loadScrapeManager();
 });
+
+async function loadScrapeHalls() {
+  const el = document.getElementById('scrape-halls-list');
+  if (!el) return;
+  try {
+    const halls = await apiFetch('/api/scrape/halls');
+    if (!halls || halls.length === 0) { el.innerHTML = '<span style="color:var(--text3);font-size:.65rem">登録なし</span>'; return; }
+    el.innerHTML = halls.map(h => {
+      const enCol = h.enabled ? 'var(--success)' : 'var(--text3)';
+      const enLabel = h.enabled ? '有効' : '無効';
+      const enc = encodeURIComponent(h.hall_name);
+      return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--bg3)">
+        <span style="flex:1;font-size:.7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.hall_name)}</span>
+        <span style="font-size:.6rem;color:var(--text3)">${h.prefecture}</span>
+        <button onclick="toggleScrapeHall('${enc}',${!h.enabled})"
+          style="font-size:.58rem;padding:1px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:${enCol};cursor:pointer">${enLabel}</button>
+        <button onclick="removeScrapeHall('${enc}')"
+          style="font-size:.58rem;padding:1px 5px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--danger);cursor:pointer">削除</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    el.innerHTML = '<span style="color:var(--danger);font-size:.65rem">読み込み失敗</span>';
+  }
+}
+
+async function addScrapeHall() {
+  const name = document.getElementById('add-hall-name')?.value?.trim();
+  const pref = document.getElementById('add-hall-pref')?.value?.trim() || '大阪府';
+  if (!name) { showToast('ホール名を入力してください', 'error'); return; }
+  const res = await fetch(`/api/scrape/halls?hall_name=${encodeURIComponent(name)}&prefecture=${encodeURIComponent(pref)}`, { method: 'POST' }).then(r => r.json()).catch(() => null);
+  if (res?.ok) {
+    document.getElementById('add-hall-name').value = '';
+    showToast(`${name} を追加しました`);
+    loadScrapeHalls();
+  } else {
+    showToast('追加失敗', 'error');
+  }
+}
+
+async function removeScrapeHall(encodedName) {
+  const name = decodeURIComponent(encodedName);
+  if (!confirm(`「${name}」をスクレイプ対象から削除しますか？`)) return;
+  const res = await fetch(`/api/scrape/halls?hall_name=${encodedName}`, { method: 'DELETE' }).then(r => r.json()).catch(() => null);
+  if (res?.ok) { showToast(`${name} を削除しました`); loadScrapeHalls(); }
+  else { showToast('削除失敗', 'error'); }
+}
+
+async function toggleScrapeHall(encodedName, enable) {
+  const name = decodeURIComponent(encodedName);
+  const res = await fetch(`/api/scrape/halls?hall_name=${encodedName}&enabled=${enable}`, { method: 'PATCH' }).then(r => r.json()).catch(() => null);
+  if (res?.ok) { loadScrapeHalls(); }
+  else { showToast('更新失敗', 'error'); }
+}
+window.addScrapeHall = addScrapeHall;
+window.removeScrapeHall = removeScrapeHall;
+window.toggleScrapeHall = toggleScrapeHall;

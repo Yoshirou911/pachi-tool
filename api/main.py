@@ -101,6 +101,12 @@ async def _startup() -> None:
     import threading
 
     def _init() -> None:
+        # デフォルトホールをDBへシード（DBが空の場合のみ）
+        try:
+            from scraper.anaslo import seed_hall_configs
+            seed_hall_configs(_DEFAULT_HALLS)
+        except Exception:
+            pass
         try:
             compare_halls(days=30)
         except Exception:
@@ -117,25 +123,34 @@ async def _startup() -> None:
 _SCHEDULER = None
 _SCRAPE_RUNNING = False  # 多重実行防止フラグ
 
-# 自動スクレイプ対象ホール一覧
-SCRAPE_HALLS = [
-    "ベガスベガス大東店",
-    "マルハン大東店",
-    "ニコニコ住道店",
-    "スーパーコスモプレミアム大東店",
-    "マルハン枚方店",
-    "ニコニコ枚方店",
-    "ベガビック1700枚方店",
-    "G-ONE枚方宮之阪店",
-    "キコーナ寝屋川南店",
-    "ニコニコ寝屋川南インター店",
-    "マルハン寝屋川店",
-    "ベラジオ寝屋川店",
-    "ニコニコ寝屋川店スロット館",
-    "123交野店",
-    "キコーナ守口店",
-    "テキサス門真",
+# デフォルトホール一覧（DBが空の場合のシード用）
+_DEFAULT_HALLS = [
+    {"hall_name": "ベガスベガス大東店",             "prefecture": "大阪府"},
+    {"hall_name": "マルハン大東店",                 "prefecture": "大阪府"},
+    {"hall_name": "ニコニコ住道店",                 "prefecture": "大阪府"},
+    {"hall_name": "スーパーコスモプレミアム大東店", "prefecture": "大阪府"},
+    {"hall_name": "マルハン枚方店",                 "prefecture": "大阪府"},
+    {"hall_name": "ニコニコ枚方店",                 "prefecture": "大阪府"},
+    {"hall_name": "ベガビック1700枚方店",           "prefecture": "大阪府"},
+    {"hall_name": "G-ONE枚方宮之阪店",             "prefecture": "大阪府"},
+    {"hall_name": "キコーナ寝屋川南店",             "prefecture": "大阪府"},
+    {"hall_name": "ニコニコ寝屋川南インター店",     "prefecture": "大阪府"},
+    {"hall_name": "マルハン寝屋川店",               "prefecture": "大阪府"},
+    {"hall_name": "ベラジオ寝屋川店",               "prefecture": "大阪府"},
+    {"hall_name": "ニコニコ寝屋川店スロット館",     "prefecture": "大阪府"},
+    {"hall_name": "123交野店",                      "prefecture": "大阪府"},
+    {"hall_name": "キコーナ守口店",                 "prefecture": "大阪府"},
+    {"hall_name": "テキサス門真",                   "prefecture": "大阪府"},
 ]
+
+def _get_active_halls() -> list[dict]:
+    """DBからenable=1のホール一覧を取得。失敗時はデフォルト返却"""
+    try:
+        from scraper.anaslo import get_hall_configs
+        halls = get_hall_configs(enabled_only=True)
+        return halls if halls else _DEFAULT_HALLS
+    except Exception:
+        return _DEFAULT_HALLS
 
 
 def _run_nightly_scrape() -> None:
@@ -146,13 +161,16 @@ def _run_nightly_scrape() -> None:
         return
     _SCRAPE_RUNNING = True
     try:
-        from scraper.anaslo import scrape_hall, get_scrape_logs
-        print(f"[スクレイプ] 夜間バッチ開始: {len(SCRAPE_HALLS)}店舗")
-        for hall in SCRAPE_HALLS:
+        from scraper.anaslo import scrape_hall
+        halls = _get_active_halls()
+        print(f"[スクレイプ] 夜間バッチ開始: {len(halls)}店舗")
+        for h in halls:
+            hname = h["hall_name"] if isinstance(h, dict) else h
+            pref = h.get("prefecture", "大阪府") if isinstance(h, dict) else "大阪府"
             try:
-                scrape_hall(hall, prefecture="大阪府", max_days=5, unlimited=True)
+                scrape_hall(hname, prefecture=pref, max_days=5, unlimited=True)
             except Exception as e:
-                print(f"[スクレイプ] {hall} エラー: {e}")
+                print(f"[スクレイプ] {hname} エラー: {e}")
             time.sleep(30)
         print("[スクレイプ] 夜間バッチ完了")
     except Exception as e:
@@ -1182,27 +1200,33 @@ def trigger_nightly_scrape(
     if _SCRAPE_RUNNING:
         return {"ok": False, "message": "すでにスクレイプ実行中です。完了後に再試行してください。"}
 
-    hall_list = [h.strip() for h in halls.split(",")] if halls else SCRAPE_HALLS
+    if halls:
+        hall_list = [{"hall_name": h.strip(), "prefecture": "大阪府"} for h in halls.split(",")]
+    else:
+        hall_list = _get_active_halls()
 
     def _run() -> None:
         global _SCRAPE_RUNNING
         _SCRAPE_RUNNING = True
         try:
             from scraper.anaslo import scrape_hall
-            for hall in hall_list:
+            for h in hall_list:
+                hname = h["hall_name"] if isinstance(h, dict) else h
+                pref = h.get("prefecture", "大阪府") if isinstance(h, dict) else "大阪府"
                 try:
-                    scrape_hall(hall, prefecture="大阪府", max_days=days)
+                    scrape_hall(hname, prefecture=pref, max_days=days)
                 except Exception as e:
-                    print(f"[スクレイプ] {hall} エラー: {e}")
+                    print(f"[スクレイプ] {hname} エラー: {e}")
                 time.sleep(30)
         finally:
             _SCRAPE_RUNNING = False
 
     background_tasks.add_task(_run)
+    names = [h["hall_name"] if isinstance(h, dict) else h for h in hall_list]
     return {
         "ok": True,
         "message": f"{len(hall_list)}店舗のスクレイプを開始しました ({days}日分)",
-        "halls": hall_list,
+        "halls": names,
         "days": days,
     }
 
@@ -1225,11 +1249,62 @@ def get_auto_scrape_status() -> dict:
             "next_scheduled_run": next_run,
             "has_cookie": bool(ck),
             "has_cf_clearance": "cf_clearance" in ck if ck else False,
-            "total_halls": len(SCRAPE_HALLS),
+            "total_halls": len(_get_active_halls()),
             "recent_logs": logs,
         }
     except Exception as e:
         return {"error": str(e), "scheduler_running": False, "scrape_running": _SCRAPE_RUNNING}
+
+
+@app.get("/api/scrape/halls", tags=["scrape"])
+def list_scrape_halls() -> list[dict]:
+    """スクレイプ対象ホール一覧を返す"""
+    from scraper.anaslo import get_hall_configs
+    halls = get_hall_configs(enabled_only=False)
+    # DBが空ならデフォルトを返す（初回起動直後など）
+    return halls if halls else _DEFAULT_HALLS
+
+
+@app.post("/api/scrape/halls", tags=["scrape"])
+def add_scrape_hall(
+    hall_name: str = Query(..., description="ホール名"),
+    prefecture: str = Query("大阪府", description="都道府県"),
+    url_override: str = Query("", description="URLが自動解決できない場合の手動指定"),
+) -> dict:
+    """スクレイプ対象ホールを追加または更新"""
+    from scraper.anaslo import upsert_hall_config
+    upsert_hall_config(hall_name, prefecture, url_override)
+    return {"ok": True, "hall_name": hall_name, "prefecture": prefecture}
+
+
+@app.delete("/api/scrape/halls", tags=["scrape"])
+def remove_scrape_hall(hall_name: str = Query(..., description="削除するホール名")) -> dict:
+    """スクレイプ対象ホールを削除"""
+    from scraper.anaslo import delete_hall_config
+    deleted = delete_hall_config(hall_name)
+    return {"ok": deleted, "hall_name": hall_name}
+
+
+@app.patch("/api/scrape/halls", tags=["scrape"])
+def toggle_scrape_hall(
+    hall_name: str = Query(...),
+    enabled: bool = Query(...),
+) -> dict:
+    """ホールの有効/無効を切り替え"""
+    from scraper.anaslo import upsert_hall_config, get_hall_configs
+    halls = get_hall_configs(enabled_only=False)
+    existing = next((h for h in halls if h["hall_name"] == hall_name), None)
+    if not existing:
+        return {"ok": False, "error": "not found"}
+    upsert_hall_config(hall_name, existing["prefecture"], existing.get("url_override") or "", enabled)
+    return {"ok": True, "hall_name": hall_name, "enabled": enabled}
+
+
+@app.get("/api/scrape/logs", tags=["scrape"])
+def get_scrape_logs_api(limit: int = Query(50, ge=1, le=200)) -> list[dict]:
+    """スクレイプ実行ログを返す"""
+    from scraper.anaslo import get_scrape_logs
+    return get_scrape_logs(limit=limit)
 
 
 @app.get("/api/hall/compare", tags=["hall"])

@@ -141,6 +141,15 @@ def init_db() -> sqlite3.Connection:
             error_msg  TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS scrape_hall_config (
+            hall_name    TEXT PRIMARY KEY,
+            prefecture   TEXT NOT NULL DEFAULT '大阪府',
+            url_override TEXT,
+            enabled      INTEGER NOT NULL DEFAULT 1,
+            added_at     TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
     for col, typ in [("bb_prob", "REAL"), ("rb_prob", "REAL"), ("source", "TEXT DEFAULT 'anaslo'")]:
         try:
             conn.execute(f"ALTER TABLE hall_day_seat ADD COLUMN {col} {typ}")
@@ -189,6 +198,69 @@ def get_scrape_logs(limit: int = 50) -> list[dict]:
         ]
     except Exception:
         return []
+
+
+def get_hall_configs(enabled_only: bool = False) -> list[dict]:
+    """スクレイプ対象ホール一覧をDBから取得"""
+    try:
+        conn = init_db()
+        q = "SELECT hall_name, prefecture, url_override, enabled, added_at FROM scrape_hall_config"
+        if enabled_only:
+            q += " WHERE enabled=1"
+        q += " ORDER BY added_at"
+        rows = conn.execute(q).fetchall()
+        conn.close()
+        return [
+            {"hall_name": r[0], "prefecture": r[1], "url_override": r[2],
+             "enabled": bool(r[3]), "added_at": r[4]}
+            for r in rows
+        ]
+    except Exception:
+        return []
+
+
+def upsert_hall_config(hall_name: str, prefecture: str = "大阪府",
+                       url_override: str = "", enabled: bool = True) -> None:
+    """ホール設定を追加または更新"""
+    conn = init_db()
+    conn.execute(
+        """INSERT INTO scrape_hall_config (hall_name, prefecture, url_override, enabled)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(hall_name) DO UPDATE SET
+             prefecture=excluded.prefecture,
+             url_override=excluded.url_override,
+             enabled=excluded.enabled""",
+        (hall_name, prefecture, url_override or None, 1 if enabled else 0)
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_hall_config(hall_name: str) -> bool:
+    """ホール設定を削除。削除できれば True"""
+    try:
+        conn = init_db()
+        cur = conn.execute("DELETE FROM scrape_hall_config WHERE hall_name=?", (hall_name,))
+        conn.commit()
+        deleted = cur.rowcount > 0
+        conn.close()
+        return deleted
+    except Exception:
+        return False
+
+
+def seed_hall_configs(default_halls: list[dict]) -> None:
+    """DBが空の場合のみデフォルトホールを投入"""
+    conn = init_db()
+    count = conn.execute("SELECT COUNT(*) FROM scrape_hall_config").fetchone()[0]
+    if count == 0:
+        for h in default_halls:
+            conn.execute(
+                "INSERT OR IGNORE INTO scrape_hall_config (hall_name, prefecture) VALUES (?, ?)",
+                (h["hall_name"], h.get("prefecture", "大阪府"))
+            )
+        conn.commit()
+    conn.close()
 
 
 # ---------------------------------------------------------------------------

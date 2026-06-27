@@ -3445,50 +3445,6 @@ async function loadMachineSettingTendency(hall) {
   }
 }
 
-async function loadHallCompare() {
-  const card = document.getElementById('hall-compare-card');
-  const body = document.getElementById('hall-compare-body');
-  if (!card) return;
-  try {
-    const halls = await apiFetch('/api/hall/compare?days=30');
-    if (!halls?.length) { card.style.display = 'none'; return; }
-
-    const sign = v => v >= 0 ? `+${v}` : `${v}`;
-    const rows = halls.slice(0, 10).map((h, i) => {
-      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
-      const zCol = h.bb_z >= 0.5 ? 'var(--success)' : h.bb_z <= -0.5 ? 'var(--danger)' : 'var(--text3)';
-      const diffCol = h.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
-      const isSelected = h.hall_name === getSelectedHall();
-      let trendHtml2 = '';
-      if (h.bb_trend_7d !== null && h.bb_trend_7d !== undefined) {
-        const t2 = h.bb_trend_7d;
-        const tc2 = t2 > 1 ? 'var(--success)' : t2 < -1 ? 'var(--danger)' : 'var(--text3)';
-        trendHtml2 = ` <span style="color:${tc2};font-size:.58rem">${t2 > 0 ? '+' : ''}${t2}%</span>`;
-      }
-      return `<div onclick="selectHall(${JSON.stringify(h.hall_name)})"
-        style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--bg2);cursor:pointer;
-               ${isSelected ? 'background:rgba(124,127,245,.08);border-radius:6px;' : ''}"
-        title="${h.record_count}レコード / ${h.days_data}日分">
-        <span style="font-size:.8rem;min-width:24px;text-align:center">${medal}</span>
-        <div style="flex:1;min-width:0">
-          <div style="font-size:.78rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-                      color:${isSelected ? 'var(--primary-h)' : 'var(--text1)'}">${esc(h.hall_name)}${trendHtml2}</div>
-          <div style="font-size:.62rem;color:var(--text3)">${h.machine_count}機種 / 直近${h.days_data}日</div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:.75rem;font-weight:700;color:${zCol}">BB z=${sign(h.bb_z)}σ</div>
-          <div style="font-size:.62rem;color:${diffCol}">${sign(h.avg_diff)}枚</div>
-        </div>
-      </div>`;
-    }).join('');
-
-    body.innerHTML = rows + `<div style="font-size:.6rem;color:var(--text3);margin-top:6px">クリックでホールを切り替え / 直近30日のBB確率比較</div>`;
-    card.style.display = 'block';
-  } catch(e) {
-    card.style.display = 'none';
-  }
-}
-
 function selectHall(hallName) {
   const sel = document.getElementById('hall-select');
   if (!sel) return;
@@ -4096,11 +4052,14 @@ async function loadHallCompare() {
       const surgeHtml = r.surge_seat_count > 0
         ? `<span style="color:var(--warning);font-size:.58rem;margin-left:4px">🔺${r.surge_seat_count}台急上昇</span>`
         : '';
+      const eventHtml = r.today_event_z != null && r.today_event_z >= 0.5
+        ? `<span style="color:var(--primary-h);font-size:.58rem;margin-left:4px">📅イベント候補 z=${r.today_event_z.toFixed(1)}σ</span>`
+        : '';
       return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
         onclick="switchToHall(decodeURIComponent('${encH}'))">
         <span style="font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${trendHtml}${surgeHtml}</div>
+          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${trendHtml}${surgeHtml}${eventHtml}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
             <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>

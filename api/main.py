@@ -1296,6 +1296,15 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
     if not rows:
         return []
 
+    # 各ホールのイベント日スコアを計算
+    event_zs: dict = {}
+    try:
+        from hall.prior import _compute_today_event_z
+        for row in rows:
+            event_zs[row[0]] = _compute_today_event_z(row[0])
+    except Exception:
+        pass
+
     import statistics as _stats
     bbs = [float(r[4]) for r in rows if r[4]]
     mean_bb = _stats.mean(bbs) if bbs else 0.0
@@ -1310,6 +1319,7 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
         bb_trend = None
         if bb_7d and bb_prev and bb_prev > 0:
             bb_trend = round((bb_7d - bb_prev) / bb_prev * 100, 1)
+        ez = event_zs.get(r[0])
         result.append({
             "rank": i + 1,
             "hall_name": r[0],
@@ -1325,6 +1335,7 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
             "bb_z": z,
             "bb_trend_7d": bb_trend,
             "surge_seat_count": surge_counts.get(r[0], 0),
+            "today_event_z": round(ez, 2) if ez is not None else None,
         })
 
     _cache_set(ckey, result)

@@ -1003,6 +1003,35 @@ def get_scrape_status(hall_name: str = Query(...)) -> dict:
     }
 
 
+@app.post("/api/cache/clear", tags=["admin"])
+def clear_cache(hall_name: Optional[str] = Query(None)) -> dict:
+    """インメモリキャッシュを消去する。hall_name 指定でそのホールのみ。"""
+    with _CACHE_LOCK:
+        if hall_name:
+            keys = [k for k in _CACHE if hall_name in k]
+            for k in keys:
+                del _CACHE[k]
+            cleared = len(keys)
+        else:
+            cleared = len(_CACHE)
+            _CACHE.clear()
+    return {"cleared": cleared, "message": f"{cleared}件のキャッシュを削除しました"}
+
+
+@app.get("/api/cache/stats", tags=["admin"])
+def cache_stats() -> dict:
+    """キャッシュの統計情報を返す。"""
+    import time as _t
+    now = _t.time()
+    with _CACHE_LOCK:
+        entries = [(k, now - v[0]) for k, v in _CACHE.items()]
+    return {
+        "total_entries": len(entries),
+        "ttl_seconds": _CACHE_TTL,
+        "entries": [{"key": k, "age_seconds": round(a)} for k, a in sorted(entries, key=lambda x: x[1])]
+    }
+
+
 # ---------------------------------------------------------------------------
 # アナスロ 台番別データ
 # ---------------------------------------------------------------------------

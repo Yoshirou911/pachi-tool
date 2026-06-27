@@ -242,6 +242,103 @@ def _machine_setting_tendency(hall_name: str) -> str:
         return ""
 
 
+def _bb_surge_summary(hall_name: str) -> str:
+    """直近3日でBB確率が急上昇した台（設定入れ替えシグナル）"""
+    try:
+        import datetime as _dt
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        prev_date = (_dt.date.today() - _dt.timedelta(days=3)).isoformat()
+
+        recent = conn.execute(
+            """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
+               FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL AND report_date >= ?
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+               GROUP BY machine_name, seat_number HAVING COUNT(*) >= 1""",
+            (hall_name, prev_date)
+        ).fetchall()
+
+        baseline = conn.execute(
+            """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
+               FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL
+                 AND report_date < ? AND report_date >= date(?, '-60 days')
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+               GROUP BY machine_name, seat_number HAVING COUNT(*) >= 3""",
+            (hall_name, prev_date, prev_date)
+        ).fetchall()
+        conn.close()
+
+        import statistics as _s
+        m_bbs: dict[str, list[float]] = {}
+        for r in baseline:
+            m_bbs.setdefault(r[0], []).append(float(r[2]))
+        machine_std = {m: (_s.stdev(v) if len(v) > 1 else 0.001) or 0.001 for m, v in m_bbs.items()}
+        bmap = {(r[0], r[1]): float(r[2]) for r in baseline}
+
+        surges = []
+        for r in recent:
+            base = bmap.get((r[0], r[1]))
+            if base is None:
+                continue
+            std = machine_std.get(r[0], 0.001)
+            z = (float(r[2]) - base) / std
+            if z >= 0.8:
+                surges.append((r[0], r[1], z, float(r[2])*100, base*100))
+
+        if not surges:
+            return ""
+        surges.sort(key=lambda x: -x[2])
+        lines = ["【BB確率急上昇台（設定入れ替えシグナル）直近3日】"]
+        for m, s, z, rec_bb, base_bb in surges[:5]:
+            lines.append(f"  {m} {s}番: +{z:.1f}σ（ベース{base_bb:.3f}% → 直近{rec_bb:.3f}%）")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _top_streak_seats(hall_name: str) -> str:
+    """連続プラス台（3日以上連続好調）"""
+    try:
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        rows = conn.execute(
+            """SELECT machine_name, seat_number, report_date, diff_coins
+               FROM hall_day_seat
+               WHERE hall_name=? AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
+                 AND report_date >= date('now', '-14 days')
+               ORDER BY machine_name, seat_number, report_date DESC""",
+            (hall_name,)
+        ).fetchall()
+        conn.close()
+
+        from collections import defaultdict
+        seat_data: dict = defaultdict(list)
+        for m, s, d, diff in rows:
+            seat_data[(m, s)].append(diff or 0)
+
+        streaks = []
+        for (m, s), diffs in seat_data.items():
+            streak = 0
+            for d in diffs:
+                if d > 0:
+                    streak += 1
+                else:
+                    break
+            if streak >= 3:
+                streaks.append((m, s, streak, sum(diffs[:streak])//streak))
+
+        if not streaks:
+            return ""
+        streaks.sort(key=lambda x: -x[2])
+        lines = ["【連続好調台（直近3日以上プラス）】"]
+        for m, s, k, avg in streaks[:5]:
+            lines.append(f"  {m} {s}番: {k}連続プラス（平均{avg:+}枚）")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def _today_dow_best(hall_name: str) -> str:
     """本日曜日に強い機種TOP5"""
     try:
@@ -370,6 +467,8 @@ def generate_report(hall_name: str) -> str:
         _today_dow_best(hall_name),
         _machine_setting_tendency(hall_name),
         _today_targets_summary(hall_name),
+        _bb_surge_summary(hall_name),
+        _top_streak_seats(hall_name),
         _session_summary(10),
     ]))
 
@@ -378,15 +477,18 @@ def generate_report(hall_name: str) -> str:
 {context}
 
 レポートに含める内容（データがある部分のみ）:
-1. 狙い目の台番ベスト3（機種名・台番・理由を明記。平均差枚・勝率を根拠にする）
+1. 狙い目の台番ベスト3（機種名・台番・理由を明記。平均差枚・勝率・BB確率を根拠にする）
 2. 機種別推定設定傾向から判断した「今日打つべき機種」TOP2（推定設定と高設定確率を根拠に）
-3. 本日曜日に強い機種（曜日特化傾向から）
-4. 末尾傾向から見た立ち回り方針
-5. 避けるべき台番ワースト2（具体的な数字で理由を示す）
-6. 今日のひとこと総括と最重要狙い台
+3. BB確率急上昇台（設定入れ替えが疑われる台 — 最優先狙い候補）
+4. 連続好調台（3日以上プラス継続中の台）
+5. 本日曜日に強い機種（曜日特化傾向から）
+6. 末尾傾向から見た立ち回り方針
+7. 避けるべき台番ワースト2（具体的な数字で理由を示す）
+8. 今日のひとこと総括と最重要狙い台1点
 
 ・データが少ない場合は「データ不足のため参考程度」と明記
-・具体的な数字（差枚・勝率・推定設定）を使って信頼性を示すこと
+・具体的な数字（差枚・勝率・推定設定・BBσ）を使って信頼性を示すこと
+・BB急上昇はσ値が高いほど設定入れ替えの証拠として強力であることを考慮すること
 ・推奨台は「○○の△番台（平均+□□枚、高設定確率○○%）」の形式で示すこと"""
 
     messages = [

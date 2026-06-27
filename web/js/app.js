@@ -4370,6 +4370,71 @@ document.getElementById('save-cookie-btn')?.addEventListener('click', async () =
 });
 
 // 手動スクレイプ実行ボタン
+let _bulkPollTimer = null;
+
+function _renderBulkProgress(d) {
+  const card = document.getElementById('bulk-progress-card');
+  if (!card) return;
+  card.style.display = 'block';
+
+  const total = d.total || 0;
+  const done = d.done || 0;
+  const failed = d.failed || 0;
+  const pct = total > 0 ? Math.round((done + failed) / total * 100) : 0;
+
+  document.getElementById('bp-count').textContent = `${done + failed}/${total}`;
+  document.getElementById('bp-bar').style.width = pct + '%';
+  document.getElementById('bp-mode').textContent = `${d.mode || ''} / ${d.days || 0}日分`;
+
+  const titleEl = document.getElementById('bp-title');
+  if (!d.running && total > 0) {
+    titleEl.textContent = '全店舗スクレイプ完了';
+    titleEl.style.color = 'var(--success)';
+  } else {
+    titleEl.textContent = '全店舗スクレイプ実行中';
+    titleEl.style.color = 'var(--text1)';
+  }
+
+  let meta = [];
+  if (d.running && d.eta_min > 0) meta.push(`残り約${d.eta_min}分`);
+  if (done > 0) meta.push(`完了 ${done}店舗`);
+  if (failed > 0) meta.push(`<span style="color:var(--danger)">失敗 ${failed}店舗</span>`);
+  document.getElementById('bp-meta').innerHTML = meta.join('<span style="margin:0 4px">·</span>');
+
+  const hallsEl = document.getElementById('bp-halls');
+  if (d.halls && d.halls.length) {
+    const statusLabel = { done: '完了', running: '実行中', waiting: '待機中', failed: '失敗' };
+    const statusColor = { done: 'var(--success)', running: 'var(--accent)', waiting: 'var(--text3)', failed: 'var(--danger)' };
+    hallsEl.innerHTML = d.halls.map(h => {
+      const isRunning = h.status === 'running';
+      const dot = isRunning ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);animation:bpulse 1.2s ease-in-out infinite;vertical-align:middle;margin-right:4px"></span>' : '';
+      const records = h.records ? `${h.records}件` : (h.status === 'waiting' ? '—' : '');
+      return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${h.name}</div>
+        <div style="font-size:.65rem;color:var(--text3);min-width:30px;text-align:right">${records}</div>
+        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+function _startBulkPoll() {
+  if (_bulkPollTimer) clearInterval(_bulkPollTimer);
+  const btn = document.getElementById('scrape-run-btn');
+  _bulkPollTimer = setInterval(async () => {
+    try {
+      const d = await fetch('/api/scrape/bulk_status').then(r => r.json());
+      _renderBulkProgress(d);
+      if (!d.running) {
+        clearInterval(_bulkPollTimer);
+        _bulkPollTimer = null;
+        if (btn) btn.disabled = false;
+        loadScrapeManager();
+      }
+    } catch(e) { /* ignore poll errors */ }
+  }, 3000);
+}
+
 document.getElementById('scrape-run-btn')?.addEventListener('click', async () => {
   const btn = document.getElementById('scrape-run-btn');
   const statusEl = document.getElementById('scrape-run-status');
@@ -4381,14 +4446,14 @@ document.getElementById('scrape-run-btn')?.addEventListener('click', async () =>
     const res = await fetch(`/api/scrape/run?days=${days}&minrepo_only=${minrepoOnly}`, { method: 'POST' }).then(r => r.json());
     if (res.ok) {
       showToast(res.message);
-      statusEl.innerHTML = `<span style="color:var(--success)">${res.halls?.length || 0}店舗を実行中 — 完了まで数十分かかります</span>`;
-      setTimeout(() => loadScrapeManager(), 5000);
+      statusEl.innerHTML = '';
+      _startBulkPoll();
     } else {
       statusEl.innerHTML = `<span style="color:var(--danger)">${res.message || '実行失敗'}</span>`;
+      btn.disabled = false;
     }
   } catch(e) {
     statusEl.innerHTML = `<span style="color:var(--danger)">エラー: ${e.message}</span>`;
-  } finally {
     btn.disabled = false;
   }
 });

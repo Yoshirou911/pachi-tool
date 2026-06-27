@@ -606,6 +606,9 @@ details[open] > summary::after { transform: rotate(90deg); }
 .card-col-body { margin-top: 12px; }
 .card-col.closed .card-col-body { display: none; }
 
+/* ===== Bulk scrape progress ===== */
+@keyframes bpulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
 /* ===== Hall sub-tabs ===== */
 .hall-sub-tabs {
   display: flex;

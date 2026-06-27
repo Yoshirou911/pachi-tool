@@ -122,6 +122,13 @@ async def _startup() -> None:
 
 _SCHEDULER = None
 _SCRAPE_RUNNING = False  # 多重実行防止フラグ
+_BULK_PROGRESS: dict = {
+    "running": False,
+    "started_at": None,
+    "mode": "",
+    "days": 0,
+    "halls": [],   # [{name, status, records, error}]
+}
 
 # デフォルトホール一覧（DBが空の場合のシード用）
 _DEFAULT_HALLS = [
@@ -1224,38 +1231,86 @@ def trigger_nightly_scrape(
     else:
         hall_list = _get_active_halls()
 
+    import datetime as _dt_bulk
+
+    hall_names = [h["hall_name"] if isinstance(h, dict) else h for h in hall_list]
+    mode = "みんレポのみ" if minrepo_only else "アナスロ＋みんレポ"
+
+    _BULK_PROGRESS.update({
+        "running": True,
+        "started_at": _dt_bulk.datetime.now().isoformat(),
+        "mode": mode,
+        "days": days,
+        "halls": [{"name": n, "status": "waiting", "records": 0, "error": ""} for n in hall_names],
+    })
+
+    def _set_hall(name: str, status: str, records: int = 0, error: str = "") -> None:
+        for h in _BULK_PROGRESS["halls"]:
+            if h["name"] == name:
+                h["status"] = status
+                if records:
+                    h["records"] = records
+                if error:
+                    h["error"] = error
+                break
+
+    def _count_records(hall_name: str) -> int:
+        try:
+            conn = _get_reports_conn()
+            if not conn:
+                return 0
+            row = conn.execute(
+                "SELECT COUNT(*) FROM hall_day_machine WHERE hall_name=?", (hall_name,)
+            ).fetchone()
+            conn.close()
+            return row[0] if row else 0
+        except Exception:
+            return 0
+
     def _run() -> None:
         global _SCRAPE_RUNNING
         _SCRAPE_RUNNING = True
         try:
-            # ① アナスロ（Cloudflareがある場合はスキップされる）
+            # ① アナスロ
             if not minrepo_only:
                 try:
                     from scraper.anaslo import scrape_hall
-                    print(f"[アナスロ] 手動実行開始: {len(hall_list)}店舗")
                     for h in hall_list:
                         hname = h["hall_name"] if isinstance(h, dict) else h
                         pref = h.get("prefecture", "大阪府") if isinstance(h, dict) else "大阪府"
+                        _set_hall(hname, "running")
                         try:
                             scrape_hall(hname, prefecture=pref, max_days=days)
+                            _set_hall(hname, "done")
                         except Exception as e:
-                            print(f"[アナスロ] {hname} エラー: {e}")
+                            _set_hall(hname, "failed", error=str(e)[:80])
                         time.sleep(30)
-                    print("[アナスロ] 手動実行完了")
                 except Exception as e:
                     print(f"[アナスロ] 全体エラー: {e}")
-            # ② みんレポ（必ず実行）
-            _run_minrepo_nightly(hall_list, days=min(days, 30))
+
+            # ② みんレポ
+            for h in hall_list:
+                hname = h["hall_name"] if isinstance(h, dict) else h
+                if not minrepo_only:
+                    pass  # アナスロ済みステータスを上書きしない
+                else:
+                    _set_hall(hname, "running")
+                try:
+                    _run_scrape(hname, days=min(days, 30))
+                    recs = _count_records(hname)
+                    _set_hall(hname, "done", records=recs)
+                except Exception as e:
+                    _set_hall(hname, "failed", error=str(e)[:80])
+                time.sleep(3)
         finally:
             _SCRAPE_RUNNING = False
+            _BULK_PROGRESS["running"] = False
 
     background_tasks.add_task(_run)
-    names = [h["hall_name"] if isinstance(h, dict) else h for h in hall_list]
-    mode = "みんレポのみ" if minrepo_only else "アナスロ＋みんレポ"
     return {
         "ok": True,
         "message": f"{len(hall_list)}店舗のスクレイプを開始しました（{mode} / {days}日分）",
-        "halls": names,
+        "halls": hall_names,
         "days": days,
     }
 
@@ -1283,6 +1338,44 @@ def get_auto_scrape_status() -> dict:
         }
     except Exception as e:
         return {"error": str(e), "scheduler_running": False, "scrape_running": _SCRAPE_RUNNING}
+
+
+@app.get("/api/scrape/bulk_status", tags=["scrape"])
+def get_bulk_scrape_status() -> dict:
+    """全店舗一括スクレイプの進捗を返す"""
+    halls = _BULK_PROGRESS.get("halls", [])
+    done = sum(1 for h in halls if h["status"] == "done")
+    failed = sum(1 for h in halls if h["status"] == "failed")
+    total = len(halls)
+    running_hall = next((h["name"] for h in halls if h["status"] == "running"), None)
+
+    elapsed_sec = 0
+    if _BULK_PROGRESS.get("started_at"):
+        import datetime as _dt2
+        try:
+            elapsed_sec = (
+                _dt2.datetime.now() - _dt2.datetime.fromisoformat(_BULK_PROGRESS["started_at"])
+            ).total_seconds()
+        except Exception:
+            pass
+
+    finished = done + failed
+    eta_min = 0
+    if finished > 0 and total > finished and elapsed_sec > 0:
+        per_hall = elapsed_sec / finished
+        eta_min = round(per_hall * (total - finished) / 60)
+
+    return {
+        "running": _BULK_PROGRESS.get("running", False),
+        "mode": _BULK_PROGRESS.get("mode", ""),
+        "days": _BULK_PROGRESS.get("days", 0),
+        "total": total,
+        "done": done,
+        "failed": failed,
+        "current_hall": running_hall,
+        "eta_min": eta_min,
+        "halls": halls,
+    }
 
 
 @app.get("/api/scrape/halls", tags=["scrape"])

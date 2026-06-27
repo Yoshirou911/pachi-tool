@@ -747,6 +747,13 @@ function renderAdvice(r) {
     return;
   }
 
+  // 残り期待収益計算（denomSel value × 3コイン × EVで損益）
+  const denomYen = parseFloat(document.getElementById('denom-select')?.value || '1');
+  const costPer1000G = 3 * denomYen * 1000;
+  const profitPer1000G = Math.round(costPer1000G * (ev - 1));
+  const profitSign = profitPer1000G >= 0 ? '+' : '';
+  const evDetail = `EV ${r.ev_pct?.toFixed(1)}% / 高設定${(highProb*100).toFixed(0)}% / 1000Gあたり${profitSign}${profitPer1000G.toLocaleString()}円`;
+
   if (ev >= 1.05 || (highProb >= 0.6 && expected >= 5.0)) {
     el.style.display = 'block';
     el.style.background = 'rgba(16,185,129,.1)';
@@ -754,7 +761,7 @@ function renderAdvice(r) {
     icon.textContent = '✅';
     text.textContent = 'ヤメ時ではありません — 継続推奨';
     text.style.color = 'var(--success)';
-    detail.textContent = `期待値 ${r.ev_pct?.toFixed(1)}% / 高設定率 ${(highProb*100).toFixed(0)}%`;
+    detail.textContent = evDetail;
   } else if (ev >= 1.00 || highProb >= 0.35) {
     el.style.display = 'block';
     el.style.background = 'rgba(245,158,11,.08)';
@@ -762,7 +769,7 @@ function renderAdvice(r) {
     icon.textContent = '⚠️';
     text.textContent = '要判断 — 状況次第で続行';
     text.style.color = 'var(--warning)';
-    detail.textContent = `期待値 ${r.ev_pct?.toFixed(1)}% / 高設定率 ${(highProb*100).toFixed(0)}%`;
+    detail.textContent = evDetail;
   } else if (r.should_retreat || ev < 0.98) {
     el.style.display = 'block';
     el.style.background = 'rgba(244,63,94,.1)';
@@ -770,7 +777,7 @@ function renderAdvice(r) {
     icon.textContent = '🚨';
     text.textContent = '撤退推奨';
     text.style.color = 'var(--danger)';
-    detail.textContent = r.retreat_reason || `期待値 ${r.ev_pct?.toFixed(1)}% — EV割れ`;
+    detail.textContent = r.retreat_reason ? `${r.retreat_reason} / ${evDetail}` : evDetail;
   } else {
     el.style.display = 'none';
   }

@@ -321,6 +321,8 @@ def _estimate_prior_from_anaslo(
         bb_probs_weighted: list[tuple[float, float]] = []
         rb_probs_weighted: list[tuple[float, float]] = []
 
+        ev_diffs_weighted: list[tuple[float, float]] = []  # ev_pct から換算した差枚
+
         for diff, bb_p, rb_p, games, rdate, ev_p, row_seat in rows:
             try:
                 d = datetime.date.fromisoformat(rdate)
@@ -329,18 +331,26 @@ def _estimate_prior_from_anaslo(
                 if sql_dow:
                     row_dow = str((d.weekday() + 1) % 7)
                     if row_dow == sql_dow:
-                        w *= 2.0  # 同曜日2倍
+                        w *= 2.0
                     else:
-                        w *= 0.6  # 異曜日は60%に縮小
+                        w *= 0.6
                 # 同台番なら3倍重視
                 if seat_number is not None and row_seat is not None and int(row_seat) == seat_number:
                     w *= 3.0
-                # ゲーム数が多いほど信頼度が高い（重みを補正）
                 games_factor = math.log1p(float(games or 0)) / math.log1p(1000.0)
                 w_adj = w * max(0.3, games_factor)
             except Exception:
                 w_adj = 0.5
-            diffs_weighted.append((float(diff or 0), w_adj))
+
+            # 差枚が記録されていない場合、ev_pct から換算（スマスロ系対応）
+            effective_diff = float(diff or 0)
+            if (not diff or diff == 0) and ev_p and ev_p != 0 and games:
+                # ev_pct = 理論機械割(%) → 期待差枚 = games * (ev_pct/100 - 1) * 3
+                ev_diff = float(games) * (float(ev_p) / 100.0 - 1.0) * 3.0
+                ev_diffs_weighted.append((ev_diff, w_adj * 0.7))  # 推定値なので重みを下げる
+                effective_diff = ev_diff
+
+            diffs_weighted.append((effective_diff, w_adj))
             if bb_p and bb_p > 0:
                 bb_probs_weighted.append((float(bb_p), w_adj))
             if rb_p and rb_p > 0:

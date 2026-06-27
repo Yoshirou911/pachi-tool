@@ -1296,8 +1296,8 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
             "days_data": r[1],
             "machine_count": r[2],
             "seat_count": r[3] or 0,
-            "avg_bb_pct": round(bb * 100, 4),
-            "avg_rb_pct": round(float(r[5] or 0) * 100, 4),
+            "avg_bb_pct": round(bb, 2),
+            "avg_rb_pct": round(float(r[5] or 0), 2),
             "avg_diff": round(float(r[6] or 0)),
             "win_rate": round(float(r[7] or 0), 1),
             "latest_date": r[8] or "",
@@ -1526,8 +1526,8 @@ def get_tail_bb_analysis(
         result.append({
             "tail": int(tail),
             "count": cnt,
-            "avg_bb": round(float(avg_bb) * 100, 4),
-            "avg_rb": round(float(avg_rb or 0) * 100, 4),
+            "avg_bb": round(float(avg_bb), 2),
+            "avg_rb": round(float(avg_rb or 0), 2),
             "avg_diff": int(avg_diff or 0),
             "win_rate": round(float(win_rate or 0) * 100, 1),
             "seat_cnt": seat_cnt,
@@ -1596,11 +1596,11 @@ def get_seat_bb_ranking(
         result.append({
             "seat_number": seat,
             "cnt": cnt,
-            "avg_bb": round(avg_bb * 100, 4),
-            "avg_rb": round((avg_rb or 0) * 100, 4),
+            "avg_bb": round(avg_bb, 2),
+            "avg_rb": round((avg_rb or 0), 2),
             "avg_diff": int(avg_diff or 0),
             "last_date": last_date,
-            "dow_bb": round(dow_bb * 100, 4) if dow_bb else None,
+            "dow_bb": round(dow_bb, 2) if dow_bb else None,
             "z_score": round(z, 2),
         })
 
@@ -1694,7 +1694,9 @@ def get_seat_detail(
     prev14 = [b for d, b in bbs[14:28]]
     bb_trend = None
     if recent14 and prev14:
-        bb_trend = round((sum(recent14)/len(recent14) - sum(prev14)/len(prev14)) * 100, 4)
+        r14_avg = sum(recent14) / len(recent14)
+        p14_avg = sum(prev14) / len(prev14)
+        bb_trend = round((r14_avg - p14_avg) / max(p14_avg, 0.001) * 100, 1)
 
     # 最強曜日（avg_diffが一番高い曜日）
     best_weekday = None
@@ -2715,7 +2717,7 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
         z = (rec_bb - base) / max(m_std.get(m, 0.001), 1e-8)
         if z >= 0.8:
             surges.append({"machine": m, "seat": s, "surge_z": round(z, 1),
-                           "recent_bb": round(rec_bb * 100, 3), "baseline_bb": round(base * 100, 3)})
+                           "recent_bb": round(rec_bb, 2), "baseline_bb": round(base, 2)})
     surges.sort(key=lambda x: -x["surge_z"])
 
     # 狙い台TOP5
@@ -2872,8 +2874,8 @@ def get_bb_surge_seats(
             results.append({
                 "machine_name": mname,
                 "seat_number": seat,
-                "recent_bb": round(rec_bb * 100, 4),
-                "baseline_bb": round(base_bb * 100, 4),
+                "recent_bb": round(rec_bb, 2),
+                "baseline_bb": round(base_bb, 2),
                 "surge_z": round(surge_z, 2),
                 "recent_days": days,
             })

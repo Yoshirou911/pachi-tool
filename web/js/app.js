@@ -186,7 +186,7 @@ document.getElementById('est-seat-number')?.addEventListener('input', async func
       const col = z >= 0.5 ? 'var(--success)' : z <= -0.5 ? 'var(--danger)' : 'var(--text3)';
       const arrow = z >= 0.5 ? '▲' : z <= -0.5 ? '▼' : '─';
       html += `<div>末尾<strong>${tail}</strong>: <span style="color:${col};font-weight:700">${arrow} z=${sign(z)}σ</span>
-        <span style="color:var(--text3);margin-left:6px">BB ${tailData.avg_bb}% / ${sign(tailData.avg_diff)}枚</span></div>`;
+        <span style="color:var(--text3);margin-left:6px">BB平均${tailData.avg_bb}回 / ${sign(tailData.avg_diff)}枚</span></div>`;
     }
   }
 
@@ -1518,8 +1518,8 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
     // 差枚ヒストリーリスト
     const histRows = [...hist].reverse().slice(0, 15).map(h => {
       const c = h.diff >= 0 ? 'var(--success)' : 'var(--danger)';
-      const bbStr = h.bb_prob ? `BB 1/${(1/h.bb_prob).toFixed(0)}` : '';
-      const rbStr = h.rb_prob ? `RB 1/${(1/h.rb_prob).toFixed(0)}` : '';
+      const bbStr = (h.bb_prob && h.games) ? `BB 1/${Math.round(h.games/h.bb_prob)}` : (h.bb_prob ? `BB ${h.bb_prob}回` : '');
+      const rbStr = (h.rb_prob && h.games) ? `RB 1/${Math.round(h.games/h.rb_prob)}` : (h.rb_prob ? `RB ${h.rb_prob}回` : '');
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:.75rem">
         <span style="color:var(--text3)">${h.date} ${h.games ? h.games+'G' : ''}</span>
         <span style="color:var(--text3);font-size:.68rem">${[bbStr,rbStr].filter(Boolean).join(' / ')}</span>
@@ -3693,8 +3693,8 @@ async function loadBBSurgeSeats(hall) {
           <div style="flex:1;min-width:0">
             <div style="font-weight:700;font-size:.82rem">${esc(r.machine_name)} <span style="color:var(--text3);font-weight:400">${r.seat_number}番</span></div>
             <div style="font-size:.68rem;color:var(--text3);margin-top:2px">
-              ベースライン <span style="color:var(--text2)">${r.baseline_bb.toFixed(3)}%</span>
-              → 直近 <span style="color:var(--success);font-weight:700">${r.recent_bb.toFixed(3)}%</span>
+              BB平均 <span style="color:var(--text2)">${r.baseline_bb.toFixed(1)}回/日</span>
+              → 直近 <span style="color:var(--success);font-weight:700">${r.recent_bb.toFixed(1)}回/日</span>
             </div>
           </div>
           <div style="text-align:right;flex-shrink:0">

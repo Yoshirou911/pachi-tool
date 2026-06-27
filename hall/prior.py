@@ -368,8 +368,9 @@ def _estimate_prior_from_anaslo(
             for rr in rows:
                 s_num = rr[6]
                 bb_v = rr[1]
-                if bb_v and bb_v > 0 and s_num is not None:
-                    all_bbs_by_seat.setdefault(int(s_num), []).append(float(bb_v))
+                g_v = rr[3]
+                if bb_v and bb_v > 0 and g_v and float(g_v) > 0 and s_num is not None:
+                    all_bbs_by_seat.setdefault(int(s_num), []).append(float(bb_v) / float(g_v))
             if len(all_bbs_by_seat) >= 2:
                 seat_means = {k: sum(v)/len(v) for k, v in all_bbs_by_seat.items() if len(v) >= 2}
                 if seat_number in seat_means and len(seat_means) >= 2:
@@ -419,10 +420,11 @@ def _estimate_prior_from_anaslo(
                 effective_diff = ev_diff
 
             diffs_weighted.append((effective_diff, w_adj))
-            if bb_p and bb_p > 0:
-                bb_probs_weighted.append((float(bb_p), w_adj))
-            if rb_p and rb_p > 0:
-                rb_probs_weighted.append((float(rb_p), w_adj))
+            # bb_prob/rb_prob はBB/RB発生回数。ゲーム数で割って確率に変換
+            if bb_p and bb_p > 0 and games and float(games) > 0:
+                bb_probs_weighted.append((float(bb_p) / float(games), w_adj))
+            if rb_p and rb_p > 0 and games and float(games) > 0:
+                rb_probs_weighted.append((float(rb_p) / float(games), w_adj))
 
         # ── 差枚ガウス尤度 ──────────────────────────────────────────────
         total_w = sum(w for _, w in diffs_weighted)

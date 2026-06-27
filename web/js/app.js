@@ -3406,10 +3406,12 @@ async function loadMachineSeatRanking(hall, machineName) {
       const stabCol = r.stability >= 0.7 ? 'var(--success)' : r.stability >= 0.4 ? 'var(--warning)' : 'var(--danger)';
       const dowTxt = r.avg_same_dow !== r.avg_diff
         ? `<span style="font-size:.65rem;color:var(--primary-h);background:rgba(124,127,245,.1);padding:1px 5px;border-radius:3px">今日曜 ${sign(r.avg_same_dow)}</span>` : '';
+      const bbBadge = r.bb_z != null
+        ? `<span style="font-size:.63rem;padding:1px 5px;border-radius:3px;background:${r.bb_z>=0.5?'rgba(16,185,129,.15)':r.bb_z<=-0.5?'rgba(244,63,94,.1)':'var(--bg3)'};color:${r.bb_z>=0.5?'var(--success)':r.bb_z<=-0.5?'var(--danger)':'var(--text3)'}">BB ${r.bb_z>=0?'+':''}${r.bb_z}σ</span>` : '';
       return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
         <span style="font-size:.7rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
         <div style="flex:1">
-          <div style="font-size:.88rem;font-weight:700">${r.seat_number}番台 ${dowTxt}</div>
+          <div style="font-size:.88rem;font-weight:700;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${r.seat_number}番台 ${dowTxt} ${bbBadge}</div>
           <div style="display:flex;align-items:center;gap:5px;margin-top:3px">
             <div style="flex:1;height:3px;background:var(--bg3);border-radius:2px">
               <div style="width:${stabW}%;height:100%;background:${stabCol};border-radius:2px"></div>
@@ -3459,10 +3461,12 @@ async function loadMachineSeatRankingInline(hall, machineName, rowEl) {
       const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       const encH = encodeURIComponent(hall);
       const encM = encodeURIComponent(machineName);
+      const bbBadge2 = r.bb_z != null
+        ? `<span style="font-size:.6rem;color:${r.bb_z>=0.5?'var(--success)':r.bb_z<=-0.5?'var(--danger)':'var(--text3)'}">${r.bb_z>=0?'+':''}${r.bb_z}σ</span>` : '';
       return `<div onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${r.seat_number})"
         style="display:flex;justify-content:space-between;align-items:center;
                padding:5px 8px;border-radius:6px;background:var(--bg2);margin-bottom:3px;cursor:pointer">
-        <span style="font-size:.78rem;font-weight:700">#${i+1} ${r.seat_number}番台</span>
+        <span style="font-size:.78rem;font-weight:700">#${i+1} ${r.seat_number}番台 ${bbBadge2}</span>
         <span style="font-size:.78rem;font-weight:900;color:${col}">${sign(r.avg_diff)}枚</span>
         <span style="font-size:.63rem;color:var(--text3)">${r.days}日 勝${r.win_rate}%</span>
       </div>`;

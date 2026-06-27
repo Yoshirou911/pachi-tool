@@ -1261,7 +1261,7 @@ def get_machine_seat_ranking(
     machine_name: str = Query(...),
     days: int = Query(30),
 ) -> list[dict]:
-    """特定機種の全台番ランキング（複合スコア付き）"""
+    """特定機種の全台番ランキング（複合スコア + BB z-score付き）"""
     import datetime, math as _math
     today = datetime.date.today()
     sql_dow = str((today.weekday() + 1) % 7)
@@ -1269,6 +1269,8 @@ def get_machine_seat_ranking(
     conn = _get_reports_conn()
     if not conn:
         return []
+
+    # メイン集計
     rows = conn.execute(
         """SELECT seat_number,
                   COUNT(*) as total_days,
@@ -1277,7 +1279,8 @@ def get_machine_seat_ranking(
                   SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END)*100.0/COUNT(*) as win_rate,
                   ROUND(AVG(CASE WHEN strftime('%w',report_date)=? THEN diff_coins END)) as avg_dow,
                   COUNT(CASE WHEN strftime('%w',report_date)=? THEN 1 END) as cnt_dow,
-                  ROUND(AVG(CASE WHEN report_date >= date('now','-7 days') THEN diff_coins END)) as avg_7d
+                  ROUND(AVG(CASE WHEN report_date >= date('now','-7 days') THEN diff_coins END)) as avg_7d,
+                  AVG(bb_prob) as avg_bb
            FROM hall_day_seat
            WHERE hall_name=? AND machine_name=? AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
              AND report_date >= date('now', '-' || ? || ' days')
@@ -1288,6 +1291,12 @@ def get_machine_seat_ranking(
     ).fetchall()
     conn.close()
 
+    # BB z-score 計算 (機種内で相対化)
+    import statistics as _stats
+    bb_vals = [float(r[8]) for r in rows if r[8] is not None]
+    bb_mean = _stats.mean(bb_vals) if bb_vals else 0
+    bb_std = _stats.stdev(bb_vals) if len(bb_vals) > 1 else 0.0001
+
     result = []
     for r in rows:
         avg = r[2] or 0
@@ -1297,7 +1306,10 @@ def get_machine_seat_ranking(
         avg_dow = r[5] if (r[5] is not None and r[6] >= 1) else avg
         avg_7d  = r[7] if r[7] is not None else avg
         trend   = avg_7d - avg
-        score   = avg * 0.40 + avg_dow * 0.25 + avg * stability * 0.20 + trend * 0.15
+        avg_bb  = float(r[8]) if r[8] is not None else None
+        bb_z    = round((avg_bb - bb_mean) / max(bb_std, 1e-8), 2) if avg_bb is not None else None
+        bb_bonus = (bb_z * 500) if bb_z is not None else 0.0
+        score = avg * 0.35 + avg_dow * 0.20 + avg * stability * 0.15 + trend * 0.10 + bb_bonus * 0.20
         result.append({
             "seat_number": r[0],
             "days": r[1],
@@ -1306,6 +1318,8 @@ def get_machine_seat_ranking(
             "avg_same_dow": int(avg_dow),
             "avg_7d": int(avg_7d) if r[7] is not None else None,
             "stability": round(stability, 2),
+            "avg_bb": round(avg_bb * 100, 4) if avg_bb is not None else None,
+            "bb_z": bb_z,
             "score": round(score, 1),
         })
     result.sort(key=lambda x: -x["score"])

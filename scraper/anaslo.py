@@ -389,10 +389,15 @@ def _parse_seat_tables(soup: BeautifulSoup, url: str) -> list[dict]:
             if re.search(r'^RB|レギュラー', h): idx.setdefault('rb', i)
 
         # テーブル直前の見出しを機種名に
+        # ページ共通ラベルやナビ要素は除外
+        _NON_MACHINE = re.compile(
+            r'^(全データ|データ一覧|スロット|パチスロ|ホール|店舗|ランキング|'
+            r'台番|台データ|設定|合計|平均|トップ|メニュー|全機種|一覧|スペック)$'
+        )
         machine_name = ""
         for prev in table.find_all_previous(["h2", "h3", "h4", "strong", "caption"]):
             t = prev.get_text(strip=True)
-            if t and len(t) < 60:
+            if t and len(t) < 60 and not _NON_MACHINE.search(t):
                 machine_name = t
                 break
 

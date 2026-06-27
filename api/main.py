@@ -2690,18 +2690,19 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
 
     # BB急上昇台
     prev_date = (today - _dt.timedelta(days=3)).isoformat()
+    _mf = "AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'"
     recent_bb = {(r[0], r[1]): float(r[2]) for r in conn.execute(
-        """SELECT machine_name, seat_number, AVG(bb_prob) FROM hall_day_seat
+        f"""SELECT machine_name, seat_number, AVG(bb_prob) FROM hall_day_seat
            WHERE hall_name=? AND bb_prob IS NOT NULL AND report_date >= ?
-             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             {_mf}
            GROUP BY machine_name, seat_number HAVING COUNT(*) >= 1""",
         (hall_name, prev_date)
     ).fetchall()}
     baseline_bb = {(r[0], r[1]): float(r[2]) for r in conn.execute(
-        """SELECT machine_name, seat_number, AVG(bb_prob) FROM hall_day_seat
+        f"""SELECT machine_name, seat_number, AVG(bb_prob) FROM hall_day_seat
            WHERE hall_name=? AND bb_prob IS NOT NULL AND report_date < ?
              AND report_date >= date(?, '-60 days')
-             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             {_mf}
            GROUP BY machine_name, seat_number HAVING COUNT(*) >= 3""",
         (hall_name, prev_date, prev_date)
     ).fetchall()}
@@ -2730,6 +2731,7 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
            FROM hall_day_seat
            WHERE hall_name=? AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
              AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND machine_name NOT LIKE '%データ%'
              AND report_date >= date('now','-30 days')
            GROUP BY machine_name, seat_number HAVING days >= 3
            ORDER BY avg_diff DESC LIMIT 5""",
@@ -2737,13 +2739,14 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
     ).fetchall()
     top_seats = [{"machine": r[0], "seat": r[1], "days": r[2],
                   "avg_diff": int(r[3] or 0), "win_rate": round(r[4] or 0, 1),
-                  "avg_bb": round(float(r[5] or 0) * 100, 3)} for r in top_rows]
+                  "avg_bb": round(float(r[5] or 0), 2)} for r in top_rows]
 
     # 連続好調台（直近3日以上プラス）
     streak_rows = conn.execute(
         """SELECT machine_name, seat_number, report_date, diff_coins
            FROM hall_day_seat
            WHERE hall_name=? AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND machine_name NOT LIKE '%データ%'
              AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
              AND report_date >= date('now', '-14 days')
            ORDER BY machine_name, seat_number, report_date DESC""",

@@ -516,7 +516,7 @@ def _estimate_prior_from_anaslo(
                    FROM hall_day_seat
                    WHERE hall_name=? AND bb_prob IS NOT NULL
                      AND machine_name!=? AND machine_name NOT LIKE '末尾%'
-                     AND machine_name != '_NODATA_'
+                     AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
                      AND report_date >= date('now', '-7 days')""",
                 (hall_name, machine_name)
             ).fetchone()
@@ -525,7 +525,7 @@ def _estimate_prior_from_anaslo(
                    FROM hall_day_seat
                    WHERE hall_name=? AND bb_prob IS NOT NULL
                      AND machine_name!=? AND machine_name NOT LIKE '末尾%'
-                     AND machine_name != '_NODATA_'
+                     AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
                      AND report_date >= date('now', '-60 days')
                      AND report_date < date('now', '-7 days')""",
                 (hall_name, machine_name)
@@ -572,7 +572,7 @@ def _estimate_prior_from_anaslo(
                     """SELECT (seat_number % 10) as t, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
                        FROM hall_day_seat
                        WHERE hall_name=? AND bb_prob IS NOT NULL AND seat_number IS NOT NULL
-                         AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                         AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
                          AND report_date >= date('now', '-90 days')
                        GROUP BY t HAVING cnt >= 5""",
                     (hall_name,)
@@ -623,7 +623,7 @@ def _compute_cross_machine_event_z(hall_name: str, exclude_machine: str) -> Opti
                FROM hall_day_seat
                WHERE hall_name=? AND report_date=?
                  AND machine_name!=? AND bb_prob IS NOT NULL
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
                GROUP BY machine_name HAVING COUNT(*) >= 2""",
             (hall_name, today, exclude_machine)
         ).fetchall()
@@ -638,7 +638,7 @@ def _compute_cross_machine_event_z(hall_name: str, exclude_machine: str) -> Opti
                FROM hall_day_seat
                WHERE hall_name=? AND bb_prob IS NOT NULL
                  AND machine_name!=?
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
                  AND report_date >= date('now', '-90 days')
                GROUP BY machine_name HAVING COUNT(*) >= 5""",
             (hall_name, exclude_machine)
@@ -679,7 +679,7 @@ def _compute_today_event_z(hall_name: str) -> Optional[float]:
             """SELECT report_date, AVG(bb_prob) as avg_bb
                FROM hall_day_seat
                WHERE hall_name=? AND bb_prob IS NOT NULL
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
                  AND report_date >= date('now', '-180 days')
                GROUP BY report_date HAVING COUNT(*) >= 3""",
             (hall_name,)
@@ -859,7 +859,7 @@ def machine_ranking(hall_name: str) -> list[dict]:
                       SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate
                FROM hall_day_seat
                WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
-                 AND machine_name != '_NODATA_' AND bb_prob IS NOT NULL
+                 AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%' AND bb_prob IS NOT NULL
                GROUP BY machine_name
                HAVING COUNT(*) >= 5
                ORDER BY avg_diff DESC
@@ -871,7 +871,7 @@ def machine_ranking(hall_name: str) -> list[dict]:
         trend_recent = {r[0]: float(r[1]) for r in conn.execute(
             """SELECT machine_name, AVG(bb_prob) FROM hall_day_seat
                WHERE hall_name=? AND bb_prob IS NOT NULL
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
                  AND report_date >= date('now', '-14 days')
                GROUP BY machine_name HAVING COUNT(*) >= 2""",
             (hall_name,)
@@ -879,7 +879,7 @@ def machine_ranking(hall_name: str) -> list[dict]:
         trend_base = {r[0]: float(r[1]) for r in conn.execute(
             """SELECT machine_name, AVG(bb_prob) FROM hall_day_seat
                WHERE hall_name=? AND bb_prob IS NOT NULL
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
                  AND report_date < date('now', '-14 days')
                  AND report_date >= date('now', '-74 days')
                GROUP BY machine_name HAVING COUNT(*) >= 5""",

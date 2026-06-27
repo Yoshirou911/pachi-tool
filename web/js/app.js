@@ -1500,12 +1500,26 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
     const streakBadge = (data.win_streak >= 2)
       ? `<span style="background:rgba(16,185,129,.15);color:var(--success);font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:4px">🔥 ${data.win_streak}連勝中</span>`
       : '';
+    const maxStreakBadge = (data.max_streak >= 3 && data.win_streak < data.max_streak)
+      ? `<span style="background:rgba(251,191,36,.1);color:var(--warning);font-size:.68rem;padding:2px 8px;border-radius:4px">最長${data.max_streak}連勝</span>`
+      : '';
     const bbTrBadge = (data.bb_trend_14d !== null && data.bb_trend_14d !== undefined)
       ? (() => {
           const v = data.bb_trend_14d;
           const col = v > 0.001 ? 'var(--success)' : v < -0.001 ? 'var(--danger)' : 'var(--text3)';
           const arrow = v > 0.001 ? '↑' : v < -0.001 ? '↓' : '→';
           return `<span style="color:${col};font-size:.68rem;font-weight:700;padding:2px 8px;background:rgba(255,255,255,.04);border-radius:4px">BB ${arrow} ${v > 0 ? '+' : ''}${v.toFixed(3)}%</span>`;
+        })()
+      : '';
+    const bestDowBadge = data.best_weekday
+      ? `<span style="background:rgba(124,127,245,.1);color:var(--primary-h);font-size:.68rem;padding:2px 8px;border-radius:4px">${data.best_weekday.weekday}曜に強い (平均${data.best_weekday.avg_diff > 0 ? '+' : ''}${data.best_weekday.avg_diff}枚)</span>`
+      : '';
+    const dateBlockHtml = (data.date_block_analysis && data.date_block_analysis.length > 0)
+      ? (() => {
+          const best = data.date_block_analysis[0];
+          return best.avg_diff > 0
+            ? `<div style="font-size:.68rem;color:var(--text3);margin-top:6px">月内傾向: <strong style="color:var(--success)">${best.block}</strong>が最強 (平均+${best.avg_diff}枚 / 勝率${best.win_rate}%)</div>`
+            : '';
         })()
       : '';
     body.innerHTML = `
@@ -1522,7 +1536,8 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
           <span style="color:var(--text3)">平均差枚 <strong style="color:${avgDiff>=0?'var(--success)':'var(--danger)'}">${sign(avgDiff)}枚</strong></span>
           <span style="color:var(--text3)">勝率 <strong style="color:${winRate>=50?'var(--success)':'var(--danger)'}">${winRate}%</strong></span>
         </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap">${streakBadge}${bbTrBadge}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${streakBadge}${maxStreakBadge}${bbTrBadge}${bestDowBadge}</div>
+        ${dateBlockHtml}
       </div>
       <canvas id="seat-detail-chart" height="150" style="margin-bottom:12px;display:block;width:100%"></canvas>
       ${dowRows ? `<div style="margin-bottom:10px">
@@ -3495,6 +3510,15 @@ async function loadTodayBriefing(hall) {
        </div>`
     ).join('') || '';
 
+    const streakRows = d.streak_seats?.length
+      ? d.streak_seats.map(s =>
+          `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0">
+             <span style="color:var(--text1)">${esc(s.machine)} <strong>${s.seat}番台</strong></span>
+             <span style="color:var(--success);font-weight:700">🔥 ${s.streak}連勝 / 平均${sign(s.avg_diff)}枚</span>
+           </div>`
+        ).join('')
+      : '';
+
     const hrRows = d.high_rate_machines?.map(m =>
       `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:2px 0">
          <span>${esc(m.machine)}</span>
@@ -3507,6 +3531,10 @@ async function loadTodayBriefing(hall) {
         <div style="font-size:.65rem;color:var(--text3);font-weight:600;margin-bottom:4px">BB急上昇台 (設定入替シグナル)</div>
         ${surgeRows}
       </div>
+      ${streakRows ? `<div style="margin-bottom:8px">
+        <div style="font-size:.65rem;color:var(--text3);font-weight:600;margin-bottom:4px">連続好調台 (モメンタム)</div>
+        ${streakRows}
+      </div>` : ''}
       <div style="margin-bottom:8px">
         <div style="font-size:.65rem;color:var(--text3);font-weight:600;margin-bottom:4px">狙い台TOP${d.top_seats?.length || 0}</div>
         ${topSeatRows}

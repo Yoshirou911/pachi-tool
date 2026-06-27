@@ -1435,6 +1435,16 @@ def get_seat_detail(
         else:
             break
 
+    # 過去最長連続好調
+    max_streak = 0
+    cur = 0
+    for h in reversed(hist_list):
+        if (h["diff"] or 0) > 0:
+            cur += 1
+            max_streak = max(max_streak, cur)
+        else:
+            cur = 0
+
     # BB確率トレンド：直近14日 vs 過去14-28日
     bbs = [(h["date"], h["bb_prob"]) for h in hist_list if h["bb_prob"]]
     recent14 = [b for d, b in bbs[:14]]
@@ -1442,6 +1452,37 @@ def get_seat_detail(
     bb_trend = None
     if recent14 and prev14:
         bb_trend = round((sum(recent14)/len(recent14) - sum(prev14)/len(prev14)) * 100, 4)
+
+    # 最強曜日（avg_diffが一番高い曜日）
+    best_weekday = None
+    if weekday_stats:
+        best_wd = max(weekday_stats, key=lambda x: x["avg_diff"])
+        if best_wd["count"] >= 2:
+            best_weekday = {"weekday": best_wd["weekday"], "avg_diff": best_wd["avg_diff"], "count": best_wd["count"]}
+
+    # 月の日付パターン分析（1-9日/10-19日/20-31日の3ブロック）
+    date_block_data: dict[str, list[int]] = {"上旬(1-9)": [], "中旬(10-19)": [], "下旬(20-31)": []}
+    for h in hist_list:
+        day_num = int(h["date"].split("-")[2])
+        if day_num <= 9:
+            date_block_data["上旬(1-9)"].append(h["diff"] or 0)
+        elif day_num <= 19:
+            date_block_data["中旬(10-19)"].append(h["diff"] or 0)
+        else:
+            date_block_data["下旬(20-31)"].append(h["diff"] or 0)
+    date_blocks = []
+    for block, vals in date_block_data.items():
+        if len(vals) >= 2:
+            date_blocks.append({
+                "block": block,
+                "avg_diff": round(sum(vals) / len(vals)),
+                "count": len(vals),
+                "win_rate": round(sum(1 for v in vals if v > 0) / len(vals) * 100, 1),
+            })
+    date_blocks.sort(key=lambda x: -x["avg_diff"])
+
+    # ゾロ目台番かどうか（11, 22, 33...）
+    is_zoro = seat_number > 0 and seat_number % 11 == 0
 
     return {
         "machine_name": machine_name,
@@ -1453,7 +1494,11 @@ def get_seat_detail(
         "worst": worst,
         "std": std,
         "win_streak": streak,
+        "max_streak": max_streak,
         "bb_trend_14d": bb_trend,
+        "best_weekday": best_weekday,
+        "date_block_analysis": date_blocks,
+        "is_zoro_seat": is_zoro,
         "history": hist_list[:60],
         "weekday_stats": weekday_stats,
     }
@@ -2449,6 +2494,33 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
                   "avg_diff": int(r[3] or 0), "win_rate": round(r[4] or 0, 1),
                   "avg_bb": round(float(r[5] or 0) * 100, 3)} for r in top_rows]
 
+    # 連続好調台（直近3日以上プラス）
+    streak_rows = conn.execute(
+        """SELECT machine_name, seat_number, report_date, diff_coins
+           FROM hall_day_seat
+           WHERE hall_name=? AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
+             AND report_date >= date('now', '-14 days')
+           ORDER BY machine_name, seat_number, report_date DESC""",
+        (hall_name,)
+    ).fetchall()
+    from collections import defaultdict as _defaultdict
+    _seat_data: dict = _defaultdict(list)
+    for m, s, d, diff in streak_rows:
+        _seat_data[(m, s)].append(diff or 0)
+    streak_seats = []
+    for (m, s), diffs in _seat_data.items():
+        k = 0
+        for d in diffs:
+            if d > 0:
+                k += 1
+            else:
+                break
+        if k >= 3:
+            streak_seats.append({"machine": m, "seat": s, "streak": k,
+                                  "avg_diff": round(sum(diffs[:k]) / k)})
+    streak_seats.sort(key=lambda x: (-x["streak"], -x["avg_diff"]))
+
     # 高設定率機種TOP3
     hr_rows = conn.execute(
         """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
@@ -2489,6 +2561,7 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
         "dow_rank": dow_rank,
         "dow_total": len(dow_data),
         "bb_surge_seats": surges[:3],
+        "streak_seats": streak_seats[:3],
         "top_seats": top_seats,
         "high_rate_machines": hr_list[:3],
     }

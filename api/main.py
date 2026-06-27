@@ -2709,13 +2709,19 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
     m_bbs: dict = {}
     for (m, s), b in baseline_bb.items():
         m_bbs.setdefault(m, []).append(b)
-    m_std = {m: (_s.stdev(v) if len(v) > 1 else 0.001) for m, v in m_bbs.items()}
+    # std下限: 機種内平均BB回数の20%（過小な分散で z-score が爆発するのを防ぐ）
+    m_mean = {m: sum(v)/len(v) for m, v in m_bbs.items()}
+    m_std = {
+        m: max(_s.stdev(v) if len(v) > 1 else 0.0,
+               m_mean[m] * 0.20)
+        for m, v in m_bbs.items()
+    }
     surges = []
     for (m, s), rec_bb in recent_bb.items():
         base = baseline_bb.get((m, s))
         if base is None:
             continue
-        z = (rec_bb - base) / max(m_std.get(m, 0.001), 1e-8)
+        z = (rec_bb - base) / max(m_std.get(m, max(base * 0.20, 0.5)), 1e-4)
         if z >= 0.8:
             surges.append({"machine": m, "seat": s, "surge_z": round(z, 1),
                            "recent_bb": round(rec_bb, 2), "baseline_bb": round(base, 2)})
@@ -2860,7 +2866,9 @@ def get_bb_surge_seats(
         m_bbs.setdefault(r[0], []).append(float(r[2]))
     for mname, bbs in m_bbs.items():
         import statistics as _s
-        machine_std[mname] = (_s.stdev(bbs) if len(bbs) > 1 else 0.001) or 0.001
+        m_avg = sum(bbs) / len(bbs)
+        raw_std = _s.stdev(bbs) if len(bbs) > 1 else 0.0
+        machine_std[mname] = max(raw_std, m_avg * 0.20, 0.5)
 
     baseline_map = {(r[0], r[1]): float(r[2]) for r in baseline}
     conn.close()

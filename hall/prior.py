@@ -153,8 +153,6 @@ def compute_prior(
         )
 
     # ── Step4b: 汎用イベント日補正（全ホール対応） ───────────────────────
-    # ホールのBBパターンデータから「今日がイベント日候補か」を自動検知し
-    # 高設定確率をわずかに引き上げる（大東固有調整とは独立）
     if not _is_daito(hall_name):
         try:
             event_z = _compute_today_event_z(hall_name)
@@ -165,6 +163,19 @@ def compute_prior(
                     weights[s] *= (1.0 + boost)
         except Exception:
             pass
+
+    # ── Step4c: 同日・同ホールの他機種BB水準から全体入替シグナルを検出 ──
+    # 今日の他機種がホール平均より高BB率を示していれば高設定入れ替えの
+    # 全体シグナルとして事前分布を引き上げる（他機種のBB急上昇を連動活用）
+    try:
+        cross_z = _compute_cross_machine_event_z(hall_name, machine_name)
+        if cross_z is not None and cross_z >= 0.5:
+            high_s = [s for s in settings if int(s) >= 4]
+            boost = min(0.06, math.tanh(cross_z * 0.35) * 0.06)
+            for s in high_s:
+                weights[s] *= (1.0 + boost)
+    except Exception:
+        pass
 
     # ── Step5: 正規化 ────────────────────────────────────────────────────
     total = sum(weights.values())
@@ -547,6 +558,65 @@ def _estimate_prior_from_anaslo(
         exps = {s: math.exp(ll - max_ll) for s, ll in log_likes.items()}
         z = sum(exps.values())
         return {s: v / z for s, v in exps.items()}
+
+    except Exception:
+        return None
+
+
+def _compute_cross_machine_event_z(hall_name: str, exclude_machine: str) -> Optional[float]:
+    """
+    今日の同ホール・他機種のBB水準が高ければイベントシグナルとして返す。
+    「他機種が好調な日は全体的に高設定が入りやすい」という相関を利用。
+    """
+    try:
+        today = datetime.date.today().isoformat()
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        # 今日の他機種の平均BB
+        today_rows = conn.execute(
+            """SELECT machine_name, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+               FROM hall_day_seat
+               WHERE hall_name=? AND report_date=?
+                 AND machine_name!=? AND bb_prob IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+               GROUP BY machine_name HAVING COUNT(*) >= 2""",
+            (hall_name, today, exclude_machine)
+        ).fetchall()
+
+        if len(today_rows) < 2:
+            conn.close()
+            return None
+
+        # 過去90日の同機種群ベースライン
+        baseline_rows = conn.execute(
+            """SELECT machine_name, AVG(bb_prob) as avg_bb
+               FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL
+                 AND machine_name!=?
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND report_date >= date('now', '-90 days')
+               GROUP BY machine_name HAVING COUNT(*) >= 5""",
+            (hall_name, exclude_machine)
+        ).fetchall()
+        conn.close()
+
+        if len(baseline_rows) < 2:
+            return None
+
+        base_map = {r[0]: float(r[1]) for r in baseline_rows}
+        z_scores = []
+        for mn, bb_today, _ in today_rows:
+            if mn not in base_map or base_map[mn] <= 0:
+                continue
+            rel = float(bb_today) / base_map[mn]
+            z_scores.append(rel)
+
+        if not z_scores:
+            return None
+
+        avg_rel = sum(z_scores) / len(z_scores)
+        # 1.05以上（5%超）なら正のシグナル
+        normalized_z = (avg_rel - 1.0) / 0.05
+        return round(normalized_z, 2) if normalized_z > 0 else None
 
     except Exception:
         return None

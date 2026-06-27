@@ -712,6 +712,83 @@ def get_machine_stats(machine_name: str = Query(...)) -> dict:
     }
 
 
+@app.get("/api/sessions/estimation_accuracy", tags=["sessions"])
+def get_estimation_accuracy(
+    hall_name: Optional[str] = Query(None),
+    limit: int = Query(100),
+) -> dict:
+    """
+    推定設定 vs 実差枚の相関分析。
+    推測エンジンの精度を評価し、「高設定推定時に実際に収益がプラスだった率」を返す。
+    """
+    from records.models import list_sessions
+    sessions = list_sessions(hall_name=hall_name)
+    if not sessions:
+        return {"message": "セッションなし"}
+
+    valid = []
+    for s in sessions[-limit:]:
+        if s.posterior is None or s.diff_coins is None:
+            continue
+        try:
+            post = json.loads(s.posterior) if isinstance(s.posterior, str) else s.posterior
+            if not post:
+                continue
+            exp_s = sum(float(k) * v for k, v in post.items())
+            high_p = sum(v for k, v in post.items() if float(k) >= 4)
+            valid.append({
+                "expected_setting": exp_s,
+                "high_prob": high_p,
+                "diff_coins": s.diff_coins,
+                "games": s.games_total,
+                "is_positive": s.diff_coins > 0,
+            })
+        except Exception:
+            continue
+
+    if not valid:
+        return {"message": "推測データ付きセッションなし"}
+
+    # 高設定推定（≥4）時の勝率
+    high_est = [v for v in valid if v["expected_setting"] >= 4.0]
+    low_est  = [v for v in valid if v["expected_setting"] < 3.0]
+    high_est_winrate = sum(1 for v in high_est if v["is_positive"]) / len(high_est) if high_est else None
+    low_est_winrate  = sum(1 for v in low_est if v["is_positive"]) / len(low_est) if low_est else None
+
+    # 高設定確率別の勝率区分
+    brackets = []
+    for lo, hi in [(0, 0.3), (0.3, 0.5), (0.5, 0.7), (0.7, 1.0)]:
+        grp = [v for v in valid if lo <= v["high_prob"] < hi]
+        if grp:
+            wr = sum(1 for v in grp if v["is_positive"]) / len(grp)
+            avg_diff = sum(v["diff_coins"] for v in grp) / len(grp)
+            brackets.append({
+                "bracket": f"高設定確率{int(lo*100)}~{int(hi*100)}%",
+                "count": len(grp),
+                "win_rate": round(wr * 100, 1),
+                "avg_diff": round(avg_diff),
+            })
+
+    # 期待設定との相関（単純な方向性）
+    correct_direction = sum(
+        1 for v in valid
+        if (v["expected_setting"] >= 4 and v["diff_coins"] > 0) or
+           (v["expected_setting"] < 3 and v["diff_coins"] <= 0)
+    )
+    direction_accuracy = correct_direction / len(valid) if valid else 0
+
+    return {
+        "total_sessions_analyzed": len(valid),
+        "overall_win_rate": round(sum(1 for v in valid if v["is_positive"]) / len(valid) * 100, 1),
+        "high_setting_est_sessions": len(high_est),
+        "high_setting_est_win_rate": round(high_est_winrate * 100, 1) if high_est_winrate is not None else None,
+        "low_setting_est_sessions": len(low_est),
+        "low_setting_est_win_rate": round(low_est_winrate * 100, 1) if low_est_winrate is not None else None,
+        "direction_accuracy": round(direction_accuracy * 100, 1),
+        "high_prob_brackets": brackets,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Setting change detection
 # ---------------------------------------------------------------------------

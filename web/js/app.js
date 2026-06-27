@@ -1047,8 +1047,62 @@ async function loadSessions() {
     renderMachineBreakdownChart(sessions);
     renderSeatAnalysis(sessions);
     renderDailyProfitChart(sessions);
+    loadEstimationAccuracy(hallFilter || null);
   } catch (e) {
     showToast('セッション取得失敗: ' + e.message, 'error');
+  }
+}
+
+async function loadEstimationAccuracy(hallName) {
+  const card = document.getElementById('estimation-accuracy-card');
+  const body = document.getElementById('estimation-accuracy-body');
+  if (!card) return;
+  try {
+    const params = hallName ? `?hall_name=${encodeURIComponent(hallName)}&limit=200` : '?limit=200';
+    const d = await apiFetch(`/api/sessions/estimation_accuracy${params}`);
+    if (!d || d.message || d.total_sessions_analyzed < 5) {
+      card.style.display = 'none';
+      return;
+    }
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    const dirColor = d.direction_accuracy >= 60 ? 'var(--success)' : d.direction_accuracy >= 50 ? 'var(--warning)' : 'var(--danger)';
+    const hiWrColor = (d.high_setting_est_win_rate || 0) >= 55 ? 'var(--success)' : 'var(--warning)';
+    const bracketRows = (d.high_prob_brackets || []).map(b =>
+      `<tr style="border-bottom:1px solid var(--bg2)">
+        <td style="padding:4px 6px;font-size:.73rem">${b.bracket}</td>
+        <td style="padding:4px 6px;font-size:.73rem;text-align:right">${b.count}回</td>
+        <td style="padding:4px 6px;font-size:.73rem;text-align:right;color:${b.win_rate>=55?'var(--success)':b.win_rate>=45?'var(--warning)':'var(--danger)'}">${b.win_rate}%</td>
+        <td style="padding:4px 6px;font-size:.73rem;text-align:right;color:${b.avg_diff>=0?'var(--success)':'var(--danger)'}">${sign(b.avg_diff)}枚</td>
+      </tr>`
+    ).join('');
+
+    body.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+        <div style="background:var(--bg2);border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:.65rem;color:var(--text3)">高設定推定時勝率</div>
+          <div style="font-size:1.3rem;font-weight:900;color:${hiWrColor}">${d.high_setting_est_win_rate ?? '--'}%</div>
+          <div style="font-size:.6rem;color:var(--text3)">${d.high_setting_est_sessions}セッション</div>
+        </div>
+        <div style="background:var(--bg2);border-radius:6px;padding:8px;text-align:center">
+          <div style="font-size:.65rem;color:var(--text3)">方向性精度</div>
+          <div style="font-size:1.3rem;font-weight:900;color:${dirColor}">${d.direction_accuracy}%</div>
+          <div style="font-size:.6rem;color:var(--text3)">高設定→収益/低→損失の一致率</div>
+        </div>
+      </div>
+      ${bracketRows ? `<div style="font-size:.65rem;color:var(--text3);margin-bottom:4px;font-weight:600">高設定確率別成績</div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:var(--bg2);color:var(--text2)">
+          <th style="padding:4px 6px;text-align:left;font-size:.63rem">確率帯</th>
+          <th style="padding:4px 6px;text-align:right;font-size:.63rem">回数</th>
+          <th style="padding:4px 6px;text-align:right;font-size:.63rem">勝率</th>
+          <th style="padding:4px 6px;text-align:right;font-size:.63rem">平均差枚</th>
+        </tr></thead>
+        <tbody>${bracketRows}</tbody>
+      </table>` : ''}
+      <div style="font-size:.62rem;color:var(--text3);margin-top:6px">分析対象: ${d.total_sessions_analyzed}セッション / 全体勝率 ${d.overall_win_rate}%</div>`;
+    card.style.display = 'block';
+  } catch(e) {
+    card.style.display = 'none';
   }
 }
 document.getElementById('ses-month-filter')?.addEventListener('change', loadSessions);

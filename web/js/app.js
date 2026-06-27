@@ -1244,11 +1244,26 @@ function renderSessions(sessions) {
   }
   container.innerHTML = sessions.map(s => {
     const diffYen = s.diff_yen || 0;
+    const expectedSetting = s.posterior ? calcExpectedSetting(s.posterior) : null;
+    const highProb = s.posterior ? Object.entries(s.posterior).filter(([k]) => parseInt(k)>=4).reduce((a,[,p])=>a+p,0) : 0;
+
+    // 自動推定ラベル
+    let settingLabel = '';
+    if (s.posterior) {
+      if (expectedSetting >= 4.5 || highProb >= 0.6) {
+        settingLabel = `<span style="background:rgba(16,185,129,.15);color:var(--success);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">高設定濃厚</span>`;
+      } else if (expectedSetting >= 3.5 || highProb >= 0.35) {
+        settingLabel = `<span style="background:rgba(251,146,60,.12);color:var(--warning);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">中間設定</span>`;
+      } else if (expectedSetting !== null && expectedSetting < 2.5) {
+        settingLabel = `<span style="background:rgba(239,68,68,.1);color:var(--danger);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">低設定</span>`;
+      }
+    }
+
     const tags = [
       s.is_event_day ? '<span class="tag tag-event">イベント</span>' : '',
       s.is_corner ? '<span class="tag tag-corner">角台</span>' : '',
+      settingLabel,
     ].filter(Boolean).join('');
-    const expectedSetting = s.posterior ? calcExpectedSetting(s.posterior) : null;
 
     // 設定分布バー（推測結果がある場合）
     let posteriorBar = '';
@@ -1259,12 +1274,11 @@ function renderSessions(sessions) {
         const col = parseInt(setting) >= 4 ? 'var(--primary-h)' : parseInt(setting) >= 2 ? 'var(--text3)' : 'rgba(255,255,255,0.2)';
         return `<div title="設定${setting}: ${Math.round(prob*100)}%" style="flex:${w||1};height:3px;background:${col};border-radius:1px"></div>`;
       }).join('');
-      const high_p = entries.filter(([s]) => parseInt(s) >= 4).reduce((a,[,p]) => a+p, 0);
       const eSetting = expectedSetting !== null ? expectedSetting.toFixed(1) : '';
-      const highCol = high_p >= 0.5 ? 'var(--success)' : high_p >= 0.3 ? 'var(--warning)' : 'var(--text3)';
+      const highCol = highProb >= 0.5 ? 'var(--success)' : highProb >= 0.3 ? 'var(--warning)' : 'var(--text3)';
       posteriorBar = `<div style="margin-top:5px">
         <div style="display:flex;gap:1px;height:3px;border-radius:2px;overflow:hidden;margin-bottom:3px">${bars}</div>
-        <div style="font-size:.65rem;color:var(--text3)">推測設定 <strong style="color:var(--text2)">${eSetting}</strong> 高設定 <strong style="color:${highCol}">${Math.round(high_p*100)}%</strong></div>
+        <div style="font-size:.65rem;color:var(--text3)">推測設定 <strong style="color:var(--text2)">${eSetting}</strong> 高設定 <strong style="color:${highCol}">${Math.round(highProb*100)}%</strong></div>
       </div>`;
     }
     return `

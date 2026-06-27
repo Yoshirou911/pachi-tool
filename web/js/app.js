@@ -4626,6 +4626,71 @@ async function deleteEvent(id, dateStr) {
   if (_calSelectedDate === dateStr) selectCalDay(dateStr);
 }
 
+async function bulkAddEvents() {
+  const raw = document.getElementById('bulk-event-input')?.value?.trim();
+  if (!raw) return;
+  const defaultHall = document.getElementById('bulk-hall-default')?.value || '';
+  const resultEl = document.getElementById('bulk-result');
+  if (resultEl) resultEl.textContent = '登録中...';
+
+  const EVENT_KEYWORDS = {
+    '新台': '新台入替', '入替': '新台入替',
+    '777': '特日7', '7': '特日7',
+    'ゾロ目': '特日ゾロ目',
+    '感謝': '感謝デー', '周年': '感謝デー',
+    '高設定': '高設定示唆', '全台': '高設定示唆',
+    '朝イチ': '朝イチ', 'モーニング': '朝イチ',
+  };
+  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  let ok = 0, skip = 0;
+
+  for (const line of lines) {
+    const parts = line.split(/\s+/);
+    if (parts.length < 1) { skip++; continue; }
+
+    const dateRaw = parts[0];
+    const dm = dateRaw.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})|(\d{1,2})[\/月](\d{1,2})/);
+    if (!dm) { skip++; continue; }
+    let dateStr;
+    if (dm[1]) {
+      dateStr = `${dm[1]}-${dm[2].padStart(2,'0')}-${dm[3].padStart(2,'0')}`;
+    } else {
+      const y = new Date().getFullYear();
+      dateStr = `${y}-${dm[4].padStart(2,'0')}-${dm[5].padStart(2,'0')}`;
+    }
+
+    const rest = parts.slice(1);
+    let eventType = '通常イベント';
+    let hallName = defaultHall;
+    const titleParts = [];
+
+    for (const p of rest) {
+      const matched = Object.entries(EVENT_KEYWORDS).find(([k]) => p.includes(k));
+      if (matched) {
+        eventType = matched[1];
+        titleParts.push(p);
+      } else if (p.length >= 3 && (p.includes('店') || p.includes('ホール') || p.includes('パチ') || p.includes('スロ'))) {
+        hallName = p;
+      } else {
+        titleParts.push(p);
+      }
+    }
+    if (!hallName) { skip++; continue; }
+    const title = titleParts.join(' ');
+
+    try {
+      await fetch(`/api/events/manual?hall_name=${encodeURIComponent(hallName)}&event_date=${dateStr}&event_type=${encodeURIComponent(eventType)}&event_title=${encodeURIComponent(title)}`, { method: 'POST' });
+      ok++;
+    } catch { skip++; }
+  }
+
+  if (resultEl) resultEl.textContent = `${ok}件登録${skip > 0 ? ` (${skip}件スキップ)` : ''}`;
+  if (ok > 0) {
+    document.getElementById('bulk-event-input').value = '';
+    await loadCalendar();
+  }
+}
+
 async function addManualEvent() {
   const dateStr = _calSelectedDate;
   if (!dateStr) return;
@@ -4682,10 +4747,12 @@ async function initCalendar() {
       const names = halls.map(h => h.hall_name || h);
       const filter = document.getElementById('cal-hall-filter');
       const manual = document.getElementById('manual-hall');
+      const bulkDefault = document.getElementById('bulk-hall-default');
       if (filter && filter.options.length <= 1) {
         names.forEach(n => {
           filter.add(new Option(n, n));
           if (manual) manual.add(new Option(n, n));
+          if (bulkDefault) bulkDefault.add(new Option(n, n));
         });
       }
     } catch(e) {}

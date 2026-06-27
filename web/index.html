@@ -851,6 +851,28 @@
             </div>
           </div>
 
+          <!-- バルクイベント入力 -->
+          <div class="card card-col closed" style="margin-top:8px">
+            <div class="card-col-hd card-title" style="margin-bottom:0">
+              まとめてイベント登録 <span class="col-arr">▼</span>
+              <span style="font-size:.62rem;color:var(--text3);font-weight:400;margin-left:6px">複数日を一括入力</span>
+            </div>
+            <div class="card-col-body">
+              <div style="font-size:.65rem;color:var(--text3);margin-bottom:6px">
+                1行1件で入力: <code style="font-size:.63rem">2026/6/28 777 ベガスベガス大東店</code><br>
+                形式: <code style="font-size:.63rem">日付 イベント種類 店舗名</code>（店舗名省略→選択中の店舗）
+              </div>
+              <select id="bulk-hall-default" class="form-select" style="font-size:.7rem;width:100%;margin-bottom:6px">
+                <option value="">全店舗共通（行に店舗名を書く）</option>
+              </select>
+              <textarea id="bulk-event-input" rows="6" placeholder="2026/6/28 777&#10;2026/6/21 新台入替 マルハン大東店&#10;2026/7/7 感謝デー" style="width:100%;font-size:.72rem;padding:6px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1);resize:vertical;line-height:1.6"></textarea>
+              <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                <button onclick="bulkAddEvents()" class="btn btn-primary" style="font-size:.72rem;padding:5px 14px">一括登録</button>
+                <span id="bulk-result" style="font-size:.68rem;color:var(--text3)"></span>
+              </div>
+            </div>
+          </div>
+
           <!-- イベント強度分析 -->
           <div class="card card-col closed" style="margin-top:10px">
             <div class="card-col-hd card-title" style="margin-bottom:0">

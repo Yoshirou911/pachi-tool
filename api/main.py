@@ -1658,13 +1658,18 @@ def get_today_targets(
         # BB z-score → 差枚換算（z=1.0 ≈ +500枚相当で換算）
         bb_bonus = bb_z * 500
 
-        # 正規化スコア（差枚ベース + BB確率シグナル）
+        # 勝率ボーナス: 勝率60%超の台は信頼性が高い → 小さな上乗せ
+        win_bonus = max(0.0, (win_rate - 50.0) / 50.0) * avg_diff * 0.1 if avg_diff > 0 else 0.0
+
+        # 正規化スコア（差枚35% + 同曜日20% + 安定性15% + トレンド10% + BB20%）
+        # + 勝率ボーナス（~10% of avg_diff when win_rate=100%)
         score = (
             avg_diff     * 0.35 +
             avg_same_dow * 0.20 +
             avg_diff * stability * 0.15 +
             trend        * 0.10 +
-            bb_bonus     * 0.20
+            bb_bonus     * 0.20 +
+            win_bonus
         )
 
         scored.append({

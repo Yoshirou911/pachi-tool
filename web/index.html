@@ -474,6 +474,7 @@
         <div class="hall-sub-tabs">
           <button class="hall-sub-btn active" data-htab="compare">比較</button>
           <button class="hall-sub-btn" data-htab="detail">詳細</button>
+          <button class="hall-sub-btn" data-htab="calendar">カレンダー</button>
           <button class="hall-sub-btn" data-htab="admin">管理</button>
         </div>
 
@@ -771,6 +772,69 @@
           </div><!-- /card-col-body -->
           </div><!-- /scrape-manager-card -->
         </div><!-- /htab-admin -->
+
+        <!-- ===== カレンダータブ ===== -->
+        <div id="htab-calendar" class="htab-pane">
+          <!-- コントロール -->
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <button id="cal-prev" class="btn btn-ghost" style="padding:4px 10px;font-size:1rem">&#8249;</button>
+            <div id="cal-month-label" style="font-size:.9rem;font-weight:600;color:var(--text1);min-width:90px;text-align:center"></div>
+            <button id="cal-next" class="btn btn-ghost" style="padding:4px 10px;font-size:1rem">&#8250;</button>
+            <select id="cal-hall-filter" class="form-select" style="font-size:.72rem;flex:1;min-width:100px">
+              <option value="">全店舗</option>
+            </select>
+            <button id="cal-scrape-btn" class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px">イベント取得</button>
+          </div>
+
+          <!-- カレンダーグリッド -->
+          <div class="cal-grid-hd">
+            <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
+          </div>
+          <div id="cal-grid" class="cal-grid"></div>
+
+          <!-- 日付詳細 -->
+          <div id="cal-day-detail" style="display:none;margin-top:10px">
+            <div class="card" style="padding:12px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                <div id="cal-detail-date" style="font-size:.82rem;font-weight:600;color:var(--text1)"></div>
+                <button onclick="document.getElementById('cal-day-detail').style.display='none'" class="btn btn-ghost" style="font-size:.65rem;padding:2px 8px">✕</button>
+              </div>
+              <!-- イベント一覧 -->
+              <div id="cal-detail-events" style="margin-bottom:10px"></div>
+              <!-- 手動追加フォーム -->
+              <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:6px">
+                <div style="font-size:.65rem;color:var(--text3);margin-bottom:5px">手動追加</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <select id="manual-hall" class="form-select" style="font-size:.7rem;flex:1;min-width:100px"></select>
+                  <select id="manual-type" class="form-select" style="font-size:.7rem;width:auto">
+                    <option>特日ゾロ目</option>
+                    <option>特日7</option>
+                    <option>新台入替</option>
+                    <option>感謝デー</option>
+                    <option>高設定示唆</option>
+                    <option>通常イベント</option>
+                    <option>その他</option>
+                  </select>
+                  <input id="manual-title" type="text" placeholder="タイトル（任意）" style="flex:1;min-width:80px;font-size:.7rem;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
+                  <button onclick="addManualEvent()" class="btn btn-primary" style="font-size:.68rem;padding:3px 10px">追加</button>
+                </div>
+              </div>
+              <!-- その日の実績 -->
+              <div id="cal-detail-results" style="margin-top:8px"></div>
+            </div>
+          </div>
+
+          <!-- イベント強度分析 -->
+          <div class="card card-col closed" style="margin-top:10px">
+            <div class="card-col-hd card-title" style="margin-bottom:0">
+              イベント強度分析 <span class="col-arr">▼</span>
+              <span style="font-size:.62rem;color:var(--text3);font-weight:400;margin-left:6px">どのイベントが強い？</span>
+            </div>
+            <div class="card-col-body">
+              <div id="cal-strength-body" style="margin-top:4px"></div>
+            </div>
+          </div>
+        </div><!-- /htab-calendar -->
 
       </div>
     </section>

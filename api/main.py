@@ -202,8 +202,25 @@ def _start_scrape_scheduler() -> None:
             id="nightly_scrape",
             replace_existing=True,
         )
+        # イベント自動取得: 毎日12:00(JST)
+        def _run_event_scrape():
+            try:
+                from scraper.events import scrape_all_halls
+                halls = _get_active_halls()
+                print(f"[イベント] 自動取得開始: {len(halls)}店舗")
+                scrape_all_halls(halls)
+                print("[イベント] 自動取得完了")
+            except Exception as e:
+                print(f"[イベント] 自動取得エラー: {e}")
+
+        _SCHEDULER.add_job(
+            _run_event_scrape,
+            CronTrigger(hour=12, minute=0, timezone="Asia/Tokyo"),
+            id="event_scrape",
+            replace_existing=True,
+        )
         _SCHEDULER.start()
-        print("[スクレイプ] スケジューラー起動: 毎日04:00(JST)に自動実行")
+        print("[スクレイプ] スケジューラー起動: みんレポ04:00/イベント12:00(JST)")
     except Exception as e:
         print(f"[スクレイプ] スケジューラー起動失敗: {e}")
 
@@ -1427,6 +1444,206 @@ def get_scrape_logs_api(limit: int = Query(50, ge=1, le=200)) -> list[dict]:
     """スクレイプ実行ログを返す"""
     from scraper.anaslo import get_scrape_logs
     return get_scrape_logs(limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# イベント API
+# ---------------------------------------------------------------------------
+
+def _get_event_conn():
+    from scraper.events import get_conn
+    return get_conn()
+
+
+@app.get("/api/events/calendar", tags=["events"])
+def get_event_calendar(
+    month: str = Query(..., description="YYYY-MM"),
+    hall_name: Optional[str] = Query(None),
+) -> dict:
+    """月次カレンダー用イベントデータ。日付→イベントリストのマップを返す。"""
+    try:
+        conn = _get_event_conn()
+        q = "SELECT id, hall_name, event_date, event_type, event_title, source, source_url FROM hall_event WHERE event_date LIKE ?"
+        params: list = [f"{month}%"]
+        if hall_name:
+            q += " AND hall_name=?"
+            params.append(hall_name)
+        q += " ORDER BY event_date, hall_name"
+        rows = conn.execute(q, params).fetchall()
+        conn.close()
+
+        by_date: dict = {}
+        for r in rows:
+            d = r["event_date"]
+            by_date.setdefault(d, []).append({
+                "id": r["id"],
+                "hall_name": r["hall_name"],
+                "event_type": r["event_type"],
+                "event_title": r["event_title"],
+                "source": r["source"],
+                "source_url": r["source_url"],
+            })
+        return {"month": month, "events": by_date}
+    except Exception as e:
+        return {"month": month, "events": {}, "error": str(e)}
+
+
+@app.get("/api/events/day", tags=["events"])
+def get_event_day(
+    date_str: str = Query(..., description="YYYY-MM-DD"),
+    hall_name: Optional[str] = Query(None),
+) -> dict:
+    """特定日のイベント＋みんレポ実績データを返す"""
+    try:
+        conn = _get_event_conn()
+        q = "SELECT id, hall_name, event_type, event_title, source, source_url FROM hall_event WHERE event_date=?"
+        params: list = [date_str]
+        if hall_name:
+            q += " AND hall_name=?"
+            params.append(hall_name)
+        events = [dict(r) for r in conn.execute(q, params).fetchall()]
+        conn.close()
+
+        # みんレポ実績 (hall_day_machine)
+        results = []
+        rconn = _get_reports_conn()
+        if rconn:
+            try:
+                rq = "SELECT hall_name, machine_name, avg_diff_coins, unit_count FROM hall_day_machine WHERE report_date=?"
+                rparams: list = [date_str]
+                if hall_name:
+                    rq += " AND hall_name=?"
+                    rparams.append(hall_name)
+                rq += " ORDER BY avg_diff_coins DESC"
+                results = [dict(r) for r in rconn.execute(rq, rparams).fetchall()]
+            except Exception:
+                pass
+            rconn.close()
+
+        return {"date": date_str, "events": events, "results": results}
+    except Exception as e:
+        return {"date": date_str, "events": [], "results": [], "error": str(e)}
+
+
+@app.get("/api/events/strength", tags=["events"])
+def get_event_strength(hall_name: Optional[str] = Query(None)) -> list[dict]:
+    """イベントタイプ別の強度分析（イベント日 vs 通常日の差枚比較）"""
+    try:
+        rconn = _get_reports_conn()
+        econn = _get_event_conn()
+        if not rconn:
+            return []
+
+        # イベントがある日付を全取得
+        eq = "SELECT hall_name, event_date, event_type FROM hall_event"
+        eparams: list = []
+        if hall_name:
+            eq += " WHERE hall_name=?"
+            eparams.append(hall_name)
+        event_rows = econn.execute(eq, eparams).fetchall()
+        econn.close()
+
+        if not event_rows:
+            rconn.close()
+            return []
+
+        from collections import defaultdict
+        type_data: dict = defaultdict(lambda: {"event_diffs": [], "normal_diffs": []})
+
+        # hall_day_machineから全日付の平均差枚を取得
+        rq = "SELECT hall_name, report_date, AVG(avg_diff_coins) as avg_diff FROM hall_day_machine WHERE avg_diff_coins IS NOT NULL GROUP BY hall_name, report_date"
+        rparams2: list = []
+        if hall_name:
+            rq += " HAVING hall_name=?"
+            rparams2.append(hall_name)
+        day_avgs = {(r[0], r[1]): r[2] for r in rconn.execute(rq, rparams2).fetchall()}
+        rconn.close()
+
+        event_days: set = set()
+        for er in event_rows:
+            key = (er["hall_name"], er["event_date"])
+            event_days.add(key)
+            if key in day_avgs:
+                type_data[er["event_type"]]["event_diffs"].append(day_avgs[key])
+
+        # 通常日（イベントなし日）
+        for (hname, rdate), avg in day_avgs.items():
+            if (hname, rdate) not in event_days:
+                for et in type_data:
+                    type_data[et]["normal_diffs"].append(avg)
+
+        result = []
+        for etype, data in type_data.items():
+            ev_diffs = data["event_diffs"]
+            no_diffs = data["normal_diffs"]
+            if not ev_diffs:
+                continue
+            avg_ev = sum(ev_diffs) / len(ev_diffs)
+            avg_no = sum(no_diffs) / len(no_diffs) if no_diffs else 0
+            result.append({
+                "event_type": etype,
+                "event_days": len(ev_diffs),
+                "avg_diff_event": round(avg_ev),
+                "avg_diff_normal": round(avg_no),
+                "diff_vs_normal": round(avg_ev - avg_no),
+                "win_rate_event": round(sum(1 for v in ev_diffs if v > 0) / len(ev_diffs) * 100),
+                "strength_score": round((avg_ev - avg_no) / max(abs(avg_no), 1) * 100),
+            })
+        result.sort(key=lambda x: x["diff_vs_normal"], reverse=True)
+        return result
+    except Exception as e:
+        return [{"error": str(e)}]
+
+
+@app.post("/api/events/scrape", tags=["events"])
+def trigger_event_scrape(
+    hall_name: Optional[str] = Query(None, description="Noneなら全ホール"),
+    background_tasks: BackgroundTasks = ...,
+) -> dict:
+    """イベントスクレイプをバックグラウンドで実行"""
+    from scraper.events import scrape_all, scrape_all_halls
+
+    if hall_name:
+        background_tasks.add_task(scrape_all, hall_name)
+        return {"ok": True, "message": f"{hall_name} のイベント取得を開始しました"}
+    else:
+        halls = _get_active_halls()
+        background_tasks.add_task(scrape_all_halls, halls)
+        return {"ok": True, "message": f"{len(halls)}店舗のイベント取得を開始しました"}
+
+
+@app.post("/api/events/manual", tags=["events"])
+def add_manual_event(
+    hall_name: str = Query(...),
+    event_date: str = Query(..., description="YYYY-MM-DD"),
+    event_type: str = Query("その他"),
+    event_title: str = Query(""),
+) -> dict:
+    """手動でイベントを登録"""
+    try:
+        conn = _get_event_conn()
+        conn.execute("""
+            INSERT OR IGNORE INTO hall_event (hall_name, event_date, event_type, event_title, source)
+            VALUES (?, ?, ?, ?, 'manual')
+        """, (hall_name, event_date, event_type, event_title))
+        conn.commit()
+        conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.delete("/api/events/{event_id}", tags=["events"])
+def delete_event(event_id: int) -> dict:
+    """イベントを削除"""
+    try:
+        conn = _get_event_conn()
+        conn.execute("DELETE FROM hall_event WHERE id=?", (event_id,))
+        conn.commit()
+        conn.close()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/api/hall/compare", tags=["hall"])

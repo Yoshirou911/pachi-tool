@@ -4602,6 +4602,74 @@ document.getElementById('cal-next')?.addEventListener('click', () => {
   loadCalendar();
 });
 document.getElementById('cal-hall-filter')?.addEventListener('change', () => loadCalendar());
+let _evPollTimer = null;
+
+function _renderEvProgress(d) {
+  const card = document.getElementById('ev-progress-card');
+  if (!card) return;
+  card.style.display = 'block';
+
+  const total = d.total || 0;
+  const done = d.done || 0;
+  const failed = d.failed || 0;
+  const pct = total > 0 ? Math.round((done + failed) / total * 100) : 0;
+
+  document.getElementById('ev-bp-count').textContent = `${done + failed}/${total}`;
+  document.getElementById('ev-bp-bar').style.width = pct + '%';
+
+  const titleEl = document.getElementById('ev-bp-title');
+  if (!d.running && total > 0) {
+    titleEl.textContent = 'イベント取得完了';
+    titleEl.style.color = 'var(--success)';
+  } else {
+    titleEl.textContent = 'イベント取得中';
+    titleEl.style.color = 'var(--text1)';
+  }
+
+  let meta = [];
+  if (d.running && d.eta_min > 0) meta.push(`残り約${d.eta_min}分`);
+  if (done > 0) meta.push(`完了 ${done}店舗`);
+  if (failed > 0) meta.push(`<span style="color:var(--danger)">失敗 ${failed}店舗</span>`);
+  document.getElementById('ev-bp-meta').innerHTML = meta.join(' · ');
+
+  const hallsEl = document.getElementById('ev-bp-halls');
+  if (d.halls && d.halls.length) {
+    const statusLabel = { done: '完了', running: '取得中', waiting: '待機中', failed: '失敗' };
+    const statusColor = { done: 'var(--success)', running: 'var(--accent)', waiting: 'var(--text3)', failed: 'var(--danger)' };
+    hallsEl.innerHTML = d.halls.map(h => {
+      const dot = h.status === 'running'
+        ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);animation:bpulse 1.2s ease-in-out infinite;vertical-align:middle;margin-right:4px"></span>'
+        : '';
+      const found = h.found ? `${h.found}件` : h.status === 'waiting' ? '—' : '0件';
+      const sources = h.by_source && Object.keys(h.by_source).length
+        ? Object.entries(h.by_source).map(([s, n]) => `${s}:${n}`).join(' ')
+        : '';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
+        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${h.name}</div>
+        <div style="font-size:.63rem;color:var(--text3);text-align:right">${sources || found}</div>
+        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
+      </div>`;
+    }).join('');
+  }
+}
+
+function _startEvPoll() {
+  if (_evPollTimer) clearInterval(_evPollTimer);
+  const btn = document.getElementById('cal-scrape-btn');
+  _evPollTimer = setInterval(async () => {
+    try {
+      const d = await fetch('/api/events/scrape_status').then(r => r.json());
+      _renderEvProgress(d);
+      if (!d.running) {
+        clearInterval(_evPollTimer);
+        _evPollTimer = null;
+        if (btn) { btn.disabled = false; btn.textContent = 'イベント取得'; }
+        loadCalendar();
+      }
+    } catch(e) {}
+  }, 3000);
+}
+
 document.getElementById('cal-scrape-btn')?.addEventListener('click', async () => {
   const btn = document.getElementById('cal-scrape-btn');
   const hall = document.getElementById('cal-hall-filter')?.value;
@@ -4610,11 +4678,16 @@ document.getElementById('cal-scrape-btn')?.addEventListener('click', async () =>
   const url = '/api/events/scrape' + (hall ? `?hall_name=${encodeURIComponent(hall)}` : '');
   try {
     const r = await fetch(url, { method: 'POST' }).then(r => r.json());
-    showToast(r.message || 'イベント取得を開始しました');
-    setTimeout(() => loadCalendar(), 8000);
+    if (r.ok) {
+      showToast(r.message || 'イベント取得を開始しました');
+      _startEvPoll();
+    } else {
+      showToast(r.message || 'エラー');
+      btn.disabled = false;
+      btn.textContent = 'イベント取得';
+    }
   } catch(e) {
     showToast('エラー: ' + e.message);
-  } finally {
     btn.disabled = false;
     btn.textContent = 'イベント取得';
   }

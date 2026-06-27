@@ -129,6 +129,11 @@ _BULK_PROGRESS: dict = {
     "days": 0,
     "halls": [],   # [{name, status, records, error}]
 }
+_EVENT_PROGRESS: dict = {
+    "running": False,
+    "started_at": None,
+    "halls": [],   # [{name, status, found, by_source}]
+}
 
 # デフォルトホール一覧（DBが空の場合のシード用）
 _DEFAULT_HALLS = [
@@ -1595,21 +1600,88 @@ def get_event_strength(hall_name: Optional[str] = Query(None)) -> list[dict]:
         return [{"error": str(e)}]
 
 
+@app.get("/api/events/scrape_status", tags=["events"])
+def get_event_scrape_status() -> dict:
+    """イベントスクレイプの進捗を返す"""
+    halls = _EVENT_PROGRESS.get("halls", [])
+    done = sum(1 for h in halls if h["status"] == "done")
+    failed = sum(1 for h in halls if h["status"] == "failed")
+    total = len(halls)
+    current = next((h["name"] for h in halls if h["status"] == "running"), None)
+
+    elapsed = 0
+    if _EVENT_PROGRESS.get("started_at"):
+        import datetime as _dt3
+        try:
+            elapsed = (_dt3.datetime.now() - _dt3.datetime.fromisoformat(
+                _EVENT_PROGRESS["started_at"]
+            )).total_seconds()
+        except Exception:
+            pass
+
+    finished = done + failed
+    eta_min = 0
+    if finished > 0 and total > finished and elapsed > 0:
+        eta_min = round(elapsed / finished * (total - finished) / 60)
+
+    return {
+        "running": _EVENT_PROGRESS.get("running", False),
+        "total": total,
+        "done": done,
+        "failed": failed,
+        "current_hall": current,
+        "eta_min": eta_min,
+        "halls": halls,
+    }
+
+
 @app.post("/api/events/scrape", tags=["events"])
 def trigger_event_scrape(
     hall_name: Optional[str] = Query(None, description="Noneなら全ホール"),
     background_tasks: BackgroundTasks = ...,
 ) -> dict:
     """イベントスクレイプをバックグラウンドで実行"""
-    from scraper.events import scrape_all, scrape_all_halls
+    if _EVENT_PROGRESS.get("running"):
+        return {"ok": False, "message": "すでに実行中です"}
 
-    if hall_name:
-        background_tasks.add_task(scrape_all, hall_name)
-        return {"ok": True, "message": f"{hall_name} のイベント取得を開始しました"}
-    else:
-        halls = _get_active_halls()
-        background_tasks.add_task(scrape_all_halls, halls)
-        return {"ok": True, "message": f"{len(halls)}店舗のイベント取得を開始しました"}
+    import datetime as _dt_ev
+    halls = [{"hall_name": hall_name}] if hall_name else _get_active_halls()
+    hall_names = [h["hall_name"] if isinstance(h, dict) else h for h in halls]
+
+    _EVENT_PROGRESS.update({
+        "running": True,
+        "started_at": _dt_ev.datetime.now().isoformat(),
+        "halls": [{"name": n, "status": "waiting", "found": 0, "by_source": {}} for n in hall_names],
+    })
+
+    def _set_ev_hall(name: str, status: str, found: int = 0, by_source: dict = {}):
+        for h in _EVENT_PROGRESS["halls"]:
+            if h["name"] == name:
+                h["status"] = status
+                if found:
+                    h["found"] = found
+                if by_source:
+                    h["by_source"] = by_source
+                break
+
+    def _run():
+        from scraper.events import scrape_all
+        try:
+            for hname in hall_names:
+                _set_ev_hall(hname, "running")
+                try:
+                    result = scrape_all(hname, save=True)
+                    _set_ev_hall(hname, "done",
+                                 found=result.get("total", 0),
+                                 by_source=result.get("by_source", {}))
+                except Exception as e:
+                    _set_ev_hall(hname, "failed", by_source={"error": str(e)[:60]})
+                time.sleep(2)
+        finally:
+            _EVENT_PROGRESS["running"] = False
+
+    background_tasks.add_task(_run)
+    return {"ok": True, "message": f"{len(hall_names)}店舗のイベント取得を開始しました"}
 
 
 @app.post("/api/events/manual", tags=["events"])

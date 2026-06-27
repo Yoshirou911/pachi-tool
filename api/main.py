@@ -1208,11 +1208,12 @@ def get_cookie_status() -> dict:
 def trigger_nightly_scrape(
     background_tasks: BackgroundTasks,
     halls: Optional[str] = Query(None, description="カンマ区切りのホール名。省略時は全ホール"),
-    days: int = Query(3, ge=1, le=30),
+    days: int = Query(7, ge=1, le=90),
+    minrepo_only: bool = Query(False, description="みんレポのみ実行（アナスロをスキップ）"),
 ) -> dict:
     """
-    スクレイプを手動でトリガーする（バックグラウンド実行）。
-    halls省略時はSCRAPE_HALLSの全店舗を対象にdaysで指定した日数を取得。
+    全店舗スクレイプを手動でトリガーする（バックグラウンド実行）。
+    アナスロ → みんレポの順で実行。minrepo_only=trueでみんレポのみ。
     """
     global _SCRAPE_RUNNING
     if _SCRAPE_RUNNING:
@@ -1227,23 +1228,33 @@ def trigger_nightly_scrape(
         global _SCRAPE_RUNNING
         _SCRAPE_RUNNING = True
         try:
-            from scraper.anaslo import scrape_hall
-            for h in hall_list:
-                hname = h["hall_name"] if isinstance(h, dict) else h
-                pref = h.get("prefecture", "大阪府") if isinstance(h, dict) else "大阪府"
+            # ① アナスロ（Cloudflareがある場合はスキップされる）
+            if not minrepo_only:
                 try:
-                    scrape_hall(hname, prefecture=pref, max_days=days)
+                    from scraper.anaslo import scrape_hall
+                    print(f"[アナスロ] 手動実行開始: {len(hall_list)}店舗")
+                    for h in hall_list:
+                        hname = h["hall_name"] if isinstance(h, dict) else h
+                        pref = h.get("prefecture", "大阪府") if isinstance(h, dict) else "大阪府"
+                        try:
+                            scrape_hall(hname, prefecture=pref, max_days=days)
+                        except Exception as e:
+                            print(f"[アナスロ] {hname} エラー: {e}")
+                        time.sleep(30)
+                    print("[アナスロ] 手動実行完了")
                 except Exception as e:
-                    print(f"[スクレイプ] {hname} エラー: {e}")
-                time.sleep(30)
+                    print(f"[アナスロ] 全体エラー: {e}")
+            # ② みんレポ（必ず実行）
+            _run_minrepo_nightly(hall_list, days=min(days, 30))
         finally:
             _SCRAPE_RUNNING = False
 
     background_tasks.add_task(_run)
     names = [h["hall_name"] if isinstance(h, dict) else h for h in hall_list]
+    mode = "みんレポのみ" if minrepo_only else "アナスロ＋みんレポ"
     return {
         "ok": True,
-        "message": f"{len(hall_list)}店舗のスクレイプを開始しました ({days}日分)",
+        "message": f"{len(hall_list)}店舗のスクレイプを開始しました（{mode} / {days}日分）",
         "halls": names,
         "days": days,
     }

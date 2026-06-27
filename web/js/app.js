@@ -4373,15 +4373,16 @@ document.getElementById('save-cookie-btn')?.addEventListener('click', async () =
 document.getElementById('scrape-run-btn')?.addEventListener('click', async () => {
   const btn = document.getElementById('scrape-run-btn');
   const statusEl = document.getElementById('scrape-run-status');
-  const days = document.getElementById('scrape-days-select')?.value || '3';
+  const days = document.getElementById('scrape-days-select')?.value || '7';
+  const minrepoOnly = document.getElementById('minrepo-only-check')?.checked ? 'true' : 'false';
   btn.disabled = true;
   statusEl.textContent = '開始中...';
   try {
-    const res = await fetch(`/api/scrape/run?days=${days}`, { method: 'POST' }).then(r => r.json());
+    const res = await fetch(`/api/scrape/run?days=${days}&minrepo_only=${minrepoOnly}`, { method: 'POST' }).then(r => r.json());
     if (res.ok) {
-      showToast(`${res.message}`);
-      statusEl.innerHTML = `<span style="color:var(--success)">${res.halls?.length || 0}店舗を実行中 — ログで進捗確認</span>`;
-      setTimeout(() => loadScrapeManager(), 3000);
+      showToast(res.message);
+      statusEl.innerHTML = `<span style="color:var(--success)">${res.halls?.length || 0}店舗を実行中 — 完了まで数十分かかります</span>`;
+      setTimeout(() => loadScrapeManager(), 5000);
     } else {
       statusEl.innerHTML = `<span style="color:var(--danger)">${res.message || '実行失敗'}</span>`;
     }

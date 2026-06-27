@@ -717,18 +717,24 @@
             <!-- 全店舗実行セクション -->
             <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
               <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">全店舗一括実行</div>
-              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <div style="font-size:.65rem;color:var(--text3);margin-bottom:8px">アナスロ＋みんレポを全登録店舗で実行。初回は30日以上推奨。</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
                 <select id="scrape-days-select" class="form-select" style="font-size:.78rem;width:auto">
-                  <option value="1">1日分(昨日のみ)</option>
-                  <option value="3" selected>3日分</option>
-                  <option value="7">7日分</option>
+                  <option value="3">3日分</option>
+                  <option value="7" selected>7日分</option>
                   <option value="14">14日分</option>
+                  <option value="30">30日分</option>
+                  <option value="60">60日分</option>
+                  <option value="90">90日分</option>
                 </select>
-                <button id="scrape-run-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 12px">
-                  全店舗スクレイプ実行
+                <label style="display:flex;align-items:center;gap:4px;font-size:.72rem;cursor:pointer">
+                  <input type="checkbox" id="minrepo-only-check"> みんレポのみ
+                </label>
+                <button id="scrape-run-btn" class="btn btn-primary" style="font-size:.75rem;padding:4px 14px">
+                  全店舗実行
                 </button>
-                <span id="scrape-run-status" style="font-size:.68rem;color:var(--text3)"></span>
               </div>
+              <span id="scrape-run-status" style="font-size:.68rem;color:var(--text3)"></span>
             </div>
             <!-- ホール管理セクション -->
             <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">

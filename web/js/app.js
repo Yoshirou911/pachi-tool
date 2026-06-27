@@ -120,6 +120,42 @@ async function loadMachineSelect() {
   }
 }
 
+async function loadMachineSnapshot(machineName) {
+  const snap = document.getElementById('machine-snapshot');
+  if (!snap) return;
+  if (!machineName) { snap.style.display = 'none'; return; }
+  try {
+    const hall = estHall?.value || '';
+    const d = await apiFetch(`/api/machine/stats?machine_name=${encodeURIComponent(machineName)}`);
+    if (!d || !d.total_sessions) { snap.style.display = 'none'; return; }
+
+    const diffColor = (d.diff_yen || 0) >= 0 ? 'var(--success)' : 'var(--danger)';
+    const sign = v => v >= 0 ? `+${v?.toLocaleString()}` : v?.toLocaleString();
+    const pinned = isPinnedSeat(hall, machineName, null);
+
+    // 最近のピン済み台を確認
+    const pinnedThisMachine = getPinnedSeats().filter(p => p.machine === machineName && (!hall || p.hall === hall));
+    const pinnedHint = pinnedThisMachine.length > 0
+      ? `<span style="color:var(--primary-h);margin-left:8px">★ ${pinnedThisMachine.map(p=>p.seat+'番台').join(', ')} ピン中</span>`
+      : '';
+
+    snap.innerHTML = `
+      <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+        <div><span style="color:var(--text3)">実績 </span><strong>${d.total_sessions}回</strong></div>
+        <div><span style="color:var(--text3)">収支 </span><strong style="color:${diffColor}">${sign(d.diff_yen)}円</strong></div>
+        <div><span style="color:var(--text3)">勝率 </span><strong>${Math.round((d.win_rate||0)*100)}%</strong></div>
+        ${d.avg_estimated_setting ? `<div><span style="color:var(--text3)">平均推定設定 </span><strong style="color:var(--primary-h)">${d.avg_estimated_setting}</strong></div>` : ''}
+        ${pinnedHint}
+      </div>
+      ${d.recent_sessions?.length ? `<div style="margin-top:4px;font-size:.68rem;color:var(--text3)">直近: ${d.recent_sessions.slice(0,3).map(s=>`${s.date} ${s.diff_coins>=0?'+':''}${s.diff_coins}枚`).join(' / ')}</div>` : ''}`;
+    snap.style.display = 'block';
+  } catch(e) {
+    snap.style.display = 'none';
+  }
+}
+
+estMachine?.addEventListener('change', () => loadMachineSnapshot(estMachine.value));
+
 estMachine.addEventListener('change', async () => {
   const name = estMachine.value;
   state.currentMachine = name;

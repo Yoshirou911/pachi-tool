@@ -66,12 +66,14 @@
 
         <!-- Machine & Hall selector -->
         <div class="card">
-          <div class="form-row">
+          <div class="form-row" style="position:relative">
             <label class="form-label">機種</label>
             <select id="est-machine" class="form-select">
               <option value="">-- 機種を選択 --</option>
             </select>
           </div>
+          <!-- 機種スナップショット -->
+          <div id="machine-snapshot" style="display:none;margin-bottom:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;font-size:.75rem"></div>
           <div class="form-row">
             <label class="form-label">ホール</label>
             <input type="text" id="est-hall" class="form-input" list="hall-datalist"

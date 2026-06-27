@@ -66,6 +66,7 @@ const state = {
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${tabId}`));
+  window.scrollTo(0, 0);
   if (tabId === 'session') loadSessions();
   if (tabId === 'hall') { loadHallCompare(); loadHallPage(); }
   if (tabId === 'map') loadMapPage();

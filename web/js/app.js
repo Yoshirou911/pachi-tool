@@ -2479,29 +2479,43 @@ async function loadAnasloSeatDates(hall) {
 
 async function loadAnasloSeatReport(hall, date) {
   const container = document.getElementById('anaslo-seat-table');
-  container.innerHTML = '<p class="hint center">読み込み中...</p>';
+  container.innerHTML = '<p class="hint" style="text-align:center;padding:10px">読み込み中...</p>';
   try {
     const rows = await fetch(`/api/hall/seat_report?hall_name=${encodeURIComponent(hall)}&date=${date}&limit=50`).then(r => r.json());
-    if (!rows.length) { container.innerHTML = '<p class="hint center">データなし</p>'; return; }
+    if (!rows.length) {
+      container.innerHTML = `<div class="empty-hint"><span>🎰</span><span>${date} のアナスロデータなし</span></div>`;
+      return;
+    }
+    const maxAbs = Math.max(...rows.map(r => Math.abs(r.diff_coins || 0)), 1);
     const html = `<div style="overflow-x:auto">
-      <table style="width:100%;font-size:.78rem;border-collapse:collapse">
-        <thead><tr style="background:var(--bg2);color:var(--text2)">
-          <th style="padding:4px 6px;text-align:center">台番</th>
-          <th style="padding:4px 6px;text-align:left">機種</th>
-          <th style="padding:4px 6px;text-align:right">差枚</th>
-          <th style="padding:4px 6px;text-align:right">G数</th>
-          <th style="padding:4px 6px;text-align:right">BB</th>
-          <th style="padding:4px 6px;text-align:right">RB</th>
+      <table style="width:100%;font-size:.76rem;border-collapse:collapse">
+        <thead><tr style="background:var(--bg2);color:var(--text3);font-size:.62rem;letter-spacing:.04em">
+          <th style="padding:5px 6px;text-align:center;font-weight:700">台番</th>
+          <th style="padding:5px 6px;text-align:left;font-weight:700">機種</th>
+          <th style="padding:5px 6px;text-align:right;font-weight:700">差枚</th>
+          <th style="padding:5px 6px;text-align:right;font-weight:700">G数</th>
+          <th style="padding:5px 6px;text-align:right;font-weight:700">BB/RB</th>
         </tr></thead>
         <tbody>${rows.map((r, i) => {
-          const color = r.diff_coins > 3000 ? 'color:#e85' : r.diff_coins > 0 ? '' : 'color:var(--text3)';
-          return `<tr style="border-bottom:1px solid var(--bg2);${color}">
-            <td style="padding:4px 6px;text-align:center;font-weight:${i < 5 ? 'bold' : 'normal'}">${r.seat_number}</td>
-            <td style="padding:4px 6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.machine_name)}</td>
-            <td style="padding:4px 6px;text-align:right;font-weight:bold">${r.diff_coins > 0 ? '+' : ''}${r.diff_coins?.toLocaleString() ?? '-'}</td>
-            <td style="padding:4px 6px;text-align:right">${r.games?.toLocaleString() ?? '-'}</td>
-            <td style="padding:4px 6px;text-align:right">${r.bb_count ?? '-'}</td>
-            <td style="padding:4px 6px;text-align:right">${r.rb_count ?? '-'}</td>
+          const diff = r.diff_coins ?? 0;
+          const diffCol = diff > 3000 ? 'var(--warning)' : diff > 0 ? 'var(--success)' : diff < -2000 ? 'var(--danger)' : 'var(--text3)';
+          const barW = Math.round(Math.abs(diff) / maxAbs * 40);
+          const barCol = diff >= 0 ? 'rgba(16,185,129,.5)' : 'rgba(244,63,94,.4)';
+          const rowBg = diff > 3000 ? 'rgba(251,191,36,.05)' : diff > 0 ? '' : diff < -2000 ? 'rgba(244,63,94,.04)' : '';
+          const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+          const bbRb = (r.bb_prob != null || r.rb_prob != null)
+            ? `${r.bb_prob != null ? r.bb_prob.toFixed(1) : '-'}/${r.rb_prob != null ? r.rb_prob.toFixed(1) : '-'}回` : '-';
+          return `<tr style="border-bottom:1px solid var(--border);background:${rowBg}">
+            <td style="padding:5px 6px;text-align:center;font-weight:600;color:var(--text2)">${rankIcon||r.seat_number}</td>
+            <td style="padding:5px 6px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem">${esc(r.machine_name)}</td>
+            <td style="padding:5px 6px;text-align:right">
+              <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">
+                <div style="width:${barW}px;height:4px;background:${barCol};border-radius:2px;min-width:2px"></div>
+                <span style="font-weight:700;color:${diffCol}">${diff>0?'+':''}${diff.toLocaleString()}</span>
+              </div>
+            </td>
+            <td style="padding:5px 6px;text-align:right;color:var(--text3)">${r.games?.toLocaleString() ?? '-'}</td>
+            <td style="padding:5px 6px;text-align:right;color:var(--text3)">${bbRb}</td>
           </tr>`;
         }).join('')}</tbody>
       </table></div>`;

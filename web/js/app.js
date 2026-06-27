@@ -149,10 +149,43 @@ estMachine.addEventListener('change', async () => {
     loadRecentSessions(name);
     // 事前分布品質バッジ更新
     loadPriorQuality();
+    // 機械割目安テーブル表示
+    renderKwHint(state.currentProfile);
   } catch (e) {
     showToast('機種データ取得失敗: ' + e.message, 'error');
   }
 });
+
+function renderKwHint(profile) {
+  let el = document.getElementById('est-kw-hint');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'est-kw-hint';
+    el.style.cssText = 'margin-top:8px;font-size:.7rem;color:var(--text3);display:none';
+    const estResult2 = document.getElementById('est-result');
+    if (estResult2) estResult2.parentNode.insertBefore(el, estResult2);
+  }
+  if (!profile || !profile.machine_kw) { el.style.display = 'none'; return; }
+  const kw = profile.machine_kw;
+  const settings = profile.settings || Object.keys(kw).sort((a,b) => +a - +b);
+  const setColors = {'1':'var(--s1)','2':'var(--s2)','3':'var(--s3)','4':'var(--s4)','5':'var(--s5)','6':'var(--s6)'};
+  const gameSamples = [1000, 3000, 6000, 10000];
+  const rows = gameSamples.map(g => {
+    const cells = settings.map(s => {
+      const rate = kw[s];
+      const diff = Math.round(g * (rate - 1) * 3);
+      const col = diff > 0 ? 'var(--success)' : diff < 0 ? 'var(--danger)' : 'var(--text2)';
+      return `<td style="text-align:right;padding:2px 5px;font-size:.65rem;color:${col}">${diff > 0 ? '+' : ''}${diff}</td>`;
+    }).join('');
+    return `<tr><td style="padding:2px 5px;color:var(--text3);font-size:.65rem;white-space:nowrap">${g.toLocaleString()}G</td>${cells}</tr>`;
+  }).join('');
+  const headers = settings.map(s =>
+    `<th style="padding:2px 5px;text-align:right;font-size:.63rem;color:${setColors[s]||'var(--text2)'}">設定${s}</th>`
+  ).join('');
+  el.innerHTML = `<div style="font-size:.65rem;color:var(--text3);margin-bottom:3px">1コイン${parseFloat(document.getElementById('denom-select')?.value||1)}円換算・差枚目安（機械割から計算）</div>
+    <table style="border-collapse:collapse"><thead><tr><th style="padding:2px 5px;font-size:.63rem"></th>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+  el.style.display = 'block';
+}
 
 async function loadPriorQuality() {
   const hall = estHall.value;

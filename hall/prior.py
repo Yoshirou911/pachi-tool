@@ -152,6 +152,20 @@ def compute_prior(
             weights, settings, machine_name, weekday, is_event_day, day_of_month
         )
 
+    # ── Step4b: 汎用イベント日補正（全ホール対応） ───────────────────────
+    # ホールのBBパターンデータから「今日がイベント日候補か」を自動検知し
+    # 高設定確率をわずかに引き上げる（大東固有調整とは独立）
+    if not _is_daito(hall_name):
+        try:
+            event_z = _compute_today_event_z(hall_name)
+            if event_z is not None and event_z >= 0.5:
+                high_s = [s for s in settings if int(s) >= 4]
+                boost = min(0.08, math.tanh(event_z * 0.4) * 0.08)
+                for s in high_s:
+                    weights[s] *= (1.0 + boost)
+        except Exception:
+            pass
+
     # ── Step5: 正規化 ────────────────────────────────────────────────────
     total = sum(weights.values())
     return {s: weights[s] / total for s in settings}
@@ -491,6 +505,67 @@ def _estimate_prior_from_anaslo(
         z = sum(exps.values())
         return {s: v / z for s, v in exps.items()}
 
+    except Exception:
+        return None
+
+
+def _compute_today_event_z(hall_name: str) -> Optional[float]:
+    """
+    今日の日付がホールのイベント日パターン（BB確率上昇日）に合致するか検査。
+    合致した場合、最大z-scoreを返す。合致なしはNone。
+    """
+    try:
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        rows = conn.execute(
+            """SELECT report_date, AVG(bb_prob) as avg_bb
+               FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND report_date >= date('now', '-180 days')
+               GROUP BY report_date HAVING COUNT(*) >= 3""",
+            (hall_name,)
+        ).fetchall()
+        conn.close()
+        if len(rows) < 10:
+            return None
+
+        all_bbs = [float(r[1]) for r in rows]
+        gm = sum(all_bbs) / len(all_bbs)
+        gv = sum((x - gm)**2 for x in all_bbs) / len(all_bbs)
+        gs = math.sqrt(gv) if gv > 0 else 0.001
+
+        today = datetime.date.today()
+        t_tail = today.day % 10
+        t_dow = today.weekday()
+
+        best_z: Optional[float] = None
+
+        # 末尾パターン
+        p_tail = [float(r[1]) for r in rows
+                  if datetime.date.fromisoformat(r[0]).day % 10 == t_tail]
+        if len(p_tail) >= 3:
+            z = (sum(p_tail)/len(p_tail) - gm) / gs
+            if z >= 0.5:
+                best_z = max(best_z or 0, z)
+
+        # 曜日パターン
+        p_dow = [float(r[1]) for r in rows
+                 if datetime.date.fromisoformat(r[0]).weekday() == t_dow]
+        if len(p_dow) >= 3:
+            z = (sum(p_dow)/len(p_dow) - gm) / gs
+            if z >= 0.5:
+                best_z = max(best_z or 0, z)
+
+        # 5のつく日
+        if today.day in (5, 15, 25):
+            p_five = [float(r[1]) for r in rows
+                      if datetime.date.fromisoformat(r[0]).day in (5, 15, 25)]
+            if len(p_five) >= 2:
+                z = (sum(p_five)/len(p_five) - gm) / gs
+                if z >= 0.5:
+                    best_z = max(best_z or 0, z)
+
+        return best_z
     except Exception:
         return None
 

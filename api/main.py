@@ -1762,6 +1762,66 @@ def get_prior_quality(
     }
 
 
+@app.get("/api/hall/machine_high_rate", tags=["hall"])
+def get_machine_high_rate(
+    hall_name: str = Query(...),
+    days: int = Query(90),
+) -> list[dict]:
+    """
+    機種ごとの「高設定投入率」推定。
+    各台日のBB確率を機種内でz-score化し、z>=1.0の割合を「高設定率」として返す。
+    高設定率が高い機種 = このホールが力を入れている機種。
+    """
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+
+    rows = conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name, seat_number HAVING cnt >= 3""",
+        (hall_name, days)
+    ).fetchall()
+    conn.close()
+
+    import statistics as _s
+
+    # 機種ごとにグループ化
+    from collections import defaultdict
+    machine_seats: dict[str, list[float]] = defaultdict(list)
+    machine_counts: dict[str, int] = defaultdict(int)
+    for m, s, avg_bb, cnt in rows:
+        machine_seats[m].append(float(avg_bb))
+        machine_counts[m] += cnt
+
+    result = []
+    for mname, bbs in machine_seats.items():
+        if len(bbs) < 3:
+            continue
+        mean_bb = _s.mean(bbs)
+        std_bb = _s.stdev(bbs) if len(bbs) > 1 else 0.001
+        if std_bb < 1e-8:
+            continue
+        high_seats = sum(1 for b in bbs if (b - mean_bb) / std_bb >= 1.0)
+        medium_seats = sum(1 for b in bbs if 0.3 <= (b - mean_bb) / std_bb < 1.0)
+        high_rate = high_seats / len(bbs)
+        result.append({
+            "machine_name": mname,
+            "total_seats": len(bbs),
+            "high_seats": high_seats,
+            "medium_seats": medium_seats,
+            "high_rate": round(high_rate * 100, 1),
+            "avg_bb": round(mean_bb * 100, 4),
+            "records": machine_counts[mname],
+        })
+
+    result.sort(key=lambda x: (-x["high_rate"], -x["total_seats"]))
+    return result[:20]
+
+
 @app.get("/api/hall/compare", tags=["hall"])
 def get_hall_compare(days: int = Query(30)) -> list[dict]:
     """

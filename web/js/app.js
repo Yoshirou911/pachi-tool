@@ -2962,9 +2962,11 @@ async function loadMachineSettingTendency(hall) {
   const body = document.getElementById('machine-tendency-body');
   if (!card) return;
   try {
-    const rows = await apiFetch(
-      `/api/hall/machine_setting_tendency?hall_name=${encodeURIComponent(hall)}&days=60`
-    );
+    const [rows, highRates] = await Promise.all([
+      apiFetch(`/api/hall/machine_setting_tendency?hall_name=${encodeURIComponent(hall)}&days=60`),
+      apiFetch(`/api/hall/machine_high_rate?hall_name=${encodeURIComponent(hall)}&days=90`).catch(() => []),
+    ]);
+    const highRateMap = Object.fromEntries((highRates || []).map(r => [r.machine_name, r]));
     if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
 
     // 理論値との比較がある or est_setting が高い機種のみ表示（最大8機種）
@@ -3003,6 +3005,11 @@ async function loadMachineSettingTendency(hall) {
         const tArrow = td > 50 ? '↑' : td < -50 ? '↓' : '→';
         trendBadge = `<span style="font-size:.62rem;color:${tCol};margin-left:4px">${tArrow}${td > 0 ? '+' : ''}${td}枚/日(2週)</span>`;
       }
+      // 高設定率バッジ
+      const hr = highRateMap[r.machine_name];
+      const hrBadge = hr && hr.high_rate > 0
+        ? `<span style="font-size:.62rem;padding:1px 5px;border-radius:3px;background:${hr.high_rate>=20?'rgba(16,185,129,.15)':'rgba(255,255,255,.04)'};color:${hr.high_rate>=20?'var(--success)':hr.high_rate>=10?'var(--warning)':'var(--text3)'}">高設定率${hr.high_rate}%</span>`
+        : '';
       return `<div style="padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
         onclick="loadMachineSeatRankingInline(decodeURIComponent('${encHallT}'),decodeURIComponent('${encMachT}'),this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -3013,7 +3020,7 @@ async function loadMachineSettingTendency(hall) {
           </div>
         </div>
         <div style="display:flex;gap:2px;margin:4px 0">${distBar}</div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${bbNote}<span style="font-size:.65rem;color:var(--text3)">${r.unit_cnt}台 ${r.records}件</span>${trendBadge}<span style="font-size:.63rem;color:var(--text3)">タップ→台別</span></div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">${bbNote}<span style="font-size:.65rem;color:var(--text3)">${r.unit_cnt}台 ${r.records}件</span>${trendBadge}${hrBadge}<span style="font-size:.63rem;color:var(--text3)">タップ→台別</span></div>
         <div class="inline-seat-ranking" style="display:none;margin-top:8px"></div>
       </div>`;
     }).join('');

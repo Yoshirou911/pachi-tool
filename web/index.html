@@ -805,6 +805,20 @@
           </div>
           <div id="cal-grid" class="cal-grid"></div>
 
+          <!-- ドリルダウンパネル (L2: ホール一覧 / L3: 台別) -->
+          <div id="cal-drill" style="display:none;margin-top:10px">
+            <!-- ブレッドクラム -->
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+              <button id="cal-drill-back" onclick="calDrillBack()" style="display:none;background:none;border:none;color:var(--accent);font-size:.8rem;cursor:pointer;padding:0">← 戻る</button>
+              <div id="cal-drill-crumb" style="font-size:.75rem;font-weight:600;color:var(--text1);flex:1"></div>
+              <button onclick="document.getElementById('cal-drill').style.display='none'" style="background:none;border:none;color:var(--text3);font-size:.8rem;cursor:pointer">✕</button>
+            </div>
+            <!-- L2: ホールバー -->
+            <div id="cal-drill-halls" style="display:none"></div>
+            <!-- L3: 台別バー -->
+            <div id="cal-drill-machines" style="display:none"></div>
+          </div>
+
           <!-- 日付詳細 -->
           <div id="cal-day-detail" style="display:none;margin-top:10px">
             <div class="card" style="padding:12px">

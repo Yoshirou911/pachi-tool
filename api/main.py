@@ -1718,6 +1718,68 @@ def delete_event(event_id: int) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/hall/month_heatmap", tags=["hall"])
+def get_month_heatmap(month: str = Query(..., description="YYYY-MM")) -> dict:
+    """月次ヒートマップ: 日付→ホール別平均差枚を返す（カレンダー熱量表示用）"""
+    conn = _get_reports_conn()
+    if not conn:
+        return {"month": month, "days": {}}
+    try:
+        rows = conn.execute("""
+            SELECT report_date, hall_name,
+                   ROUND(AVG(avg_diff_coins)) AS avg_diff,
+                   COUNT(DISTINCT machine_name) AS machine_count
+            FROM hall_day_machine
+            WHERE report_date LIKE ?
+              AND avg_diff_coins IS NOT NULL
+            GROUP BY report_date, hall_name
+            ORDER BY report_date, avg_diff DESC
+        """, (f"{month}%",)).fetchall()
+        conn.close()
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        return {"month": month, "days": {}, "error": str(e)}
+
+    by_day: dict = {}
+    for r in rows:
+        d, hname, avg_diff, mc = r[0], r[1], int(r[2] or 0), r[3]
+        by_day.setdefault(d, {"halls": [], "avg_diff": 0, "hall_count": 0})
+        by_day[d]["halls"].append({"hall_name": hname, "avg_diff": avg_diff, "machine_count": mc})
+
+    for d, data in by_day.items():
+        diffs = [h["avg_diff"] for h in data["halls"]]
+        data["avg_diff"] = round(sum(diffs) / len(diffs)) if diffs else 0
+        data["hall_count"] = len(data["halls"])
+
+    return {"month": month, "days": by_day}
+
+
+@app.get("/api/hall/day_machines", tags=["hall"])
+def get_day_machines(
+    date_str: str = Query(..., description="YYYY-MM-DD"),
+    hall_name: str = Query(...),
+) -> list[dict]:
+    """特定日×特定ホールの台別データ（L3ドリルダウン用）"""
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    try:
+        rows = conn.execute("""
+            SELECT machine_name, avg_diff_coins, unit_count, avg_games, win_rate_pct
+            FROM hall_day_machine
+            WHERE report_date=? AND hall_name=? AND avg_diff_coins IS NOT NULL
+            ORDER BY avg_diff_coins DESC
+        """, (date_str, hall_name)).fetchall()
+        conn.close()
+        return [{"machine_name": r[0], "avg_diff": int(r[1] or 0),
+                 "unit_count": r[2], "avg_games": r[3], "win_rate_pct": r[4]} for r in rows]
+    except Exception:
+        try: conn.close()
+        except Exception: pass
+        return []
+
+
 @app.get("/api/hall/compare", tags=["hall"])
 def compare_halls(days: int = Query(30)) -> list[dict]:
     """

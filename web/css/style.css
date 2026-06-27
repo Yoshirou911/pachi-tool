@@ -669,6 +669,43 @@ details[open] > summary::after { transform: rotate(90deg); }
   display: inline-block; vertical-align: middle;
 }
 
+/* ===== Drill-down bar charts ===== */
+.drill-bar-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 0; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background .12s;
+}
+.drill-bar-item:hover { background: var(--bg2); border-radius: 4px; }
+.drill-bar-item:last-child { border-bottom: none; }
+.drill-bar-name {
+  font-size: .72rem; color: var(--text1);
+  flex: 0 0 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.drill-bar-track {
+  flex: 1; height: 8px; background: var(--bg3);
+  border-radius: 99px; overflow: hidden; position: relative;
+}
+.drill-bar-fill {
+  height: 100%; border-radius: 99px;
+  transition: width .4s ease;
+}
+.drill-bar-fill.pos { background: linear-gradient(90deg, #2e9e5e, #4ecc8e); }
+.drill-bar-fill.neg { background: linear-gradient(90deg, #e05050, #c03030); }
+.drill-bar-val {
+  font-size: .72rem; font-weight: 600;
+  min-width: 52px; text-align: right;
+}
+.drill-bar-sub {
+  font-size: .6rem; color: var(--text3);
+  min-width: 30px; text-align: right;
+}
+
+/* heat tint on calendar cells */
+.cal-cell.heat-hot  { background: rgba(255,120,0,.18) !important; }
+.cal-cell.heat-warm { background: rgba(255,180,0,.12) !important; }
+.cal-cell.heat-cool { background: rgba(60,140,255,.10) !important; }
+.cal-cell.heat-cold { background: rgba(60,100,255,.18) !important; }
+
 /* ===== Bulk scrape progress ===== */
 @keyframes bpulse { 0%,100%{opacity:1} 50%{opacity:.25} }
 

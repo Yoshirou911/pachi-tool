@@ -4376,10 +4376,13 @@ document.getElementById('save-cookie-btn')?.addEventListener('click', async () =
 // ============================================================
 
 let _calYear  = new Date().getFullYear();
-let _calMonth = new Date().getMonth(); // 0-based
+let _calMonth = new Date().getMonth();
 let _calSelectedDate = null;
 let _calHallFilter = '';
-let _calEventMap = {};  // "YYYY-MM-DD" → [{...}]
+let _calEventMap  = {};  // dateStr → [{event}]
+let _calHeatMap   = {};  // dateStr → {avg_diff, hall_count, halls:[]}
+let _calDrillDate = null;
+let _calDrillHall = null;
 
 const EVENT_TYPE_ORDER = ['特日7','特日ゾロ目','新台入替','感謝デー','高設定示唆','通常イベント','その他'];
 
@@ -4387,21 +4390,28 @@ function _ym() {
   return `${_calYear}-${String(_calMonth + 1).padStart(2, '0')}`;
 }
 
+function _heatClass(diff) {
+  if (diff === undefined || diff === null) return '';
+  if (diff >  200) return 'heat-hot';
+  if (diff >   50) return 'heat-warm';
+  if (diff <  -200) return 'heat-cold';
+  if (diff <  -50) return 'heat-cool';
+  return '';
+}
+
 async function loadCalendar() {
   document.getElementById('cal-month-label').textContent =
     `${_calYear}年${_calMonth + 1}月`;
-
   const hallFilter = document.getElementById('cal-hall-filter')?.value || '';
   _calHallFilter = hallFilter;
-
   const ym = _ym();
-  const url = `/api/events/calendar?month=${ym}` + (hallFilter ? `&hall_name=${encodeURIComponent(hallFilter)}` : '');
-  try {
-    const d = await fetch(url).then(r => r.json());
-    _calEventMap = d.events || {};
-  } catch(e) {
-    _calEventMap = {};
-  }
+  const evUrl = `/api/events/calendar?month=${ym}` + (hallFilter ? `&hall_name=${encodeURIComponent(hallFilter)}` : '');
+  const [evData, hmData] = await Promise.all([
+    fetch(evUrl).then(r => r.json()).catch(() => ({events:{}})),
+    fetch(`/api/hall/month_heatmap?month=${ym}`).then(r => r.json()).catch(() => ({days:{}})),
+  ]);
+  _calEventMap = evData.events || {};
+  _calHeatMap  = hmData.days  || {};
   _renderCalGrid();
   loadCalStrength();
 }
@@ -4409,72 +4419,178 @@ async function loadCalendar() {
 function _renderCalGrid() {
   const grid = document.getElementById('cal-grid');
   if (!grid) return;
-
-  const firstDay = new Date(_calYear, _calMonth, 1).getDay(); // 0=Sun
+  const firstDay   = new Date(_calYear, _calMonth, 1).getDay();
   const daysInMonth = new Date(_calYear, _calMonth + 1, 0).getDate();
-  const daysInPrev = new Date(_calYear, _calMonth, 0).getDate();
+  const daysInPrev  = new Date(_calYear, _calMonth, 0).getDate();
   const today = new Date().toISOString().slice(0, 10);
-
-  let html = '';
-  let cellCount = 0;
   const totalCells = Math.ceil((firstDay + daysInMonth) / 7) * 7;
-
+  let html = '';
   for (let i = 0; i < totalCells; i++) {
     let day, month, year, isOther = false;
     if (i < firstDay) {
       day = daysInPrev - firstDay + i + 1;
       month = _calMonth === 0 ? 12 : _calMonth;
-      year = _calMonth === 0 ? _calYear - 1 : _calYear;
+      year  = _calMonth === 0 ? _calYear - 1 : _calYear;
       isOther = true;
     } else if (i >= firstDay + daysInMonth) {
       day = i - firstDay - daysInMonth + 1;
       month = _calMonth === 11 ? 1 : _calMonth + 2;
-      year = _calMonth === 11 ? _calYear + 1 : _calYear;
+      year  = _calMonth === 11 ? _calYear + 1 : _calYear;
       isOther = true;
     } else {
-      day = i - firstDay + 1;
-      month = _calMonth + 1;
-      year = _calYear;
+      day = i - firstDay + 1; month = _calMonth + 1; year = _calYear;
     }
-
     const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    const evs = _calEventMap[dateStr] || [];
-    const isToday = dateStr === today;
-    const isSel = dateStr === _calSelectedDate;
-    const hasEv = evs.length > 0;
-
-    const cls = [
-      'cal-cell',
-      isOther ? 'other-month' : '',
-      isToday ? 'today' : '',
-      isSel ? 'selected' : '',
-      hasEv ? 'has-event' : '',
-    ].filter(Boolean).join(' ');
-
+    const evs  = _calEventMap[dateStr] || [];
+    const heat = _calHeatMap[dateStr];
+    const heatCls = isOther ? '' : _heatClass(heat?.avg_diff);
+    const cls = ['cal-cell', isOther?'other-month':'', dateStr===today?'today':'',
+      dateStr===_calSelectedDate?'selected':'', evs.length?'has-event':'', heatCls]
+      .filter(Boolean).join(' ');
     const dots = [...new Set(evs.map(e => e.event_type))]
-      .map(t => `<span class="cal-dot cal-dot-${t}" title="${t}"></span>`)
-      .join('');
-
-    html += `<div class="${cls}" data-date="${dateStr}" onclick="selectCalDay('${dateStr}')">
+      .map(t => `<span class="cal-dot cal-dot-${t}" title="${t}"></span>`).join('');
+    // ホール数バッジ
+    const hallBadge = (!isOther && heat && heat.hall_count > 0)
+      ? `<span style="position:absolute;top:2px;left:3px;font-size:.55rem;color:var(--text3)">${heat.hall_count}</span>` : '';
+    html += `<div class="${cls}" onclick="selectCalDay('${dateStr}')" style="position:relative">
+      ${hallBadge}
       <span class="cal-day-num">${day}</span>
       <div class="cal-dots">${dots}</div>
     </div>`;
-    cellCount++;
   }
-
   grid.innerHTML = html;
 }
 
+// ── L1: 日付選択 → L2ドリルダウン（ホールバー）を開く ──
 async function selectCalDay(dateStr) {
   _calSelectedDate = dateStr;
+  _calDrillDate = dateStr;
+  _calDrillHall = null;
   _renderCalGrid();
 
+  // イベントパネル更新
   const detail = document.getElementById('cal-day-detail');
   document.getElementById('cal-detail-date').textContent =
-    dateStr.replace(/-/g, '/') + ' のイベント・実績';
+    dateStr.replace(/-/g, '/') + ' のイベント';
   detail.style.display = 'block';
+  _renderDayEvents(dateStr);
 
-  // イベントバッジ
+  // ドリルダウンL2を開く
+  const drill = document.getElementById('cal-drill');
+  drill.style.display = 'block';
+  document.getElementById('cal-drill-back').style.display = 'none';
+  document.getElementById('cal-drill-crumb').textContent =
+    dateStr.replace(/-/g, '/') + ' — 店舗別出玉';
+  document.getElementById('cal-drill-machines').style.display = 'none';
+  const hallsEl = document.getElementById('cal-drill-halls');
+  hallsEl.style.display = 'block';
+  hallsEl.innerHTML = '<div style="font-size:.72rem;color:var(--text3);padding:8px 0">読み込み中...</div>';
+
+  const heat = _calHeatMap[dateStr];
+  if (heat && heat.halls && heat.halls.length) {
+    _renderHallBars(heat.halls, dateStr);
+  } else {
+    // APIから直接取得
+    try {
+      const d = await fetch(`/api/events/day?date_str=${dateStr}`).then(r => r.json());
+      if (d.results && d.results.length) {
+        // hall_day_machineは台ごとなのでホール別に集計
+        const byHall = {};
+        for (const r of d.results) {
+          if (!byHall[r.hall_name]) byHall[r.hall_name] = {diffs: [], mc: 0};
+          byHall[r.hall_name].diffs.push(r.avg_diff_coins);
+          byHall[r.hall_name].mc++;
+        }
+        const halls = Object.entries(byHall).map(([name, v]) => ({
+          hall_name: name,
+          avg_diff: Math.round(v.diffs.reduce((a,b)=>a+b,0)/v.diffs.length),
+          machine_count: v.mc,
+        })).sort((a,b) => b.avg_diff - a.avg_diff);
+        _renderHallBars(halls, dateStr);
+      } else {
+        hallsEl.innerHTML = '<div style="font-size:.72rem;color:var(--text3);padding:8px 0">データなし（みんレポをスクレイプしてください）</div>';
+      }
+    } catch(e) {
+      hallsEl.innerHTML = '<div style="font-size:.72rem;color:var(--danger)">取得エラー</div>';
+    }
+  }
+}
+
+function _renderHallBars(halls, dateStr) {
+  const el = document.getElementById('cal-drill-halls');
+  if (!halls.length) { el.innerHTML = '<div style="font-size:.72rem;color:var(--text3);padding:8px 0">データなし</div>'; return; }
+  const maxAbs = Math.max(...halls.map(h => Math.abs(h.avg_diff)), 1);
+  el.innerHTML = halls.map(h => {
+    const pct = Math.round(Math.abs(h.avg_diff) / maxAbs * 100);
+    const pos = h.avg_diff >= 0;
+    const col  = pos ? 'var(--success)' : 'var(--danger)';
+    const sign = pos ? '+' : '';
+    const mc   = h.machine_count ? `<span class="drill-bar-sub">${h.machine_count}機種</span>` : '';
+    return `<div class="drill-bar-item" onclick="calDrillHall('${dateStr}','${h.hall_name.replace(/'/g,"\\'")}')">
+      <div class="drill-bar-name" title="${h.hall_name}">${h.hall_name}</div>
+      <div class="drill-bar-track">
+        <div class="drill-bar-fill ${pos?'pos':'neg'}" style="width:${pct}%"></div>
+      </div>
+      ${mc}
+      <div class="drill-bar-val" style="color:${col}">${sign}${h.avg_diff}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── L2: ホールクリック → L3（台別バー）──
+async function calDrillHall(dateStr, hallName) {
+  _calDrillHall = hallName;
+  document.getElementById('cal-drill-back').style.display = 'inline';
+  document.getElementById('cal-drill-crumb').textContent =
+    `${dateStr.replace(/-/g,'/')} › ${hallName}`;
+  document.getElementById('cal-drill-halls').style.display = 'none';
+  const machEl = document.getElementById('cal-drill-machines');
+  machEl.style.display = 'block';
+  machEl.innerHTML = '<div style="font-size:.72rem;color:var(--text3);padding:8px 0">読み込み中...</div>';
+  try {
+    const rows = await fetch(
+      `/api/hall/day_machines?date_str=${dateStr}&hall_name=${encodeURIComponent(hallName)}`
+    ).then(r => r.json());
+    if (!rows.length) {
+      machEl.innerHTML = '<div style="font-size:.72rem;color:var(--text3);padding:8px 0">台別データなし</div>';
+      return;
+    }
+    const maxAbs = Math.max(...rows.map(r => Math.abs(r.avg_diff)), 1);
+    machEl.innerHTML = rows.map(r => {
+      const pct = Math.round(Math.abs(r.avg_diff) / maxAbs * 100);
+      const pos = r.avg_diff >= 0;
+      const col = pos ? 'var(--success)' : 'var(--danger)';
+      const sign = pos ? '+' : '';
+      const sub = [
+        r.unit_count ? `${r.unit_count}台` : '',
+        r.avg_games  ? `${Math.round(r.avg_games)}G` : '',
+        r.win_rate_pct ? `勝率${Math.round(r.win_rate_pct)}%` : '',
+      ].filter(Boolean).join(' ');
+      return `<div class="drill-bar-item" style="cursor:default">
+        <div class="drill-bar-name" title="${r.machine_name}" style="flex:0 0 120px">${r.machine_name}</div>
+        <div class="drill-bar-track">
+          <div class="drill-bar-fill ${pos?'pos':'neg'}" style="width:${pct}%"></div>
+        </div>
+        <div class="drill-bar-sub" style="min-width:60px;text-align:right;font-size:.6rem;color:var(--text3)">${sub}</div>
+        <div class="drill-bar-val" style="color:${col}">${sign}${r.avg_diff}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    machEl.innerHTML = `<div style="font-size:.72rem;color:var(--danger)">取得エラー: ${e.message}</div>`;
+  }
+}
+
+// ── ドリル戻る ──
+function calDrillBack() {
+  _calDrillHall = null;
+  document.getElementById('cal-drill-back').style.display = 'none';
+  document.getElementById('cal-drill-crumb').textContent =
+    (_calDrillDate||'').replace(/-/g,'/') + ' — 店舗別出玉';
+  document.getElementById('cal-drill-machines').style.display = 'none';
+  document.getElementById('cal-drill-halls').style.display = 'block';
+}
+
+function _renderDayEvents(dateStr) {
   const evs = _calEventMap[dateStr] || [];
   const evEl = document.getElementById('cal-detail-events');
   if (evs.length === 0) {
@@ -4490,29 +4606,17 @@ async function selectCalDay(dateStr) {
       </div>`;
     }).join('');
   }
-
-  // 実績データ
+  // 実績は削除（ドリルダウンパネルに移行）
   const resEl = document.getElementById('cal-detail-results');
-  resEl.innerHTML = '<div style="font-size:.68rem;color:var(--text3)">実績読み込み中...</div>';
+  if (resEl) resEl.innerHTML = '';
+}
+
+// 旧 selectCalDay の実績ロード部（型互換のためダミー）
+async function _legacyLoadResults(dateStr) {
   try {
     const hallParam = _calHallFilter ? `&hall_name=${encodeURIComponent(_calHallFilter)}` : '';
-    const d = await fetch(`/api/events/day?date_str=${dateStr}${hallParam}`).then(r => r.json());
-    if (!d.results || d.results.length === 0) {
-      resEl.innerHTML = '<div style="font-size:.68rem;color:var(--text3)">みんレポ実績なし</div>';
-    } else {
-      const rows = d.results.slice(0, 8).map(r => {
-        const diff = r.avg_diff_coins;
-        const col = diff > 0 ? 'var(--success)' : diff < 0 ? 'var(--danger)' : 'var(--text3)';
-        return `<div style="display:flex;justify-content:space-between;font-size:.7rem;padding:3px 0;border-bottom:1px solid var(--border)">
-          <span style="color:var(--text2);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.hall_name}</span>
-          <span style="color:${col};font-weight:600;margin-left:8px">${diff > 0 ? '+' : ''}${Math.round(diff)}枚</span>
-        </div>`;
-      }).join('');
-      resEl.innerHTML = `<div style="font-size:.65rem;color:var(--text3);margin-bottom:4px">当日実績 (みんレポ)</div>${rows}`;
-    }
-  } catch(e) {
-    resEl.innerHTML = '';
-  }
+    return '';
+  } catch(e) { return ''; }
 }
 
 async function deleteEvent(id, dateStr) {

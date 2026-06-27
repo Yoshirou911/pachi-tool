@@ -1028,7 +1028,9 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
                   AVG(diff_coins) as avg_diff,
                   SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate,
                   MAX(report_date) as latest_date,
-                  COUNT(*) as record_count
+                  COUNT(*) as record_count,
+                  AVG(CASE WHEN report_date >= date('now','-7 days') THEN bb_prob END) as bb_7d,
+                  AVG(CASE WHEN report_date < date('now','-7 days') THEN bb_prob END) as bb_prev
            FROM hall_day_seat
            WHERE bb_prob IS NOT NULL
              AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
@@ -1054,6 +1056,11 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
     for i, r in enumerate(rows):
         bb = float(r[4]) if r[4] else 0
         z = round((bb - mean_bb) / max(std_bb, 0.00001), 2)
+        bb_7d = float(r[10]) if r[10] else None
+        bb_prev = float(r[11]) if r[11] else None
+        bb_trend = None
+        if bb_7d and bb_prev and bb_prev > 0:
+            bb_trend = round((bb_7d - bb_prev) / bb_prev * 100, 1)
         result.append({
             "rank": i + 1,
             "hall_name": r[0],
@@ -1067,6 +1074,7 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
             "latest_date": r[8] or "",
             "record_count": r[9],
             "bb_z": z,
+            "bb_trend_7d": bb_trend,
         })
 
     _cache_set(ckey, result)

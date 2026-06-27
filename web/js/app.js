@@ -3428,6 +3428,12 @@ async function loadHallCompare() {
       const zCol = h.bb_z >= 0.5 ? 'var(--success)' : h.bb_z <= -0.5 ? 'var(--danger)' : 'var(--text3)';
       const diffCol = h.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       const isSelected = h.hall_name === getSelectedHall();
+      let trendHtml2 = '';
+      if (h.bb_trend_7d !== null && h.bb_trend_7d !== undefined) {
+        const t2 = h.bb_trend_7d;
+        const tc2 = t2 > 1 ? 'var(--success)' : t2 < -1 ? 'var(--danger)' : 'var(--text3)';
+        trendHtml2 = ` <span style="color:${tc2};font-size:.58rem">${t2 > 0 ? '+' : ''}${t2}%</span>`;
+      }
       return `<div onclick="selectHall(${JSON.stringify(h.hall_name)})"
         style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--bg2);cursor:pointer;
                ${isSelected ? 'background:rgba(124,127,245,.08);border-radius:6px;' : ''}"
@@ -3435,7 +3441,7 @@ async function loadHallCompare() {
         <span style="font-size:.8rem;min-width:24px;text-align:center">${medal}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:.78rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-                      color:${isSelected ? 'var(--primary-h)' : 'var(--text1)'}">${esc(h.hall_name)}</div>
+                      color:${isSelected ? 'var(--primary-h)' : 'var(--text1)'}">${esc(h.hall_name)}${trendHtml2}</div>
           <div style="font-size:.62rem;color:var(--text3)">${h.machine_count}機種 / 直近${h.days_data}日</div>
         </div>
         <div style="text-align:right">
@@ -4048,19 +4054,27 @@ async function loadHallCompare() {
       const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       const pct = Math.round(Math.abs(r.avg_diff) / maxAbs * 100);
       const encH = encodeURIComponent(r.hall_name);
+      let trendHtml = '';
+      if (r.bb_trend_7d !== null && r.bb_trend_7d !== undefined) {
+        const t = r.bb_trend_7d;
+        const tc = t > 1 ? 'var(--success)' : t < -1 ? 'var(--danger)' : 'var(--text3)';
+        const ta = t > 1 ? '↑' : t < -1 ? '↓' : '→';
+        trendHtml = `<span style="color:${tc};font-size:.58rem;margin-left:4px">BB${ta}${t > 0 ? '+' : ''}${t}%</span>`;
+      }
+      const zCol = r.bb_z > 0.5 ? 'var(--success)' : r.bb_z < -0.5 ? 'var(--danger)' : 'var(--text3)';
       return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
         onclick="switchToHall(decodeURIComponent('${encH}'))">
         <span style="font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.85rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}</div>
+          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${trendHtml}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
             <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>
-          <div style="font-size:.6rem;color:var(--text3);margin-top:2px">${r.days_cnt}日 ${r.machine_cnt}機種 ${r.records}件 勝率${r.win_rate}% → タップで分析</div>
+          <div style="font-size:.58rem;color:var(--text3);margin-top:2px">${r.days_data}日 ${r.machine_count}機種 ${r.record_count}件 勝率${r.win_rate}% <span style="color:${zCol}">BB ${r.bb_z > 0 ? '+' : ''}${r.bb_z}σ</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
-          <div style="font-size:.6rem;color:var(--text3)">${r.last_date || ''}</div>
+          <div style="font-size:.6rem;color:var(--text3)">${r.latest_date || ''}</div>
         </div>
       </div>`;
     }).join('');

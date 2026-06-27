@@ -471,6 +471,55 @@ function renderEstimateResult(r) {
     ciEl.textContent = `90%信用区間: 設定${r.credible_interval[0].toFixed(0)}〜${r.credible_interval[1].toFixed(0)}`;
   }
 
+  // 高設定シグナル数サマリー
+  {
+    let signalEl = document.getElementById('res-signal-summary');
+    if (!signalEl) {
+      signalEl = document.createElement('div');
+      signalEl.id = 'res-signal-summary';
+      signalEl.style.cssText = 'margin-top:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:7px;border:1px solid var(--border)';
+      barsEl.parentNode.insertBefore(signalEl, barsEl.nextSibling);
+    }
+    const signals = [];
+    // 高設定確率50%以上
+    if (r.high_setting_prob >= 0.5)
+      signals.push({ icon: '◎', label: `高設定確率${Math.round(r.high_setting_prob*100)}%`, positive: true });
+    else if (r.high_setting_prob >= 0.3)
+      signals.push({ icon: '△', label: `高設定確率${Math.round(r.high_setting_prob*100)}%`, positive: false });
+
+    // BB方向チェック
+    if (r.element_analysis) {
+      const bbEl = r.element_analysis.find(e => /BB|BIG|ボーナス合算|AT初当/.test(e.name) && e.observed > 0);
+      const rbEl = r.element_analysis.find(e => /RB|REG|単独RB/.test(e.name) && e.observed > 0);
+      if (bbEl) signals.push({ icon: bbEl.direction === 'up' ? '◎' : '✕', label: `${bbEl.name} ${bbEl.direction === 'up' ? '↑高め(設'+bbEl.closest_setting+')' : '↓低め'}`, positive: bbEl.direction === 'up' });
+      if (rbEl) signals.push({ icon: rbEl.direction === 'up' ? '◎' : '✕', label: `${rbEl.name} ${rbEl.direction === 'up' ? '↑' : '↓'}`, positive: rbEl.direction === 'up' });
+    }
+
+    // 信用区間が狭い（高確度）
+    if (r.credible_interval) {
+      const span = r.credible_interval[1] - r.credible_interval[0];
+      if (span <= 2) signals.push({ icon: '◎', label: `信用区間±${(span/2).toFixed(1)}（高精度）`, positive: true });
+    }
+
+    // ゲーム数
+    const games = parseInt(estGames.value) || 0;
+    if (games >= 3000) signals.push({ icon: '◎', label: `${games.toLocaleString()}G（充分なサンプル）`, positive: true });
+    else if (games < 1000) signals.push({ icon: '▲', label: `${games}G（サンプル少）`, positive: false });
+
+    const positives = signals.filter(s => s.positive).length;
+    const total = signals.length;
+    const strengthColor = positives >= 3 ? 'var(--success)' : positives >= 2 ? 'var(--warning)' : 'var(--text3)';
+    if (total > 0) {
+      signalEl.innerHTML = `<div style="font-size:.65rem;color:var(--text3);margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">高設定シグナル <span style="color:${strengthColor};font-weight:800">${positives}/${total}</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${signals.map(s =>
+          `<span style="font-size:.66rem;padding:2px 7px;border-radius:4px;background:${s.positive?'rgba(16,185,129,.12)':'rgba(255,255,255,.04)'};color:${s.positive?'var(--success)':'var(--text3)'}">${s.icon} ${s.label}</span>`
+        ).join('')}</div>`;
+      signalEl.style.display = 'block';
+    } else {
+      signalEl.style.display = 'none';
+    }
+  }
+
   const highPct = (r.high_setting_prob * 100).toFixed(0);
   highEl.textContent = highPct + '%';
   highEl.style.color = r.high_setting_prob > 0.5 ? 'var(--success)' : r.high_setting_prob > 0.3 ? 'var(--warning)' : 'var(--danger)';

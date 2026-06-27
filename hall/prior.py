@@ -503,6 +503,50 @@ def _estimate_prior_from_anaslo(
                         sigma_rb = max(std_rb, sigma_floor_rb)
                         log_likes[s] += confidence_rb * (-0.5 * ((mean_rb - theo_p) / sigma_rb) ** 2)
 
+        # ── ホールレベル設定水準補正 ────────────────────────────────────────
+        # 同ホールの全機種・今日のBB水準が過去平均より高い日は、
+        # このホールが「全体的に設定を入れている」と判断できる
+        try:
+            conn3 = sqlite3.connect(HALL_REPORTS_DB)
+            # 直近7日と過去60日のホール平均BB
+            recent_bb_row = conn3.execute(
+                """SELECT AVG(bb_prob), COUNT(*)
+                   FROM hall_day_seat
+                   WHERE hall_name=? AND bb_prob IS NOT NULL
+                     AND machine_name!=? AND machine_name NOT LIKE '末尾%'
+                     AND machine_name != '_NODATA_'
+                     AND report_date >= date('now', '-7 days')""",
+                (hall_name, machine_name)
+            ).fetchone()
+            base_bb_row = conn3.execute(
+                """SELECT AVG(bb_prob)
+                   FROM hall_day_seat
+                   WHERE hall_name=? AND bb_prob IS NOT NULL
+                     AND machine_name!=? AND machine_name NOT LIKE '末尾%'
+                     AND machine_name != '_NODATA_'
+                     AND report_date >= date('now', '-60 days')
+                     AND report_date < date('now', '-7 days')""",
+                (hall_name, machine_name)
+            ).fetchone()
+            conn3.close()
+            if (recent_bb_row and recent_bb_row[1] and recent_bb_row[1] >= 5
+                    and base_bb_row and base_bb_row[0]):
+                hall_rel = float(recent_bb_row[0]) / float(base_bb_row[0])
+                # 5%以上高ければ高設定シグナル
+                hall_z = (hall_rel - 1.0) / 0.04
+                if abs(hall_z) >= 0.5:
+                    hall_shift = math.tanh(hall_z * 0.5) * 0.12
+                    high_s = [s for s in settings if int(s) >= 4]
+                    low_s  = [s for s in settings if int(s) < 4]
+                    if hall_shift > 0:
+                        for s in high_s:
+                            log_likes[s] += hall_shift
+                    else:
+                        for s in low_s:
+                            log_likes[s] += -hall_shift
+        except Exception:
+            pass
+
         # 台番z-scoreを事前に反映（+1σ以上 = 高設定寄りに補正）
         if seat_bb_z is not None and abs(seat_bb_z) >= 0.3:
             high_settings = [s for s in settings if int(s) >= 4]

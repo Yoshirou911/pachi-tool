@@ -4093,11 +4093,14 @@ async function loadHallCompare() {
         trendHtml = `<span style="color:${tc};font-size:.58rem;margin-left:4px">BB${ta}${t > 0 ? '+' : ''}${t}%</span>`;
       }
       const zCol = r.bb_z > 0.5 ? 'var(--success)' : r.bb_z < -0.5 ? 'var(--danger)' : 'var(--text3)';
+      const surgeHtml = r.surge_seat_count > 0
+        ? `<span style="color:var(--warning);font-size:.58rem;margin-left:4px">🔺${r.surge_seat_count}台急上昇</span>`
+        : '';
       return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
         onclick="switchToHall(decodeURIComponent('${encH}'))">
         <span style="font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${trendHtml}</div>
+          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${trendHtml}${surgeHtml}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
             <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>

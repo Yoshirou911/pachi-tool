@@ -1263,12 +1263,34 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
            FROM hall_day_seat
            WHERE bb_prob IS NOT NULL
              AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND machine_name NOT LIKE '%データ%'
              AND report_date >= date('now', '-' || ? || ' days')
            GROUP BY hall_name
            HAVING record_count >= 20
-           ORDER BY avg_bb DESC""",
+           ORDER BY avg_diff DESC""",
         (days,)
     ).fetchall()
+
+    # BB急上昇台数 (直近3日 vs 過去30日の平均比較、1.5倍以上を急上昇とみなす)
+    surge_counts: dict[str, int] = {}
+    try:
+        surge_rows = conn.execute(
+            """SELECT hall_name, machine_name, seat_number,
+                      AVG(CASE WHEN report_date >= date('now','-3 days') THEN bb_prob END) as rec,
+                      AVG(CASE WHEN report_date < date('now','-3 days')
+                                AND report_date >= date('now','-33 days') THEN bb_prob END) as base
+               FROM hall_day_seat
+               WHERE bb_prob IS NOT NULL AND machine_name NOT LIKE '末尾%'
+                 AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
+               GROUP BY hall_name, machine_name, seat_number
+               HAVING rec IS NOT NULL AND base IS NOT NULL AND base > 0
+                 AND rec >= base * 1.5"""
+        ).fetchall()
+        for r in surge_rows:
+            surge_counts[r[0]] = surge_counts.get(r[0], 0) + 1
+    except Exception:
+        pass
+
     conn.close()
 
     if not rows:
@@ -1276,10 +1298,8 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
 
     import statistics as _stats
     bbs = [float(r[4]) for r in rows if r[4]]
-    if len(bbs) < 2:
-        return []
-    mean_bb = _stats.mean(bbs)
-    std_bb = _stats.stdev(bbs) if len(bbs) > 1 else 0.0001
+    mean_bb = _stats.mean(bbs) if bbs else 0.0
+    std_bb = max(_stats.stdev(bbs) if len(bbs) > 1 else 0.0, mean_bb * 0.20, 0.5)
 
     result = []
     for i, r in enumerate(rows):
@@ -1296,14 +1316,15 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
             "days_data": r[1],
             "machine_count": r[2],
             "seat_count": r[3] or 0,
-            "avg_bb_pct": round(bb, 2),
-            "avg_rb_pct": round(float(r[5] or 0), 2),
+            "avg_bb": round(bb, 2),
+            "avg_rb": round(float(r[5] or 0), 2),
             "avg_diff": round(float(r[6] or 0)),
             "win_rate": round(float(r[7] or 0), 1),
             "latest_date": r[8] or "",
             "record_count": r[9],
             "bb_z": z,
             "bb_trend_7d": bb_trend,
+            "surge_seat_count": surge_counts.get(r[0], 0),
         })
 
     _cache_set(ckey, result)

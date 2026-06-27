@@ -1705,6 +1705,57 @@ def add_manual_event(
         return {"ok": False, "error": str(e)}
 
 
+@app.get("/api/events/debug_scrape", tags=["events"])
+def debug_event_scrape(
+    hall_name: str = Query(...),
+    source: str = Query("minpachi", description="minpachi | pachitown | twitter | facebook"),
+) -> dict:
+    """スクレーパーのデバッグ: 何が取れているか確認用"""
+    import traceback
+    result = {"hall_name": hall_name, "source": source, "events": [], "debug": {}}
+    try:
+        if source == "minpachi":
+            from scraper.events import _minpachi_hall_url, scrape_minpachi
+            hall_url = _minpachi_hall_url(hall_name)
+            result["debug"]["hall_url"] = hall_url
+            if hall_url:
+                import requests
+                from scraper.events import HEADERS
+                r = requests.get(hall_url.rstrip("/") + "/event/", headers=HEADERS, timeout=12)
+                result["debug"]["status_code"] = r.status_code
+                result["debug"]["html_snippet"] = r.text[:3000]
+            evs = scrape_minpachi(hall_name)
+            result["events"] = evs
+        elif source == "pachitown":
+            from scraper.events import scrape_pachitown
+            evs = scrape_pachitown(hall_name)
+            result["events"] = evs
+        elif source == "twitter":
+            from scraper.events import scrape_twitter, NITTER_INSTANCES
+            import requests, urllib.parse
+            from scraper.events import HEADERS
+            result["debug"]["nitter_instances"] = NITTER_INSTANCES
+            query = urllib.parse.quote(f"{hall_name} イベント")
+            for inst in NITTER_INSTANCES[:2]:
+                url = f"{inst}/search?q={query}&f=tweets"
+                try:
+                    r = requests.get(url, headers=HEADERS, timeout=8)
+                    result["debug"][f"{inst}_status"] = r.status_code
+                    result["debug"][f"{inst}_html"] = r.text[:1000]
+                except Exception as e:
+                    result["debug"][f"{inst}_error"] = str(e)
+            evs = scrape_twitter(hall_name)
+            result["events"] = evs
+        elif source == "facebook":
+            from scraper.events import scrape_facebook
+            evs = scrape_facebook(hall_name)
+            result["events"] = evs
+    except Exception as e:
+        result["error"] = str(e)
+        result["traceback"] = traceback.format_exc()[-500:]
+    return result
+
+
 @app.delete("/api/events/{event_id}", tags=["events"])
 def delete_event(event_id: int) -> dict:
     """イベントを削除"""

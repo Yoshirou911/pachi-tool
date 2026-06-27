@@ -1106,6 +1106,61 @@ def get_hall_trend_summary(
     }
 
 
+@app.get("/api/hall/weekly_summary", tags=["hall"])
+def get_hall_weekly_summary(days: int = Query(7, le=14)) -> dict:
+    """全ホールの週次サマリー — ランキング変動・急上昇・最高/最低機種"""
+    conn = _get_reports_conn()
+    if conn is None:
+        return {"highlights": [], "top_halls": [], "worst_halls": [], "generated_at": ""}
+
+    try:
+        # 今週の上位ホール
+        top_rows = conn.execute(
+            """SELECT hall_name, ROUND(AVG(avg_diff_coins),0) as avg_diff,
+                      COUNT(DISTINCT report_date) as days_cnt
+               FROM hall_day_machine
+               WHERE report_date >= date('now', ? || ' days') AND avg_diff_coins IS NOT NULL
+               GROUP BY hall_name HAVING days_cnt >= 2
+               ORDER BY avg_diff DESC LIMIT 5""",
+            (f"-{days}",)
+        ).fetchall()
+
+        # 急上昇機種（先週比で大幅改善）
+        hottest = conn.execute(
+            """SELECT hall_name, machine_name,
+                      AVG(CASE WHEN report_date >= date('now','-3 days') THEN avg_diff_coins END) as recent,
+                      AVG(CASE WHEN report_date < date('now','-3 days')
+                                AND report_date >= date('now','-14 days') THEN avg_diff_coins END) as prev
+               FROM hall_day_machine
+               WHERE avg_diff_coins IS NOT NULL
+               GROUP BY hall_name, machine_name
+               HAVING recent IS NOT NULL AND prev IS NOT NULL AND recent - prev > 100
+               ORDER BY recent - prev DESC LIMIT 5""",
+        ).fetchall()
+
+        highlights = []
+        for r in hottest:
+            diff = round(float(r["recent"]) - float(r["prev"]))
+            highlights.append({
+                "hall_name": r["hall_name"],
+                "machine_name": r["machine_name"],
+                "trend": diff,
+                "recent": round(float(r["recent"])),
+            })
+
+        import datetime as _dtw
+        return {
+            "top_halls": [{"hall_name": r["hall_name"], "avg_diff": int(r["avg_diff"]), "days": r["days_cnt"]} for r in top_rows],
+            "highlights": highlights,
+            "days": days,
+            "generated_at": _dtw.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+    except Exception as e:
+        return {"error": str(e), "highlights": [], "top_halls": [], "generated_at": ""}
+    finally:
+        conn.close()
+
+
 def _run_scrape(hall_name: str, days: int):
     """バックグラウンドスクレイプ処理（みんレポ）。"""
     global _scrape_status

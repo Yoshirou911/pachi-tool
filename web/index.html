@@ -70,6 +70,15 @@
           <div id="today-hot-body" style="font-size:.78rem;color:var(--text2);line-height:1.7"></div>
         </div>
 
+        <!-- 週次ハイライト -->
+        <div id="weekly-highlight-card" style="display:none;background:linear-gradient(135deg,rgba(34,211,238,.08) 0%,rgba(124,127,245,.06) 100%);border:1px solid rgba(34,211,238,.2);border-radius:12px;padding:12px 14px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <div style="font-size:.65rem;font-weight:800;color:#22d3ee;text-transform:uppercase;letter-spacing:.1em">📈 今週の急上昇</div>
+            <span id="weekly-generated" style="font-size:.58rem;color:var(--text3)"></span>
+          </div>
+          <div id="weekly-highlight-body" style="font-size:.78rem;color:var(--text2);line-height:1.7"></div>
+        </div>
+
         <!-- Machine & Hall selector -->
         <div class="card">
           <div class="form-row" style="position:relative">
@@ -673,7 +682,11 @@
 
           <!-- 機種別トレンドチャート -->
           <div class="card" id="machine-trend-card" style="display:none">
-            <div class="card-title" id="machine-trend-title">📉 機種トレンド</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div class="card-title" id="machine-trend-title" style="margin-bottom:0">📉 機種トレンド</div>
+              <button onclick="document.getElementById('machine-trend-card').style.display='none'" class="btn btn-ghost" style="font-size:.68rem;padding:2px 8px">✕</button>
+            </div>
+            <div id="machine-trend-stats" style="display:flex;gap:12px;flex-wrap:wrap;font-size:.68rem;color:var(--text3);margin-bottom:8px;padding:6px 8px;background:var(--bg3);border-radius:7px"></div>
             <canvas id="machine-trend-chart" height="180"></canvas>
           </div>
 

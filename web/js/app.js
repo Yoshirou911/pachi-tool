@@ -119,6 +119,45 @@ async function checkConnection() {
 // ---------------------------------------------------------------------------
 // 今日の注目情報（推測ページ先頭カード）
 // ---------------------------------------------------------------------------
+async function loadWeeklyHighlight() {
+  const card = document.getElementById('weekly-highlight-card');
+  const body = document.getElementById('weekly-highlight-body');
+  const gen = document.getElementById('weekly-generated');
+  if (!card || !body) return;
+  try {
+    const data = await apiFetch('/api/hall/weekly_summary?days=7').catch(() => null);
+    if (!data || (!data.highlights?.length && !data.top_halls?.length)) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = 'block';
+    if (gen) gen.textContent = data.generated_at || '';
+    let html = '';
+    if (data.highlights?.length) {
+      html += data.highlights.slice(0, 3).map(h => {
+        const sign = h.trend >= 0 ? '+' : '';
+        return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+          <span style="font-size:.8rem">📈</span>
+          <span style="flex:1;font-size:.75rem"><strong style="color:var(--text1)">${esc(h.machine_name)}</strong>
+            <span style="color:var(--text3);font-size:.68rem"> — ${esc(h.hall_name)}</span></span>
+          <span style="font-size:.72rem;font-weight:700;color:var(--success)">${sign}${h.trend}枚</span>
+        </div>`;
+      }).join('');
+    }
+    if (data.top_halls?.length) {
+      html += `<div style="margin-top:6px;font-size:.62rem;color:var(--text3)">
+        週間トップ: ${data.top_halls.slice(0,3).map(h =>
+          `<span style="color:var(--text2)">${esc(h.hall_name)} <strong style="color:${h.avg_diff>=0?'var(--success)':'var(--danger)'}">${h.avg_diff>=0?'+':''}${h.avg_diff}</strong></span>`
+        ).join(' / ')}
+      </div>`;
+    }
+    body.innerHTML = html;
+  } catch(e) {
+    const c = document.getElementById('weekly-highlight-card');
+    if (c) c.style.display = 'none';
+  }
+}
+
 async function loadTodayHotCard() {
   const card = document.getElementById('today-hot-card');
   const body = document.getElementById('today-hot-body');
@@ -3220,6 +3259,7 @@ async function init() {
   await loadMachineSelect();
   await populateSessionFilters();
   loadTodayHotCard();
+  loadWeeklyHighlight();
 
   // ヘッダー日付表示
   const today = new Date();
@@ -3883,6 +3923,25 @@ async function renderMachineTrendChart(hall, machineName) {
     const labels = sorted.map(r => r.report_date.slice(5));
     const diffs  = sorted.map(r => r.avg_diff_coins ?? null);
     const evs    = sorted.map(r => r.ev_pct ?? null);
+
+    // 統計サマリー
+    const statsEl = document.getElementById('machine-trend-stats');
+    if (statsEl) {
+      const validDiffs = diffs.filter(v => v !== null);
+      const avgDiff = validDiffs.length ? Math.round(validDiffs.reduce((a,b)=>a+b,0)/validDiffs.length) : null;
+      const maxDiff = validDiffs.length ? Math.max(...validDiffs) : null;
+      const minDiff = validDiffs.length ? Math.min(...validDiffs) : null;
+      const winRate = validDiffs.length ? Math.round(validDiffs.filter(v=>v>0).length/validDiffs.length*100) : null;
+      const avgSign = avgDiff >= 0 ? '+' : '';
+      const avgCol = avgDiff >= 0 ? 'var(--success)' : 'var(--danger)';
+      statsEl.innerHTML = [
+        avgDiff !== null ? `<span>平均差枚 <strong style="color:${avgCol}">${avgSign}${avgDiff}</strong></span>` : '',
+        maxDiff !== null ? `<span>最高 <strong style="color:var(--success)">+${Math.max(maxDiff,0)}</strong></span>` : '',
+        minDiff !== null ? `<span>最低 <strong style="color:var(--danger)">${minDiff}</strong></span>` : '',
+        winRate !== null ? `<span>プラス率 <strong style="color:${winRate>=50?'var(--success)':'var(--danger)'}">${winRate}%</strong></span>` : '',
+        `<span style="color:var(--text3)">${validDiffs.length}日分</span>`,
+      ].filter(Boolean).join('');
+    }
 
     const ctx = document.getElementById('machine-trend-chart').getContext('2d');
     if (_trendChart) _trendChart.destroy();

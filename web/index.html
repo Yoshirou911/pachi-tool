@@ -64,6 +64,12 @@
     <section id="page-estimate" class="page active">
       <div class="page-inner">
 
+        <!-- 今日の注目情報 -->
+        <div id="today-hot-card" style="display:none;background:linear-gradient(135deg,rgba(124,127,245,.12) 0%,rgba(34,211,238,.07) 100%);border:1px solid rgba(124,127,245,.25);border-radius:12px;padding:12px 14px">
+          <div style="font-size:.65rem;font-weight:800;color:var(--primary-h);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">📅 今日の注目情報</div>
+          <div id="today-hot-body" style="font-size:.78rem;color:var(--text2);line-height:1.7"></div>
+        </div>
+
         <!-- Machine & Hall selector -->
         <div class="card">
           <div class="form-row" style="position:relative">
@@ -480,8 +486,25 @@
 
         <!-- ===== 比較タブ ===== -->
         <div id="htab-compare" class="htab-pane active">
+          <!-- 今日の注目ホール -->
+          <div id="today-pick-card" style="display:none;margin-bottom:10px;background:linear-gradient(135deg,rgba(251,191,36,.12) 0%,rgba(34,211,238,.06) 100%);border:1px solid rgba(251,191,36,.25);border-radius:12px;padding:12px 14px">
+            <div style="font-size:.62rem;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">⚡ 今日の注目ホール</div>
+            <div id="today-pick-body" style="font-size:.78rem;color:var(--text2);line-height:1.7"></div>
+          </div>
+
+          <!-- ソート・期間コントロール -->
+          <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+            <span style="font-size:.68rem;color:var(--text3)">期間:</span>
+            <button class="btn btn-ghost compare-days-btn" data-days="7" style="font-size:.68rem;padding:3px 10px">7日</button>
+            <button class="btn btn-ghost compare-days-btn active-period" data-days="30" style="font-size:.68rem;padding:3px 10px;border-color:rgba(124,127,245,.4);color:var(--primary-h)">30日</button>
+            <button class="btn btn-ghost compare-days-btn" data-days="90" style="font-size:.68rem;padding:3px 10px">90日</button>
+            <button id="compare-refresh" class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px;margin-left:auto" onclick="loadHallCompare()">↻</button>
+          </div>
           <div class="card" id="hall-compare-card" style="display:none">
-            <div class="card-title">ホール比較ランキング <span style="font-size:.65rem;color:var(--text3);font-weight:400">（BB率・設定傾向）</span></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+              <div class="card-title" style="margin-bottom:0">ホール比較ランキング</div>
+              <span id="compare-subtitle" style="font-size:.62rem;color:var(--text3)"></span>
+            </div>
             <div id="hall-compare-body"></div>
           </div>
         </div>
@@ -628,6 +651,15 @@
             </div>
           </div>
 
+          <!-- ホール直近トレンド -->
+          <div class="card" id="hall-trend-card" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div class="card-title" style="margin-bottom:0">📉 直近トレンド</div>
+              <div id="hall-trend-summary" style="font-size:.72rem;color:var(--text3)"></div>
+            </div>
+            <canvas id="hall-trend-chart" height="80"></canvas>
+          </div>
+
           <!-- 過去30日ランキング -->
           <div class="card card-col closed" id="scrape-trend-card" style="display:none">
             <div class="card-title card-col-hd">📈 過去30日 機種別平均差枚 <span class="col-arr">▾</span></div>
@@ -666,6 +698,9 @@
 
         <!-- ===== 管理タブ ===== -->
         <div id="htab-admin" class="htab-pane">
+          <!-- データ統計サマリー -->
+          <div id="db-stats-card" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px"></div>
+
           <div class="card card-col closed" id="scrape-manager-card">
             <div style="display:flex;align-items:center;justify-content:space-between">
               <div class="card-title card-col-hd" style="margin-bottom:0;flex:1">
@@ -776,14 +811,26 @@
         <!-- ===== カレンダータブ ===== -->
         <div id="htab-calendar" class="htab-pane">
           <!-- コントロール -->
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
             <button id="cal-prev" class="btn btn-ghost" style="padding:4px 10px;font-size:1rem">&#8249;</button>
-            <div id="cal-month-label" style="font-size:.9rem;font-weight:600;color:var(--text1);min-width:90px;text-align:center"></div>
+            <div id="cal-month-label" style="font-size:.9rem;font-weight:700;color:var(--text1);min-width:90px;text-align:center"></div>
             <button id="cal-next" class="btn btn-ghost" style="padding:4px 10px;font-size:1rem">&#8250;</button>
+            <button id="cal-today-btn" class="btn btn-ghost" style="font-size:.68rem;padding:3px 9px;color:var(--primary-h);border-color:rgba(124,127,245,.35)">今日</button>
             <select id="cal-hall-filter" class="form-select" style="font-size:.72rem;flex:1;min-width:100px">
               <option value="">全店舗</option>
             </select>
-            <button id="cal-scrape-btn" class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px">イベント取得</button>
+            <button id="cal-scrape-btn" class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px">取得</button>
+          </div>
+          <!-- 凡例 -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:.62rem;color:var(--text3);align-items:center">
+            <span style="font-weight:600;color:var(--text2)">凡例:</span>
+            <span>🔥🔥 超熱(2σ+)</span>
+            <span>🔥 熱(1.5σ+)</span>
+            <span>・ やや熱</span>
+            <span style="display:inline-flex;align-items:center;gap:3px"><span style="width:10px;height:10px;background:rgba(244,63,94,.35);border-radius:2px;display:inline-block"></span>差枚高</span>
+            <span style="display:inline-flex;align-items:center;gap:3px"><span style="width:10px;height:10px;background:rgba(16,185,129,.25);border-radius:2px;display:inline-block"></span>差枚低</span>
+            <span style="display:inline-flex;align-items:center;gap:3px"><span class="cal-dot cal-dot-特日7" style="width:7px;height:7px;border-radius:50%;background:#f44;display:inline-block"></span>特日7</span>
+            <span style="display:inline-flex;align-items:center;gap:3px"><span style="width:7px;height:7px;border-radius:50%;background:#f80;display:inline-block"></span>ゾロ目</span>
           </div>
 
           <!-- イベントスクレイプ進捗 -->
@@ -806,12 +853,12 @@
           <div id="cal-grid" class="cal-grid"></div>
 
           <!-- ドリルダウンパネル (L2: ホール一覧 / L3: 台別) -->
-          <div id="cal-drill" style="display:none;margin-top:10px">
+          <div id="cal-drill" style="display:none;margin-top:10px" class="card" style="padding:12px">
             <!-- ブレッドクラム -->
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-              <button id="cal-drill-back" onclick="calDrillBack()" style="display:none;background:none;border:none;color:var(--accent);font-size:.8rem;cursor:pointer;padding:0">← 戻る</button>
-              <div id="cal-drill-crumb" style="font-size:.75rem;font-weight:600;color:var(--text1);flex:1"></div>
-              <button onclick="document.getElementById('cal-drill').style.display='none'" style="background:none;border:none;color:var(--text3);font-size:.8rem;cursor:pointer">✕</button>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+              <button id="cal-drill-back" onclick="calDrillBack()" style="display:none;background:none;border:none;color:var(--primary-h);font-size:.8rem;cursor:pointer;padding:2px 6px 2px 0">← 戻る</button>
+              <div id="cal-drill-crumb" style="font-size:.78rem;font-weight:700;color:var(--text1);flex:1"></div>
+              <button onclick="document.getElementById('cal-drill').style.display='none'" style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:.7rem;cursor:pointer;padding:2px 7px">✕</button>
             </div>
             <!-- L2: ホールバー -->
             <div id="cal-drill-halls" style="display:none"></div>

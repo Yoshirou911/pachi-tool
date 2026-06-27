@@ -93,9 +93,10 @@ document.querySelectorAll('.hall-sub-btn').forEach(btn => {
   btn.addEventListener('click', () => switchHallTab(btn.dataset.htab));
 });
 
-// 折りたたみカード
-document.querySelectorAll('.card-col-hd').forEach(hd => {
-  hd.addEventListener('click', () => hd.closest('.card-col').classList.toggle('closed'));
+// 折りたたみカード（イベント委譲で動的追加要素にも対応）
+document.addEventListener('click', e => {
+  const hd = e.target.closest('.card-col-hd');
+  if (hd) hd.closest('.card-col').classList.toggle('closed');
 });
 
 // ---------------------------------------------------------------------------
@@ -112,6 +113,49 @@ async function checkConnection() {
     badge.textContent = 'オフライン';
     badge.className = 'status-badge status-err';
     return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 今日の注目情報（推測ページ先頭カード）
+// ---------------------------------------------------------------------------
+async function loadTodayHotCard() {
+  const card = document.getElementById('today-hot-card');
+  const body = document.getElementById('today-hot-body');
+  if (!card || !body) return;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const [evData, hotData] = await Promise.all([
+      fetch(`/api/events/day?date_str=${today}`).then(r => r.json()).catch(() => ({events:[]})),
+      fetch('/api/hall/hot_days?months=2').then(r => r.json()).catch(() => ({hot_days:[]})),
+    ]);
+    const todayEvents = evData.events || [];
+    const todayHotHalls = (hotData.hot_days || []).filter(h => h.date === today);
+    todayHotHalls.sort((a, b) => b.z_score - a.z_score);
+
+    if (todayEvents.length === 0 && todayHotHalls.length === 0) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = 'block';
+    let html = '';
+    if (todayHotHalls.length > 0) {
+      html += `<div style="margin-bottom:6px"><span style="color:var(--warning);font-weight:700">🔥 今日のデータ傾向: </span>`;
+      html += todayHotHalls.slice(0, 3).map(h =>
+        `<span style="margin-right:8px">${esc(h.hall_name)} <strong style="color:${h.z_score>=1.5?'var(--success)':'var(--warning)'}">${h.label}</strong>(${h.avg_diff}枚)</span>`
+      ).join('');
+      html += '</div>';
+    }
+    if (todayEvents.length > 0) {
+      html += `<div><span style="color:var(--primary-h);font-weight:700">📌 今日のイベント: </span>`;
+      html += todayEvents.slice(0, 4).map(e =>
+        `<span class="ev-badge ev-badge-${e.event_type}" style="margin-right:4px">${esc(e.hall_name)} ${e.event_type}</span>`
+      ).join('');
+      html += '</div>';
+    }
+    body.innerHTML = html;
+  } catch(e) {
+    card.style.display = 'none';
   }
 }
 
@@ -2201,16 +2245,20 @@ async function loadScrapeDates(hall) {
   sel.innerHTML = dates.map(d => `<option value="${d}">${d}</option>`).join('');
   // 最初の日付のレポートを即表示
   loadScrapeReport(hall, dates[0]);
-  // 過去30日ランキング
+  // ホールトレンドと機種ランキング（並列）
+  loadHallTrend(hall);
   loadTopMachines(hall);
 }
 
 async function loadScrapeReport(hall, date) {
   const el = document.getElementById('scrape-report-table');
-  el.innerHTML = '<p class="hint">読み込み中...</p>';
+  el.innerHTML = '<p class="hint" style="text-align:center;padding:12px">読み込み中...</p>';
   try {
     const rows = await apiFetch(`/api/hall/report?hall_name=${encodeURIComponent(hall)}&report_date=${date}&limit=30`);
-    if (!rows || rows.length === 0) { el.innerHTML = '<p class="hint">データなし</p>'; return; }
+    if (!rows || rows.length === 0) {
+      el.innerHTML = `<div class="empty-hint" style="padding:12px 0"><span>📋</span><span>${date} のレポートなし</span></div>`;
+      return;
+    }
     el.innerHTML = `
       <table style="width:100%;font-size:.78rem;border-collapse:collapse">
         <thead>
@@ -2246,6 +2294,55 @@ async function loadScrapeReport(hall, date) {
   }
 }
 
+let _hallTrendChart = null;
+async function loadHallTrend(hall) {
+  const card = document.getElementById('hall-trend-card');
+  if (!card) return;
+  try {
+    const data = await apiFetch(`/api/hall/trend_summary?hall_name=${encodeURIComponent(hall)}&days=14`);
+    if (!data || !data.dates || data.dates.length < 2) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const summaryEl = document.getElementById('hall-trend-summary');
+    if (summaryEl) {
+      const sign = data.trend >= 0 ? '+' : '';
+      const trendColor = data.trend >= 0 ? 'var(--success)' : 'var(--danger)';
+      summaryEl.innerHTML = `
+        平均 <strong style="color:var(--text1)">${data.avg >= 0 ? '+' : ''}${data.avg}枚</strong>
+        トレンド <strong style="color:${trendColor}">${sign}${data.trend}枚</strong>
+        <span style="color:var(--text3)">(${data.days_data}日)</span>`;
+    }
+    const ctx = document.getElementById('hall-trend-chart')?.getContext('2d');
+    if (!ctx) return;
+    if (_hallTrendChart) { _hallTrendChart.destroy(); _hallTrendChart = null; }
+    const vals = data.values;
+    const posData = vals.map(v => v >= 0 ? v : 0);
+    const negData = vals.map(v => v < 0 ? v : 0);
+    _hallTrendChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: data.dates.map(d => d.slice(5)),
+        datasets: [
+          { data: posData, backgroundColor: 'rgba(52,211,153,.7)', borderWidth: 0 },
+          { data: negData, backgroundColor: 'rgba(239,68,68,.7)', borderWidth: 0 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: {
+          callbacks: { label: ctx => `${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y}枚` }
+        }},
+        scales: {
+          x: { ticks: { font: { size: 10 }, color: '#888' }, grid: { display: false }, stacked: true },
+          y: { ticks: { font: { size: 10 }, color: '#888' }, grid: { color: 'rgba(255,255,255,.04)' }, stacked: true },
+        },
+      },
+    });
+  } catch(e) {
+    const card = document.getElementById('hall-trend-card');
+    if (card) card.style.display = 'none';
+  }
+}
+
 async function loadTopMachines(hall) {
   const card = document.getElementById('scrape-trend-card');
   const el = document.getElementById('scrape-top-machines');
@@ -2257,18 +2354,19 @@ async function loadTopMachines(hall) {
     el.innerHTML = rows.map((r, i) => {
       const diff = r.avg_diff || 0;
       const pct = Math.round(Math.abs(diff) / maxDiff * 100);
-      const barColor = diff >= 0 ? 'var(--up)' : 'var(--down)';
+      const barColor = diff >= 100 ? 'var(--success)' : diff >= 0 ? 'var(--warning)' : 'var(--danger)';
       const diffStr = (diff > 0 ? '+' : '') + Math.round(diff).toLocaleString();
+      const rankLabel = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
       return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <span style="width:20px;text-align:right;font-size:.72rem;color:var(--text3)">${i+1}</span>
+        <span style="width:22px;text-align:right;font-size:${i<3?'.82':'.72'}rem;color:var(--text3)">${rankLabel}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.machine_name}</div>
-          <div style="height:4px;background:var(--border);border-radius:2px;margin-top:2px">
-            <div style="width:${pct}%;height:4px;background:${barColor};border-radius:2px"></div>
+          <div style="font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.machine_name)}</div>
+          <div style="height:5px;background:var(--bg3);border-radius:3px;margin-top:2px;overflow:hidden">
+            <div style="width:${pct}%;height:5px;background:${barColor};border-radius:3px;box-shadow:0 0 6px ${barColor}55;transition:width .4s"></div>
           </div>
         </div>
-        <span style="font-size:.78rem;font-weight:600;color:${barColor};white-space:nowrap">${diffStr}</span>
-        <span style="font-size:.68rem;color:var(--text3);white-space:nowrap">${r.report_count}日</span>
+        <span style="font-size:.78rem;font-weight:700;color:${barColor};white-space:nowrap">${diffStr}</span>
+        <span style="font-size:.62rem;color:var(--text3);white-space:nowrap">${r.report_count}日</span>
       </div>`;
     }).join('');
   } catch(e) {
@@ -3121,6 +3219,7 @@ async function init() {
   await checkConnection();
   await loadMachineSelect();
   await populateSessionFilters();
+  loadTodayHotCard();
 
   // ヘッダー日付表示
   const today = new Date();
@@ -4047,16 +4146,66 @@ async function loadMapPage() {
   loadHallCompare();
 }
 
+let _compareDays = 30;
+
+// 期間切り替えボタン
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.compare-days-btn');
+  if (!btn) return;
+  _compareDays = parseInt(btn.dataset.days);
+  document.querySelectorAll('.compare-days-btn').forEach(b => {
+    b.classList.toggle('active-period', b === btn);
+    b.style.borderColor = b === btn ? 'rgba(124,127,245,.4)' : '';
+    b.style.color = b === btn ? 'var(--primary-h)' : '';
+  });
+  loadHallCompare();
+});
+
+async function loadTodayPickCard() {
+  const card = document.getElementById('today-pick-card');
+  const body = document.getElementById('today-pick-body');
+  if (!card || !body) return;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const hotData = await apiFetch('/api/hall/hot_days?months=1').catch(() => null);
+    const todayHot = hotData?.hot_days?.filter(h => h.date === today) || [];
+    todayHot.sort((a, b) => b.z_score - a.z_score);
+    if (todayHot.length === 0) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    body.innerHTML = todayHot.slice(0, 3).map(h => {
+      const icon = h.z_score >= 2.0 ? '🔥🔥' : h.z_score >= 1.5 ? '🔥' : '・';
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span>${icon}</span>
+        <span style="font-weight:700;color:var(--text1)">${esc(h.hall_name)}</span>
+        <span style="color:var(--success);font-size:.72rem">${h.label}</span>
+        <span style="color:var(--text3);font-size:.68rem">直近平均 ${h.avg_diff >= 0 ? '+' : ''}${h.avg_diff}枚</span>
+        <button onclick="switchToHall('${esc(h.hall_name)}')" class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:.62rem;padding:2px 7px">詳細→</button>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    const c = document.getElementById('today-pick-card');
+    if (c) c.style.display = 'none';
+  }
+}
+
 async function loadHallCompare() {
   const card = document.getElementById('hall-compare-card');
   const body = document.getElementById('hall-compare-body');
   if (!card) return;
   card.style.display = 'block';
   body.innerHTML = '<div style="color:var(--text3);font-size:.8rem;text-align:center;padding:12px">読み込み中...</div>';
+  const sub = document.getElementById('compare-subtitle');
+  if (sub) sub.textContent = `過去${_compareDays}日`;
+  loadTodayPickCard();
   try {
-    const rows = await apiFetch('/api/hall/compare?days=30');
+    const rows = await apiFetch(`/api/hall/compare?days=${_compareDays}`);
     if (!rows || rows.length === 0) {
-      body.innerHTML = '<div style="color:var(--text3);font-size:.8rem;text-align:center;padding:12px">データなし（管理タブでスクレイプしてください）</div>';
+      body.innerHTML = `<div class="empty-hint">
+        <span>📊</span>
+        <strong style="color:var(--text2)">比較データなし</strong>
+        <span>管理タブ → 全店舗実行 でスクレイプしてください</span>
+        <button onclick="switchHallTab('admin')" class="btn btn-ghost btn-sm" style="margin-top:4px">管理タブへ</button>
+      </div>`;
       return;
     }
     const maxAbs = Math.max(...rows.map(r => Math.abs(r.avg_diff)), 1);
@@ -4084,9 +4233,14 @@ async function loadHallCompare() {
         : '';
       const bbLine = r.avg_bb != null
         ? `BB ${r.bb_z > 0 ? '+' : ''}${r.bb_z}σ` : 'みんレポデータ';
-      return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+      const rankStyle = i === 0 ? 'background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:7px 8px;margin-bottom:4px' :
+                        i <= 2 ? 'border-bottom:1px solid var(--border);padding:7px 0' :
+                                 'border-bottom:1px solid var(--border);padding:7px 0';
+      const rankNumStyle = i === 0 ? 'font-size:.78rem;font-weight:900;color:#fbbf24;width:18px;text-align:center;flex-shrink:0' :
+                           'font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0';
+      return `<div style="display:flex;align-items:center;gap:8px;cursor:pointer;${rankStyle}"
         onclick="switchToHall(decodeURIComponent('${encH}'))">
-        <span style="font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
+        <span style="${rankNumStyle}">${i+1}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${srcBadge}${trendHtml}${surgeHtml}${eventHtml}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
@@ -4257,6 +4411,26 @@ document.getElementById('hall-ai-btn').addEventListener('click', async () => {
 // ============================================================
 
 async function loadScrapeManager() {
+  // DBデータ統計サマリー
+  try {
+    const st = await apiFetch('/api/stats').catch(() => null);
+    const statsEl = document.getElementById('db-stats-card');
+    if (st && statsEl) {
+      const items = [
+        { icon: '🌐', label: 'みんレポ', value: `${st.minrepo_days||0}日`, sub: `${st.minrepo_halls||0}店舗` },
+        { icon: '🎰', label: 'アナスロ', value: `${st.anaslo_days||0}日`, sub: st.latest_date ? `最新 ${st.latest_date}` : '未取得' },
+        { icon: '📅', label: 'イベント', value: `${st.event_count||0}件`, sub: `${st.event_halls||0}店舗` },
+      ];
+      statsEl.innerHTML = items.map(i => `
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center">
+          <div style="font-size:1.1rem;margin-bottom:2px">${i.icon}</div>
+          <div style="font-size:.62rem;color:var(--text3);margin-bottom:2px">${i.label}</div>
+          <div style="font-size:1rem;font-weight:800;color:var(--text1)">${i.value}</div>
+          <div style="font-size:.6rem;color:var(--text3)">${i.sub}</div>
+        </div>`).join('');
+    }
+  } catch(e) {}
+
   try {
     const [status, cookieSt] = await Promise.all([
       apiFetch('/api/scrape/status').catch(() => null),
@@ -4321,12 +4495,15 @@ async function loadScrapeManager() {
         logEl.innerHTML = logs.map(l => {
           const stCol = l.status === 'done' ? 'var(--success)' : l.status === 'running' ? 'var(--warning)' : 'var(--danger)';
           const stIcon = l.status === 'done' ? '✓' : l.status === 'running' ? '⟳' : '✗';
-          const time = l.started_at ? l.started_at.slice(5, 16) : '';
-          return `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px solid var(--bg2)">
-            <span style="color:${stCol};font-size:.75rem;width:14px">${stIcon}</span>
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.hall_name)}</span>
-            <span style="color:var(--text3);flex-shrink:0">${time}</span>
-            <span style="color:var(--text3);flex-shrink:0">${l.rows_saved || 0}件</span>
+          const time = l.started_at ? l.started_at.slice(5, 16).replace('T', ' ') : '';
+          const rowsBadge = l.rows_saved > 0
+            ? `<span style="background:rgba(52,211,153,.15);color:var(--success);font-size:.6rem;padding:1px 5px;border-radius:4px">${l.rows_saved}件</span>`
+            : `<span style="color:var(--text3);font-size:.62rem">0件</span>`;
+          return `<div style="display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="color:${stCol};font-size:.78rem;width:14px;text-align:center">${stIcon}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.75rem">${esc(l.hall_name)}</span>
+            ${rowsBadge}
+            <span style="color:var(--text3);flex-shrink:0;font-size:.62rem">${time}</span>
           </div>`;
         }).join('');
       }
@@ -4381,6 +4558,7 @@ let _calSelectedDate = null;
 let _calHallFilter = '';
 let _calEventMap  = {};  // dateStr → [{event}]
 let _calHeatMap   = {};  // dateStr → {avg_diff, hall_count, halls:[]}
+let _calHotDays   = {};  // dateStr → [{hall_name, z_score, label}]  (自動検出)
 let _calDrillDate = null;
 let _calDrillHall = null;
 
@@ -4406,12 +4584,21 @@ async function loadCalendar() {
   _calHallFilter = hallFilter;
   const ym = _ym();
   const evUrl = `/api/events/calendar?month=${ym}` + (hallFilter ? `&hall_name=${encodeURIComponent(hallFilter)}` : '');
-  const [evData, hmData] = await Promise.all([
+  const hallHotParam = hallFilter ? `&hall_name=${encodeURIComponent(hallFilter)}` : '';
+  const [evData, hmData, hotData] = await Promise.all([
     fetch(evUrl).then(r => r.json()).catch(() => ({events:{}})),
     fetch(`/api/hall/month_heatmap?month=${ym}`).then(r => r.json()).catch(() => ({days:{}})),
+    fetch(`/api/hall/hot_days?months=3${hallHotParam}`).then(r => r.json()).catch(() => ({hot_days:[]})),
   ]);
   _calEventMap = evData.events || {};
   _calHeatMap  = hmData.days  || {};
+  _calHotDays  = {};
+  for (const h of (hotData.hot_days || [])) {
+    if (h.date.startsWith(ym)) {
+      _calHotDays[h.date] = _calHotDays[h.date] || [];
+      _calHotDays[h.date].push(h);
+    }
+  }
   _renderCalGrid();
   loadCalStrength();
 }
@@ -4449,12 +4636,19 @@ function _renderCalGrid() {
       .filter(Boolean).join(' ');
     const dots = [...new Set(evs.map(e => e.event_type))]
       .map(t => `<span class="cal-dot cal-dot-${t}" title="${t}"></span>`).join('');
+    // 自動検出ホット日
+    const hotEntries = !isOther ? (_calHotDays[dateStr] || []) : [];
+    const topHot = hotEntries.sort((a,b) => b.z_score - a.z_score)[0];
+    const hotBadge = topHot
+      ? `<span class="cal-hot-badge" title="${topHot.hall_name} z=${topHot.z_score}">${topHot.label === '超熱' ? '🔥🔥' : topHot.label === '熱' ? '🔥' : '・'}</span>`
+      : '';
     // ホール数バッジ
     const hallBadge = (!isOther && heat && heat.hall_count > 0)
-      ? `<span style="position:absolute;top:2px;left:3px;font-size:.55rem;color:var(--text3)">${heat.hall_count}</span>` : '';
+      ? `<span class="cal-hall-badge">${heat.hall_count}店</span>` : '';
     html += `<div class="${cls}" onclick="selectCalDay('${dateStr}')" style="position:relative">
       ${hallBadge}
       <span class="cal-day-num">${day}</span>
+      ${hotBadge}
       <div class="cal-dots">${dots}</div>
     </div>`;
   }
@@ -4508,7 +4702,11 @@ async function selectCalDay(dateStr) {
         })).sort((a,b) => b.avg_diff - a.avg_diff);
         _renderHallBars(halls, dateStr);
       } else {
-        hallsEl.innerHTML = '<div style="font-size:.72rem;color:var(--text3);padding:8px 0">データなし（みんレポをスクレイプしてください）</div>';
+        hallsEl.innerHTML = `<div class="empty-hint" style="padding:8px 0">
+        <span>📊</span>
+        <span>${dateStr.replace(/-/g,'/')} のみんレポデータなし</span>
+        <button onclick="switchHallTab('admin')" class="btn btn-ghost btn-sm" style="margin-top:4px">管理タブでスクレイプ</button>
+      </div>`;
       }
     } catch(e) {
       hallsEl.innerHTML = '<div style="font-size:.72rem;color:var(--danger)">取得エラー</div>';
@@ -4518,16 +4716,21 @@ async function selectCalDay(dateStr) {
 
 function _renderHallBars(halls, dateStr) {
   const el = document.getElementById('cal-drill-halls');
-  if (!halls.length) { el.innerHTML = '<div style="font-size:.72rem;color:var(--text3);padding:8px 0">データなし</div>'; return; }
+  if (!halls.length) {
+    el.innerHTML = '<div class="empty-hint">この日のホールデータがありません</div>';
+    return;
+  }
   const maxAbs = Math.max(...halls.map(h => Math.abs(h.avg_diff)), 1);
-  el.innerHTML = halls.map(h => {
+  const items = halls.map((h, i) => {
     const pct = Math.round(Math.abs(h.avg_diff) / maxAbs * 100);
     const pos = h.avg_diff >= 0;
     const col  = pos ? 'var(--success)' : 'var(--danger)';
     const sign = pos ? '+' : '';
     const mc   = h.machine_count ? `<span class="drill-bar-sub">${h.machine_count}機種</span>` : '';
-    return `<div class="drill-bar-item" onclick="calDrillHall('${dateStr}','${h.hall_name.replace(/'/g,"\\'")}')">
-      <div class="drill-bar-name" title="${h.hall_name}">${h.hall_name}</div>
+    const rankBg = i === 0 ? 'rgba(251,191,36,.15)' : i === 1 ? 'rgba(180,180,180,.08)' : i === 2 ? 'rgba(200,120,80,.08)' : '';
+    return `<div class="drill-bar-item" data-hall="${esc(h.hall_name)}" data-date="${dateStr}" style="background:${rankBg}">
+      <span class="drill-bar-rank">${i+1}</span>
+      <div class="drill-bar-name" title="${esc(h.hall_name)}">${esc(h.hall_name)}</div>
       <div class="drill-bar-track">
         <div class="drill-bar-fill ${pos?'pos':'neg'}" style="width:${pct}%"></div>
       </div>
@@ -4535,6 +4738,11 @@ function _renderHallBars(halls, dateStr) {
       <div class="drill-bar-val" style="color:${col}">${sign}${h.avg_diff}</div>
     </div>`;
   }).join('');
+  el.innerHTML = items;
+  // イベント委譲でクリック処理
+  el.querySelectorAll('.drill-bar-item').forEach(item => {
+    item.addEventListener('click', () => calDrillHall(item.dataset.date, item.dataset.hall));
+  });
 }
 
 // ── L2: ホールクリック → L3（台別バー）──
@@ -4593,31 +4801,49 @@ function calDrillBack() {
 function _renderDayEvents(dateStr) {
   const evs = _calEventMap[dateStr] || [];
   const evEl = document.getElementById('cal-detail-events');
-  if (evs.length === 0) {
-    evEl.innerHTML = '<div style="font-size:.72rem;color:var(--text3)">イベント記録なし</div>';
+  const hotHalls = _calHotDays[dateStr] || [];
+
+  if (evs.length === 0 && hotHalls.length === 0) {
+    evEl.innerHTML = `<div class="empty-hint" style="padding:6px 0;gap:4px">
+      <span>📅</span><span style="font-size:.7rem">イベント記録なし</span>
+    </div>`;
   } else {
-    evEl.innerHTML = evs.map(e => {
+    let html = '';
+    // ホット情報（z-score由来）
+    if (hotHalls.length) {
+      html += hotHalls.map(h => {
+        const icon = h.z_score >= 2.0 ? '🔥🔥' : h.z_score >= 1.5 ? '🔥' : '・';
+        return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:5px 8px;background:rgba(251,146,60,.08);border:1px solid rgba(251,146,60,.2);border-radius:7px">
+          <span style="font-size:.85rem">${icon}</span>
+          <div style="flex:1">
+            <div style="font-size:.72rem;font-weight:600;color:var(--text1)">${esc(h.hall_name)}</div>
+            <div style="font-size:.62rem;color:var(--text3)">${esc(h.label)} (z=${h.z_score.toFixed(1)})</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+    // イベント記録
+    html += evs.map(e => {
       const src = e.source ? `<span style="font-size:.6rem;color:var(--text3)">[${e.source}]</span>` : '';
-      const del = `<span onclick="deleteEvent(${e.id},'${dateStr}')" style="cursor:pointer;opacity:.5;margin-left:4px;font-size:.7rem">✕</span>`;
-      return `<div style="margin-bottom:4px">
-        <span class="ev-badge ev-badge-${e.event_type}">${e.event_type}</span>
-        <span style="font-size:.7rem;color:var(--text2)">${e.event_title || ''}</span> ${src}${del}
-        <div style="font-size:.63rem;color:var(--text3)">${e.hall_name}</div>
+      const del = `<button onclick="deleteEvent(${e.id},'${dateStr}')" style="background:none;border:none;cursor:pointer;opacity:.4;margin-left:4px;font-size:.75rem;color:var(--text3);padding:0;line-height:1">✕</button>`;
+      return `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;padding:5px 8px;background:var(--bg3);border-radius:7px">
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+            <span class="ev-badge ev-badge-${e.event_type}" style="margin:0">${e.event_type}</span>
+            <span style="font-size:.7rem;color:var(--text2)">${esc(e.event_title || '')}</span>
+            ${src}
+          </div>
+          <div style="font-size:.63rem;color:var(--text3);margin-top:2px">${esc(e.hall_name)}</div>
+        </div>
+        ${del}
       </div>`;
     }).join('');
+    evEl.innerHTML = html;
   }
-  // 実績は削除（ドリルダウンパネルに移行）
   const resEl = document.getElementById('cal-detail-results');
   if (resEl) resEl.innerHTML = '';
 }
 
-// 旧 selectCalDay の実績ロード部（型互換のためダミー）
-async function _legacyLoadResults(dateStr) {
-  try {
-    const hallParam = _calHallFilter ? `&hall_name=${encodeURIComponent(_calHallFilter)}` : '';
-    return '';
-  } catch(e) { return ''; }
-}
 
 async function deleteEvent(id, dateStr) {
   if (!confirm('このイベントを削除しますか？')) return;
@@ -4635,7 +4861,7 @@ async function bulkAddEvents() {
 
   const EVENT_KEYWORDS = {
     '新台': '新台入替', '入替': '新台入替',
-    '777': '特日7', '7': '特日7',
+    '777': '特日7', '777日': '特日7',
     'ゾロ目': '特日ゾロ目',
     '感謝': '感謝デー', '周年': '感謝デー',
     '高設定': '高設定示唆', '全台': '高設定示唆',
@@ -4707,30 +4933,42 @@ async function addManualEvent() {
 async function loadCalStrength() {
   const el = document.getElementById('cal-strength-body');
   if (!el) return;
+  el.innerHTML = '<div style="font-size:.72rem;color:var(--text3);padding:4px 0">分析中...</div>';
   try {
     const hallParam = _calHallFilter ? `?hall_name=${encodeURIComponent(_calHallFilter)}` : '';
     const data = await fetch(`/api/events/strength${hallParam}`).then(r => r.json());
     if (!data.length || data[0]?.error) {
-      el.innerHTML = '<div style="font-size:.72rem;color:var(--text3)">データ不足（イベント取得後に表示されます）</div>';
+      el.innerHTML = `<div class="empty-hint" style="padding:10px 0">
+        <span>📊</span>
+        <span>イベント記録が蓄積されると<br>ガセ・強イベ判断が表示されます</span>
+      </div>`;
       return;
     }
     const maxAbs = Math.max(...data.map(d => Math.abs(d.diff_vs_normal)), 1);
     el.innerHTML = data.map(d => {
-      const barW = Math.round(Math.abs(d.diff_vs_normal) / maxAbs * 80);
-      const barCol = d.diff_vs_normal >= 0 ? 'var(--success)' : 'var(--danger)';
+      const barW = Math.round(Math.abs(d.diff_vs_normal) / maxAbs * 100);
+      const barCol = d.diff_vs_normal >= 50 ? 'var(--success)' :
+                     d.diff_vs_normal >= 0  ? 'var(--warning)' : 'var(--danger)';
       const sign = d.diff_vs_normal >= 0 ? '+' : '';
-      return `<div style="margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;font-size:.72rem;margin-bottom:2px">
+      const strength = d.diff_vs_normal >= 100 ? '🔥強' : d.diff_vs_normal >= 30 ? '✓そこそこ' : d.diff_vs_normal >= 0 ? '△微妙' : '❌ガセ';
+      const strengthCol = d.diff_vs_normal >= 100 ? 'var(--success)' : d.diff_vs_normal >= 0 ? 'var(--warning)' : 'var(--danger)';
+      return `<div style="margin-bottom:10px;padding:8px;background:var(--bg3);border-radius:8px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
           <span class="ev-badge ev-badge-${d.event_type}" style="margin:0">${d.event_type}</span>
-          <span style="color:var(--text3);font-size:.62rem">${d.event_days}日分</span>
+          <span style="font-size:.68rem;font-weight:700;color:${strengthCol}">${strength}</span>
+          <span style="color:var(--text3);font-size:.6rem">${d.event_days}日のデータ</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <div style="flex:1;height:6px;background:var(--bg3);border-radius:99px;overflow:hidden">
-            <div style="width:${barW}%;height:100%;background:${barCol};border-radius:99px"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <div style="flex:1;height:8px;background:rgba(255,255,255,.05);border-radius:99px;overflow:hidden">
+            <div style="width:${barW}%;height:100%;background:${barCol};border-radius:99px;box-shadow:0 0 6px ${barCol}44"></div>
           </div>
-          <span style="font-size:.72rem;font-weight:600;color:${barCol};min-width:50px;text-align:right">${sign}${d.diff_vs_normal}枚</span>
+          <span style="font-size:.78rem;font-weight:800;color:${barCol};min-width:54px;text-align:right">${sign}${d.diff_vs_normal}枚</span>
         </div>
-        <div style="font-size:.6rem;color:var(--text3)">イベ日平均 ${d.avg_diff_event}枚 / 通常日 ${d.avg_diff_normal}枚 / 勝率 ${d.win_rate_event}%</div>
+        <div style="font-size:.6rem;color:var(--text3);display:flex;gap:10px">
+          <span>イベ日 <strong style="color:var(--text2)">${d.avg_diff_event}枚</strong></span>
+          <span>通常日 <strong style="color:var(--text2)">${d.avg_diff_normal}枚</strong></span>
+          <span>勝率 <strong style="color:${d.win_rate_event>=50?'var(--success)':'var(--danger)'}">${d.win_rate_event}%</strong></span>
+        </div>
       </div>`;
     }).join('');
   } catch(e) {
@@ -4740,24 +4978,22 @@ async function loadCalStrength() {
 
 let _calInited = false;
 async function initCalendar() {
-  if (!_calInited) {
-    // ホールリストをセレクトに設定
-    try {
-      const halls = await fetch('/api/scrape/halls').then(r => r.json());
-      const names = halls.map(h => h.hall_name || h);
-      const filter = document.getElementById('cal-hall-filter');
-      const manual = document.getElementById('manual-hall');
-      const bulkDefault = document.getElementById('bulk-hall-default');
-      if (filter && filter.options.length <= 1) {
-        names.forEach(n => {
-          filter.add(new Option(n, n));
-          if (manual) manual.add(new Option(n, n));
-          if (bulkDefault) bulkDefault.add(new Option(n, n));
-        });
-      }
-    } catch(e) {}
+  // ホールリストをセレクトに設定（毎回最新を取得）
+  try {
+    const halls = await fetch('/api/scrape/halls').then(r => r.json());
+    const names = halls.map(h => h.hall_name || h);
+    const selIds = ['cal-hall-filter', 'manual-hall', 'bulk-hall-default'];
+    selIds.forEach(id => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      // 既存オプション（空値の最初1件）以外を削除してリフレッシュ
+      const firstOpt = sel.options[0];
+      sel.innerHTML = '';
+      if (firstOpt) sel.add(firstOpt);
+      names.forEach(n => sel.add(new Option(n, n)));
+    });
     _calInited = true;
-  }
+  } catch(e) {}
   loadCalendar();
 }
 
@@ -4771,6 +5007,15 @@ document.getElementById('cal-next')?.addEventListener('click', () => {
   _calMonth++;
   if (_calMonth > 11) { _calMonth = 0; _calYear++; }
   loadCalendar();
+});
+document.getElementById('cal-today-btn')?.addEventListener('click', () => {
+  const now = new Date();
+  _calYear = now.getFullYear();
+  _calMonth = now.getMonth();
+  loadCalendar().then(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    selectCalDay(today);
+  });
 });
 document.getElementById('cal-hall-filter')?.addEventListener('change', () => loadCalendar());
 let _evPollTimer = null;

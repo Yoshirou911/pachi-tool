@@ -1070,6 +1070,42 @@ def get_top_machines(
     return [dict(r) for r in rows]
 
 
+@app.get("/api/hall/trend_summary", tags=["hall"])
+def get_hall_trend_summary(
+    hall_name: str = Query(...),
+    days: int = Query(14, le=60),
+) -> dict:
+    """直近N日のホール出玉トレンドサマリー（折れ線グラフ用）"""
+    conn = _get_reports_conn()
+    if conn is None:
+        return {"dates": [], "values": [], "hall_name": hall_name}
+    rows = conn.execute(
+        """SELECT report_date, ROUND(AVG(avg_diff_coins), 0) AS day_avg
+           FROM hall_day_machine
+           WHERE hall_name=?
+             AND report_date >= date('now', ? || ' days')
+             AND avg_diff_coins IS NOT NULL
+           GROUP BY report_date
+           ORDER BY report_date""",
+        (hall_name, f"-{days}")
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return {"dates": [], "values": [], "hall_name": hall_name}
+    dates = [r["report_date"] for r in rows]
+    values = [int(r["day_avg"]) if r["day_avg"] is not None else 0 for r in rows]
+    avg = round(sum(values) / len(values)) if values else 0
+    trend = values[-1] - values[0] if len(values) >= 2 else 0
+    return {
+        "hall_name": hall_name,
+        "dates": dates,
+        "values": values,
+        "avg": avg,
+        "trend": trend,
+        "days_data": len(dates),
+    }
+
+
 def _run_scrape(hall_name: str, days: int):
     """バックグラウンドスクレイプ処理（みんレポ）。"""
     global _scrape_status
@@ -1398,6 +1434,39 @@ def get_bulk_scrape_status() -> dict:
         "eta_min": eta_min,
         "halls": halls,
     }
+
+
+@app.get("/api/stats", tags=["meta"])
+def get_stats() -> dict:
+    """DBデータ量サマリー"""
+    result: dict = {}
+    conn = _get_reports_conn()
+    if conn:
+        try:
+            result["minrepo_days"] = conn.execute(
+                "SELECT COUNT(DISTINCT report_date) FROM hall_day_machine").fetchone()[0]
+            result["minrepo_halls"] = conn.execute(
+                "SELECT COUNT(DISTINCT hall_name) FROM hall_day_machine").fetchone()[0]
+            result["minrepo_records"] = conn.execute(
+                "SELECT COUNT(*) FROM hall_day_machine").fetchone()[0]
+            result["anaslo_days"] = conn.execute(
+                "SELECT COUNT(DISTINCT report_date) FROM hall_day_seat").fetchone()[0]
+            result["latest_date"] = conn.execute(
+                "SELECT MAX(report_date) FROM hall_day_machine").fetchone()[0]
+        except Exception:
+            pass
+        conn.close()
+    econn = _get_event_conn()
+    if econn:
+        try:
+            result["event_count"] = econn.execute(
+                "SELECT COUNT(*) FROM hall_event").fetchone()[0]
+            result["event_halls"] = econn.execute(
+                "SELECT COUNT(DISTINCT hall_name) FROM hall_event").fetchone()[0]
+        except Exception:
+            pass
+        econn.close()
+    return result
 
 
 @app.get("/api/scrape/halls", tags=["scrape"])
@@ -1835,6 +1904,81 @@ def get_day_machines(
         try: conn.close()
         except Exception: pass
         return []
+
+
+@app.get("/api/hall/hot_days", tags=["hall"])
+def get_hot_days(
+    hall_name: str = Query(None, description="特定ホール（省略時は全ホール）"),
+    months: int = Query(3, description="過去何ヶ月を分析対象にするか"),
+) -> dict:
+    """
+    みんレポデータから統計的に「熱い日」を自動検出する。
+    各ホールの日次avg_diff_coinsを分析し、z-score > 1.0 の日を熱い日として返す。
+    """
+    import math
+    from datetime import date, timedelta
+    conn = _get_reports_conn()
+    if not conn:
+        return {"hot_days": [], "hall_stats": {}}
+    try:
+        since = (date.today() - timedelta(days=months * 31)).isoformat()
+        if hall_name:
+            rows = conn.execute("""
+                SELECT report_date, hall_name,
+                       ROUND(AVG(avg_diff_coins)) AS avg_diff,
+                       COUNT(DISTINCT machine_name) AS mc
+                FROM hall_day_machine
+                WHERE hall_name=? AND report_date >= ? AND avg_diff_coins IS NOT NULL
+                GROUP BY report_date, hall_name
+            """, (hall_name, since)).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT report_date, hall_name,
+                       ROUND(AVG(avg_diff_coins)) AS avg_diff,
+                       COUNT(DISTINCT machine_name) AS mc
+                FROM hall_day_machine
+                WHERE report_date >= ? AND avg_diff_coins IS NOT NULL
+                GROUP BY report_date, hall_name
+            """, (since,)).fetchall()
+        conn.close()
+    except Exception as e:
+        try: conn.close()
+        except Exception: pass
+        return {"hot_days": [], "error": str(e)}
+
+    # ホール別に統計計算
+    hall_data: dict[str, list] = {}
+    for r in rows:
+        date_str, hname, avg_diff, mc = r[0], r[1], float(r[2] or 0), r[3]
+        hall_data.setdefault(hname, [])
+        hall_data[hname].append({"date": date_str, "avg_diff": avg_diff, "machine_count": mc})
+
+    hot_days = []
+    hall_stats = {}
+    for hname, entries in hall_data.items():
+        if len(entries) < 5:
+            continue
+        diffs = [e["avg_diff"] for e in entries]
+        mean = sum(diffs) / len(diffs)
+        variance = sum((d - mean) ** 2 for d in diffs) / len(diffs)
+        std = math.sqrt(variance) if variance > 0 else 1
+        hall_stats[hname] = {"mean": round(mean), "std": round(std), "days": len(entries)}
+
+        for e in entries:
+            z = (e["avg_diff"] - mean) / std
+            if z >= 0.8:  # 上位約20%の日を「熱い日」とする
+                label = "超熱" if z >= 2.0 else "熱" if z >= 1.5 else "やや熱"
+                hot_days.append({
+                    "date": e["date"],
+                    "hall_name": hname,
+                    "avg_diff": round(e["avg_diff"]),
+                    "z_score": round(z, 2),
+                    "label": label,
+                    "machine_count": e["machine_count"],
+                })
+
+    hot_days.sort(key=lambda x: (x["date"], -x["z_score"]))
+    return {"hot_days": hot_days, "hall_stats": hall_stats}
 
 
 @app.get("/api/hall/compare", tags=["hall"])

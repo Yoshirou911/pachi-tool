@@ -19,6 +19,9 @@
   --primary-h:    #a5a8ff;
   --primary-glow: rgba(124,127,245,0.35);
   --secondary:    #22d3ee;
+  --accent:       #7c7ff5;
+  --accent-h:     #a5a8ff;
+  --accent-dim:   rgba(124,127,245,0.12);
 
   --success:      #10b981;
   --success-glow: rgba(16,185,129,0.3);
@@ -49,7 +52,7 @@
 }
 
 /* ===== Base ===== */
-html { font-size: 16px; }
+html { font-size: 16px; scroll-behavior: smooth; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
   background: var(--bg);
@@ -57,7 +60,18 @@ body {
   min-height: 100vh;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
+
+/* カスタムスクロールバー */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: rgba(124,127,245,.35); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(124,127,245,.6); }
+
+/* 選択状態 */
+::selection { background: rgba(124,127,245,.3); color: var(--text); }
 
 /* Strong ambient glow — clearly visible */
 body::before {
@@ -96,7 +110,8 @@ body::before {
 
 .tab-bar {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
-  height: var(--tab-h);
+  height: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   background: rgba(6,8,16,0.88);
   border-top: 1px solid rgba(124,127,245,0.15);
   backdrop-filter: blur(24px) saturate(200%);
@@ -131,12 +146,20 @@ body::before {
   position: relative; z-index: 1;
   max-width: 640px; margin: 0 auto;
   padding-top: calc(var(--header-h) + 16px);
-  padding-bottom: calc(var(--tab-h) + 20px);
-  padding-left: 14px; padding-right: 14px;
+  padding-bottom: calc(var(--tab-h) + env(safe-area-inset-bottom, 0px) + 20px);
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
 }
 
 .page { display: none; }
-.page.active { display: block; }
+.page.active {
+  display: block;
+  animation: pageIn .22s cubic-bezier(.25,.46,.45,.94) both;
+}
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .page-inner { display: flex; flex-direction: column; gap: 14px; }
 
 /* ===== Cards — glass with visible gradient border ===== */
@@ -600,69 +623,113 @@ details[open] > summary::after { transform: rotate(90deg); }
 .card-col-hd { cursor: pointer; user-select: none; margin-bottom: 0 !important; }
 .col-arr {
   font-size: .72rem; color: var(--text3);
-  transition: transform .2s; display: inline-block; margin-left: 5px;
+  transition: transform .25s cubic-bezier(.4,0,.2,1); display: inline-block; margin-left: 5px;
 }
 .card-col.closed .col-arr { transform: rotate(-90deg); }
-.card-col-body { margin-top: 12px; }
+.card-col-body {
+  margin-top: 12px;
+  overflow: hidden;
+  transition: max-height .3s cubic-bezier(.4,0,.2,1), opacity .25s ease;
+  max-height: 2000px; opacity: 1;
+}
 .card-col.closed .card-col-body { display: none; }
+
+/* ===== Empty states ===== */
+.empty-hint {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 18px 12px; text-align: center;
+  color: var(--text3); font-size: .75rem; line-height: 1.7;
+  gap: 6px;
+}
+.empty-hint::before { font-size: 1.4rem; }
+
+/* ===== Trend charts ===== */
+#hall-trend-chart,
+#machine-trend-chart {
+  width: 100% !important;
+  border-radius: 8px;
+}
 
 /* ===== Event Calendar ===== */
 .cal-grid-hd {
   display: grid; grid-template-columns: repeat(7, 1fr);
   text-align: center; font-size: .6rem; color: var(--text3);
-  margin-bottom: 3px; font-weight: 600;
+  margin-bottom: 3px; font-weight: 700; letter-spacing: .04em;
 }
 .cal-grid-hd span:first-child { color: #e05; }
-.cal-grid-hd span:last-child  { color: #06c; }
+.cal-grid-hd span:last-child  { color: #5ae; }
 
 .cal-grid {
   display: grid; grid-template-columns: repeat(7, 1fr);
-  gap: 2px;
+  gap: 3px;
 }
 .cal-cell {
-  min-height: 44px; padding: 3px 2px;
-  border: 1px solid var(--border); border-radius: 4px;
+  min-height: 52px; padding: 3px 3px 4px;
+  border: 1px solid var(--border); border-radius: 5px;
   cursor: pointer; position: relative;
-  background: var(--bg1);
-  transition: background .15s;
+  background: var(--bg2);
+  transition: background .15s, border-color .15s, transform .1s;
 }
-.cal-cell:hover { background: var(--bg2); }
-.cal-cell.other-month { opacity: .35; }
-.cal-cell.today { border-color: var(--accent); }
-.cal-cell.selected { background: var(--accent-dim, rgba(0,180,255,.12)); border-color: var(--accent); }
-.cal-cell.has-event { background: var(--bg2); }
+.cal-cell:hover { background: var(--bg3); border-color: rgba(124,127,245,.3); transform: scale(1.04); z-index: 2; }
+.cal-cell:active { transform: scale(.97); }
+.cal-cell.other-month { opacity: .28; pointer-events: none; }
+.cal-cell.today {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(124,127,245,.25);
+}
+.cal-cell.selected {
+  background: rgba(124,127,245,.15) !important;
+  border-color: var(--primary-h) !important;
+  box-shadow: 0 0 0 2px rgba(124,127,245,.3);
+}
+.cal-cell.has-event { border-color: rgba(124,127,245,.2); }
 .cal-day-num {
-  font-size: .68rem; font-weight: 600; color: var(--text2);
-  display: block; text-align: right; padding-right: 2px;
+  font-size: .7rem; font-weight: 700; color: var(--text2);
+  display: block; text-align: right; padding-right: 2px; line-height: 1.3;
 }
+.cal-cell.today .cal-day-num { color: var(--primary-h); }
 .cal-cell.other-month .cal-day-num { color: var(--text3); }
-.cal-cell:nth-child(7n+1) .cal-day-num { color: #e05; }
-.cal-cell:nth-child(7n)   .cal-day-num { color: #06c; }
-.cal-dots { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 2px; justify-content: center; }
-.cal-dot {
-  width: 6px; height: 6px; border-radius: 50%;
+.cal-cell:nth-child(7n+1) .cal-day-num { color: #f05; }
+.cal-cell:nth-child(7n)   .cal-day-num { color: #5ae; }
+.cal-hall-badge {
+  position: absolute; top: 2px; left: 3px;
+  font-size: .52rem; color: var(--text3); line-height: 1;
+  background: rgba(0,0,0,.3); border-radius: 3px; padding: 0 2px;
 }
-.cal-dot-特日ゾロ目 { background: #f80; }
+.cal-hot-badge {
+  position: absolute; top: 1px; right: 2px;
+  font-size: .65rem; line-height: 1;
+  pointer-events: none;
+}
+.cal-dots {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  margin-top: 3px; justify-content: center; min-height: 8px;
+}
+.cal-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+.cal-dot-特日ゾロ目 { background: #fa0; }
 .cal-dot-特日7      { background: #f44; }
-.cal-dot-新台入替   { background: #4a9; }
-.cal-dot-感謝デー   { background: #a4f; }
+.cal-dot-新台入替   { background: #3c9; }
+.cal-dot-感謝デー   { background: #b5f; }
 .cal-dot-高設定示唆 { background: #f55; }
-.cal-dot-通常イベント { background: #08f; }
+.cal-dot-通常イベント { background: #5af; }
 .cal-dot-その他     { background: var(--text3); }
-.cal-dot-manual     { outline: 2px solid currentColor; }
 
 .ev-badge {
-  display: inline-block; font-size: .62rem; padding: 1px 6px;
+  display: inline-flex; align-items: center;
+  font-size: .64rem; font-weight: 600; padding: 2px 8px;
   border-radius: 99px; margin: 2px 2px;
-  cursor: pointer;
 }
-.ev-badge-特日ゾロ目 { background: rgba(255,136,0,.15); color: #a60; }
-.ev-badge-特日7      { background: rgba(255,68,68,.12);  color: #c22; }
-.ev-badge-新台入替   { background: rgba(40,180,100,.12); color: #186; }
-.ev-badge-感謝デー   { background: rgba(160,80,255,.12); color: #72a; }
-.ev-badge-高設定示唆 { background: rgba(255,50,50,.12);  color: #c22; }
-.ev-badge-通常イベント { background: rgba(0,120,255,.1); color: #06c; }
-.ev-badge-その他     { background: var(--bg3); color: var(--text3); }
+.ev-badge-特日ゾロ目 { background: rgba(255,170,0,.18); color: #d90; border: 1px solid rgba(255,170,0,.3); }
+.ev-badge-特日7      { background: rgba(255,60,60,.15);  color: #e44; border: 1px solid rgba(255,60,60,.3); }
+.ev-badge-新台入替   { background: rgba(40,200,110,.12); color: #1a8; border: 1px solid rgba(40,200,110,.3); }
+.ev-badge-感謝デー   { background: rgba(170,90,255,.14); color: #a7e; border: 1px solid rgba(170,90,255,.3); }
+.ev-badge-高設定示唆 { background: rgba(244,63,94,.12);  color: #f46; border: 1px solid rgba(244,63,94,.25); }
+.ev-badge-通常イベント { background: rgba(0,150,255,.12); color: #5af; border: 1px solid rgba(0,150,255,.25); }
+.ev-badge-その他     { background: var(--bg3); color: var(--text3); border: 1px solid var(--border); }
+.ev-badge-朝イチ     { background: rgba(255,200,0,.14); color: #ca0; border: 1px solid rgba(255,200,0,.3); }
 
 .strength-bar {
   height: 6px; border-radius: 99px;
@@ -672,39 +739,45 @@ details[open] > summary::after { transform: rotate(90deg); }
 /* ===== Drill-down bar charts ===== */
 .drill-bar-item {
   display: flex; align-items: center; gap: 8px;
-  padding: 7px 0; border-bottom: 1px solid var(--border);
-  cursor: pointer; transition: background .12s;
+  padding: 8px 6px; border-bottom: 1px solid var(--border);
+  cursor: pointer; transition: background .12s, border-radius .12s;
+  border-radius: 0;
 }
-.drill-bar-item:hover { background: var(--bg2); border-radius: 4px; }
+.drill-bar-item:hover { background: rgba(124,127,245,.06); border-radius: 6px; }
 .drill-bar-item:last-child { border-bottom: none; }
+.drill-bar-rank {
+  font-size: .62rem; color: var(--text3); font-weight: 700;
+  width: 16px; text-align: center; flex-shrink: 0;
+}
 .drill-bar-name {
-  font-size: .72rem; color: var(--text1);
-  flex: 0 0 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: .74rem; color: var(--text1); font-weight: 600;
+  flex: 0 0 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .drill-bar-track {
-  flex: 1; height: 8px; background: var(--bg3);
+  flex: 1; height: 10px; background: rgba(255,255,255,.05);
   border-radius: 99px; overflow: hidden; position: relative;
+  border: 1px solid rgba(255,255,255,.04);
 }
 .drill-bar-fill {
   height: 100%; border-radius: 99px;
-  transition: width .4s ease;
+  transition: width .45s cubic-bezier(.25,.46,.45,.94);
 }
-.drill-bar-fill.pos { background: linear-gradient(90deg, #2e9e5e, #4ecc8e); }
-.drill-bar-fill.neg { background: linear-gradient(90deg, #e05050, #c03030); }
+.drill-bar-fill.pos { background: linear-gradient(90deg, #1e8a56, #34d58c); box-shadow: 0 0 8px rgba(52,213,140,.4); }
+.drill-bar-fill.neg { background: linear-gradient(90deg, #c03030, #f04040); box-shadow: 0 0 8px rgba(240,64,64,.3); }
 .drill-bar-val {
-  font-size: .72rem; font-weight: 600;
-  min-width: 52px; text-align: right;
+  font-size: .76rem; font-weight: 800;
+  min-width: 52px; text-align: right; letter-spacing: -.01em;
 }
 .drill-bar-sub {
   font-size: .6rem; color: var(--text3);
-  min-width: 30px; text-align: right;
+  min-width: 36px; text-align: right;
 }
 
 /* heat tint on calendar cells */
-.cal-cell.heat-hot  { background: rgba(255,120,0,.18) !important; }
-.cal-cell.heat-warm { background: rgba(255,180,0,.12) !important; }
-.cal-cell.heat-cool { background: rgba(60,140,255,.10) !important; }
-.cal-cell.heat-cold { background: rgba(60,100,255,.18) !important; }
+.cal-cell.heat-hot  { background: rgba(244,63,94,.22) !important; }
+.cal-cell.heat-warm { background: rgba(251,191,36,.14) !important; }
+.cal-cell.heat-cool { background: rgba(60,140,255,.12) !important; }
+.cal-cell.heat-cold { background: rgba(99,102,241,.18) !important; }
 
 /* ===== Bulk scrape progress ===== */
 @keyframes bpulse { 0%,100%{opacity:1} 50%{opacity:.25} }

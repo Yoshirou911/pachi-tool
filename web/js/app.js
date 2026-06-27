@@ -1374,7 +1374,11 @@ function renderSessionSummary(sessions) {
 function renderSessions(sessions) {
   const container = document.getElementById('session-list');
   if (!sessions.length) {
-    container.innerHTML = '<p class="hint center">まだ記録がありません</p>';
+    container.innerHTML = `<div class="empty-hint" style="padding:24px 12px">
+      <span>📝</span>
+      <strong style="color:var(--text2)">実戦記録なし</strong>
+      <span>推測ページで推測後、「記録する」ボタンで保存できます</span>
+    </div>`;
     return;
   }
   container.innerHTML = sessions.map(s => {
@@ -2514,7 +2518,7 @@ async function loadAnasloSeatReport(hall, date) {
           const bbRb = (r.bb_prob != null || r.rb_prob != null)
             ? `${r.bb_prob != null ? r.bb_prob.toFixed(1) : '-'}/${r.rb_prob != null ? r.rb_prob.toFixed(1) : '-'}回` : '-';
           return `<tr style="border-bottom:1px solid var(--border);background:${rowBg}">
-            <td style="padding:5px 6px;text-align:center;font-weight:600;color:var(--text2)">${rankIcon||r.seat_number}</td>
+            <td style="padding:5px 6px;text-align:center;font-weight:600;color:var(--text2)">${rankIcon ? `${rankIcon}<br><span style="font-size:.58rem;color:var(--text3)">${r.seat_number}</span>` : r.seat_number}</td>
             <td style="padding:5px 6px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem">${esc(r.machine_name)}</td>
             <td style="padding:5px 6px;text-align:right">
               <div style="display:flex;align-items:center;gap:4px;justify-content:flex-end">
@@ -2581,7 +2585,11 @@ async function loadAnasloTailAnalysis(hall) {
           }).join('')}</tbody></table>`;
       container.innerHTML = html;
     } else {
-      container.innerHTML = '<p class="hint center">末尾データなし（台番付きデータが必要）</p>';
+      container.innerHTML = `<div class="empty-hint" style="padding:18px 12px">
+        <span>🎰</span>
+        <strong style="color:var(--text2)">末尾データなし</strong>
+        <span style="font-size:.72rem">アナスロから台番付きデータを取得すると分析できます</span>
+      </div>`;
     }
 
     // ゾーン分析を末尾テーブルの下に追加
@@ -4267,14 +4275,21 @@ async function loadTodayPickCard() {
     todayHot.sort((a, b) => b.z_score - a.z_score);
     if (todayHot.length === 0) { card.style.display = 'none'; return; }
     card.style.display = 'block';
-    body.innerHTML = todayHot.slice(0, 3).map(h => {
+    body.innerHTML = todayHot.slice(0, 5).map(h => {
       const icon = h.z_score >= 2.0 ? '🔥🔥' : h.z_score >= 1.5 ? '🔥' : '・';
-      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <span>${icon}</span>
-        <span style="font-weight:700;color:var(--text1)">${esc(h.hall_name)}</span>
-        <span style="color:var(--success);font-size:.72rem">${h.label}</span>
-        <span style="color:var(--text3);font-size:.68rem">直近平均 ${h.avg_diff >= 0 ? '+' : ''}${h.avg_diff}枚</span>
-        <button onclick="switchToHall('${esc(h.hall_name)}')" class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:.62rem;padding:2px 7px">詳細→</button>
+      const zCol = h.z_score >= 2.0 ? 'var(--warning)' : h.z_score >= 1.5 ? 'var(--success)' : 'var(--text3)';
+      const diffSign = h.avg_diff >= 0 ? '+' : '';
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+        <span style="font-size:.9rem;flex-shrink:0">${icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.78rem;font-weight:700;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.hall_name)}</div>
+          <div style="font-size:.6rem;color:var(--text3)">直近平均 <span style="color:${h.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)'}">${diffSign}${h.avg_diff}枚</span></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:.7rem;color:${zCol};font-weight:700">${h.z_score != null ? h.z_score.toFixed(1) + 'σ' : ''}</div>
+          <div style="font-size:.58rem;color:var(--text3)">${h.label || ''}</div>
+        </div>
+        <button onclick="event.stopPropagation();switchToHall('${esc(h.hall_name)}')" class="btn btn-ghost" style="font-size:.62rem;padding:2px 7px;flex-shrink:0">→</button>
       </div>`;
     }).join('');
   } catch(e) {
@@ -4714,6 +4729,33 @@ async function loadCalendar() {
   }
   _renderCalGrid();
   loadCalStrength();
+  _renderCalMonthStats();
+}
+
+function _renderCalMonthStats() {
+  const el = document.getElementById('cal-month-stats');
+  if (!el) return;
+  const hotEntries = Object.entries(_calHotDays);
+  const hotDayCount = hotEntries.length;
+  if (hotDayCount === 0) { el.style.display = 'none'; return; }
+  const topDay = hotEntries.reduce((best, [date, halls]) => {
+    const topZ = Math.max(...halls.map(h => h.z_score || 0));
+    return topZ > (best.z || 0) ? { date, z: topZ, hall: halls[0].hall_name } : best;
+  }, {});
+  const heatCount = Object.values(_calHeatMap).filter(v => v > 0).length;
+  el.style.display = 'block';
+  el.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.7rem">
+    <span style="background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.2);border-radius:5px;padding:2px 8px">
+      🔥 ホット日 <strong style="color:#fbbf24">${hotDayCount}日</strong>
+    </span>
+    ${heatCount ? `<span style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:5px;padding:2px 8px">
+      📊 出玉+ <strong style="color:var(--success)">${heatCount}日</strong>
+    </span>` : ''}
+    ${topDay.date ? `<span style="background:rgba(124,127,245,.1);border:1px solid rgba(124,127,245,.2);border-radius:5px;padding:2px 8px">
+      ⭐ 最強日 <strong style="color:var(--primary-h)">${topDay.date.slice(5)}</strong>
+      <span style="color:var(--text3)">(${topDay.z?.toFixed(1)}σ)</span>
+    </span>` : ''}
+  </div>`;
 }
 
 function _renderCalGrid() {
@@ -4887,12 +4929,16 @@ async function calDrillHall(dateStr, hallName) {
         r.avg_games  ? `${Math.round(r.avg_games)}G` : '',
         r.win_rate_pct ? `勝率${Math.round(r.win_rate_pct)}%` : '',
       ].filter(Boolean).join(' ');
-      return `<div class="drill-bar-item" style="cursor:default">
-        <div class="drill-bar-name" title="${r.machine_name}" style="flex:0 0 120px">${r.machine_name}</div>
+      const encM = encodeURIComponent(r.machine_name);
+      const encH = encodeURIComponent(hallName);
+      return `<div class="drill-bar-item"
+        onclick="switchToHall(decodeURIComponent('${encH}'));setTimeout(()=>renderMachineTrendChart(decodeURIComponent('${encH}'),decodeURIComponent('${encM}')),400)"
+        style="cursor:pointer" title="${esc(r.machine_name)} — クリックでトレンド表示">
+        <div class="drill-bar-name" style="flex:0 0 110px;font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.machine_name)}</div>
         <div class="drill-bar-track">
           <div class="drill-bar-fill ${pos?'pos':'neg'}" style="width:${pct}%"></div>
         </div>
-        <div class="drill-bar-sub" style="min-width:60px;text-align:right;font-size:.6rem;color:var(--text3)">${sub}</div>
+        <div class="drill-bar-sub" style="min-width:56px;text-align:right;font-size:.58rem;color:var(--text3)">${sub}</div>
         <div class="drill-bar-val" style="color:${col}">${sign}${r.avg_diff}</div>
       </div>`;
     }).join('');

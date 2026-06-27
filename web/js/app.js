@@ -1977,29 +1977,52 @@ async function loadAnasloTailAnalysis(hall) {
   const container = document.getElementById('anaslo-tail-table');
   container.innerHTML = '<p class="hint center">読み込み中...</p>';
   try {
-    const rows = await fetch(`/api/hall/tail_analysis?hall_name=${encodeURIComponent(hall)}&days=30`).then(r => r.json());
-    if (!rows.length) { container.innerHTML = '<p class="hint center">データなし（末尾データなし）</p>'; return; }
-    const html = `<p style="font-size:.75rem;color:var(--text3);margin-bottom:6px">過去30日・末尾別平均差枚</p>
-      <div style="overflow-x:auto">
-      <table style="width:100%;font-size:.8rem;border-collapse:collapse">
-        <thead><tr style="background:var(--bg2);color:var(--text2)">
-          <th style="padding:4px 8px;text-align:center">末尾</th>
-          <th style="padding:4px 8px;text-align:right">平均差枚</th>
-          <th style="padding:4px 8px;text-align:right">勝率</th>
-          <th style="padding:4px 8px;text-align:right">サンプル</th>
-        </tr></thead>
-        <tbody>${rows.map(r => {
-          const tail = r.tail.replace('末尾', '');
-          const color = r.avg_diff > 500 ? 'color:#e85;font-weight:bold' : r.avg_diff < -500 ? 'color:var(--text3)' : '';
-          return `<tr style="border-bottom:1px solid var(--bg2);${color}">
-            <td style="padding:4px 8px;text-align:center;font-size:1rem;font-weight:bold">${esc(tail)}</td>
-            <td style="padding:4px 8px;text-align:right">${r.avg_diff > 0 ? '+' : ''}${r.avg_diff.toLocaleString()}</td>
-            <td style="padding:4px 8px;text-align:right">${r.win_rate}%</td>
-            <td style="padding:4px 8px;text-align:right;color:var(--text3)">${r.count}</td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table></div>`;
-    container.innerHTML = html;
+    // BB確率直接比較 (より精度高) と 差枚比較 (フォールバック) を並行取得
+    const [bbRows, diffRows] = await Promise.all([
+      apiFetch(`/api/hall/tail_bb_analysis?hall_name=${encodeURIComponent(hall)}&days=90`).catch(() => []),
+      fetch(`/api/hall/tail_analysis?hall_name=${encodeURIComponent(hall)}&days=30`).then(r=>r.json()).catch(() => []),
+    ]);
+
+    if (bbRows && bbRows.length > 0) {
+      // BB確率z-scoreで表示（より精度高い）
+      const sign = v => v >= 0 ? `+${v}` : `${v}`;
+      const html = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:6px">末尾別BB確率（z-scoreで相対比較 / 過去90日）★差枚より精度高</p>
+        <table style="width:100%;font-size:.78rem;border-collapse:collapse">
+          <thead><tr style="background:var(--bg2);color:var(--text2)">
+            <th style="padding:4px 6px;text-align:center">末尾</th>
+            <th style="padding:4px 6px;text-align:right">BB確率</th>
+            <th style="padding:4px 6px;text-align:right">σ</th>
+            <th style="padding:4px 6px;text-align:right">平均差枚</th>
+            <th style="padding:4px 6px;text-align:right">勝率</th>
+            <th style="padding:4px 6px;text-align:right">件数</th>
+          </tr></thead>
+          <tbody>${bbRows.map(r => {
+            const zCol = r.z_score > 0.5 ? 'var(--success)' : r.z_score < -0.5 ? 'var(--danger)' : 'var(--text3)';
+            const rowBg = r.z_score > 1.0 ? 'rgba(16,185,129,.07)' : r.z_score < -1.0 ? 'rgba(244,63,94,.05)' : '';
+            return `<tr style="border-bottom:1px solid var(--bg2);background:${rowBg}">
+              <td style="padding:4px 6px;text-align:center;font-size:1.1rem;font-weight:900">${r.tail}</td>
+              <td style="padding:4px 6px;text-align:right;font-size:.7rem">${r.avg_bb.toFixed(3)}%</td>
+              <td style="padding:4px 6px;text-align:right;font-weight:700;color:${zCol}">${r.z_score > 0 ? '+' : ''}${r.z_score}σ</td>
+              <td style="padding:4px 6px;text-align:right;color:${r.avg_diff>=0?'var(--success)':'var(--danger)'}">${sign(r.avg_diff)}</td>
+              <td style="padding:4px 6px;text-align:right">${r.win_rate}%</td>
+              <td style="padding:4px 6px;text-align:right;color:var(--text3)">${r.count}</td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>`;
+      container.innerHTML = html;
+    } else if (diffRows && diffRows.length > 0) {
+      // フォールバック: 差枚ベース
+      const html = `<p style="font-size:.75rem;color:var(--text3);margin-bottom:6px">過去30日・末尾別平均差枚</p>
+        <table style="width:100%;font-size:.8rem;border-collapse:collapse">
+          <thead><tr style="background:var(--bg2)"><th>末尾</th><th>平均差枚</th><th>勝率</th><th>件数</th></tr></thead>
+          <tbody>${diffRows.map(r => {
+            const t = r.tail.replace('末尾', '');
+            return `<tr><td>${esc(t)}</td><td>${r.avg_diff > 0 ? '+' : ''}${r.avg_diff}</td><td>${r.win_rate}%</td><td>${r.count}</td></tr>`;
+          }).join('')}</tbody></table>`;
+      container.innerHTML = html;
+    } else {
+      container.innerHTML = '<p class="hint center">末尾データなし（台番付きデータが必要）</p>';
+    }
   } catch(e) {
     container.innerHTML = `<p class="hint center">取得失敗</p>`;
   }
@@ -2951,23 +2974,25 @@ async function loadTodayTargets(hall) {
     title.textContent = `今日(${data.today_weekday}曜日)の狙い台`;
     let html = '';
     if (data.seats.length) {
-      html += `<div style="font-size:.68rem;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">複合スコア順（曜日傾向・安定性・直近トレンド統合）</div>`;
+      html += `<div style="font-size:.68rem;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">複合スコア順（曜日傾向・BB確率・安定性・トレンド統合）</div>`;
       data.seats.forEach((s, i) => {
         const medals = ['1位', '2位', '3位'];
         const medalCols = ['var(--warning)', 'var(--text2)', '#cd7f32'];
         const col = s.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
         const sign = v => v >= 0 ? `+${v}` : `${v}`;
-        // 安定性バー (0〜1)
         const stab = (s.stability || 0);
         const stabW = Math.round(stab * 100);
         const stabCol = stab >= 0.7 ? 'var(--success)' : stab >= 0.4 ? 'var(--warning)' : 'var(--danger)';
-        // 同曜日avg
         const dowBadge = s.avg_same_dow !== undefined && s.avg_same_dow !== s.avg_diff
           ? `<span style="font-size:.68rem;color:var(--primary-h);background:rgba(124,127,245,.12);padding:1px 6px;border-radius:4px">${data.today_weekday}曜 ${sign(s.avg_same_dow)}枚</span>`
           : '';
-        // 直近7日
         const trendBadge = s.avg_7d !== null && s.avg_7d !== undefined
           ? `<span style="font-size:.68rem;color:${s.avg_7d >= s.avg_diff ? 'var(--success)' : 'var(--text3)'};background:var(--bg3);padding:1px 6px;border-radius:4px">直近7日 ${sign(s.avg_7d)}枚</span>`
+          : '';
+        // BB z-score バッジ（機種内での相対的な高設定確率）
+        const bbZ = s.bb_z;
+        const bbZBadge = (bbZ !== undefined && bbZ !== null && Math.abs(bbZ) >= 0.3)
+          ? `<span style="font-size:.68rem;font-weight:700;color:${bbZ > 0.5 ? 'var(--success)' : bbZ < -0.5 ? 'var(--danger)' : 'var(--text3)'};background:${bbZ > 0.5 ? 'rgba(16,185,129,.1)' : 'var(--bg3)'};padding:1px 6px;border-radius:4px">BB ${bbZ > 0 ? '+' : ''}${bbZ}σ</span>`
           : '';
         const encHall2 = encodeURIComponent(getSelectedHall());
         const encMach2 = encodeURIComponent(s.machine_name);
@@ -2979,7 +3004,7 @@ async function loadTodayTargets(hall) {
             <div style="font-weight:900;color:${col};font-size:1.05rem">${sign(s.avg_diff)}枚</div>
           </div>
           <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px">
-            ${dowBadge}${trendBadge}
+            ${dowBadge}${trendBadge}${bbZBadge}
             <span style="font-size:.68rem;color:var(--text3);background:var(--bg3);padding:1px 6px;border-radius:4px">${s.days}日 / 勝率${s.win_rate}%</span>
             <span style="font-size:.68rem;color:var(--text3)">タップで詳細</span>
           </div>

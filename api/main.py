@@ -1033,6 +1033,70 @@ def get_tail_analysis(
     ]
 
 
+@app.get("/api/hall/tail_bb_analysis", tags=["hall"])
+def get_tail_bb_analysis(
+    hall_name: str = Query(...),
+    days: int = Query(90),
+) -> list[dict]:
+    """
+    末尾番号別のBB確率分析。
+    差枚より精度が高い（差枚はゲーム数に依存するが、BB確率は設定に直接対応）。
+    同ホール内の末尾間でBB確率をz-score比較し、設定配分傾向を推定する。
+    """
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        """SELECT (seat_number % 10) as tail,
+                  COUNT(*) as cnt,
+                  AVG(bb_prob) as avg_bb,
+                  AVG(rb_prob) as avg_rb,
+                  AVG(diff_coins) as avg_diff,
+                  AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END) as win_rate,
+                  COUNT(DISTINCT seat_number) as seat_cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND machine_name NOT LIKE '%データ%'
+             AND seat_number IS NOT NULL
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY tail HAVING cnt >= 5
+           ORDER BY avg_bb DESC""",
+        (hall_name, days)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return []
+
+    import statistics as _stats
+    bbs = [float(r[2]) for r in rows if r[2] is not None]
+    if len(bbs) < 2:
+        return []
+    mean_bb = _stats.mean(bbs)
+    std_bb = _stats.stdev(bbs) if len(bbs) > 1 else 0.0001
+
+    result = []
+    for r in rows:
+        tail, cnt, avg_bb, avg_rb, avg_diff, win_rate, seat_cnt = r
+        if avg_bb is None:
+            continue
+        z = (float(avg_bb) - mean_bb) / max(std_bb, 0.00001)
+        result.append({
+            "tail": int(tail),
+            "count": cnt,
+            "avg_bb": round(float(avg_bb) * 100, 4),
+            "avg_rb": round(float(avg_rb or 0) * 100, 4),
+            "avg_diff": int(avg_diff or 0),
+            "win_rate": round(float(win_rate or 0) * 100, 1),
+            "seat_cnt": seat_cnt,
+            "z_score": round(z, 2),
+        })
+
+    result.sort(key=lambda x: -x["z_score"])
+    return result
+
+
 @app.get("/api/hall/seat_bb_ranking", tags=["hall"])
 def get_seat_bb_ranking(
     hall_name: str = Query(...),
@@ -1248,7 +1312,7 @@ def get_today_targets(
     if not conn:
         return {"seats": [], "best_tail": None, "best_machine": None, "today_weekday": today_name}
 
-    # 全台の過去stats（avg・分散・勝率・直近7日）bb_prob OR ev_pct があるデータを対象
+    # 全台の過去stats（avg・分散・勝率・直近7日・BB確率）
     seat_rows = conn.execute(
         """SELECT machine_name, seat_number,
                   COUNT(*) as total_days,
@@ -1258,7 +1322,9 @@ def get_today_targets(
                   ROUND(AVG(CASE WHEN report_date >= date('now','-7 days') THEN diff_coins END)) as avg_7d,
                   COUNT(CASE WHEN report_date >= date('now','-7 days') THEN 1 END) as cnt_7d,
                   ROUND(AVG(CASE WHEN strftime('%w',report_date)=? THEN diff_coins END)) as avg_same_dow,
-                  COUNT(CASE WHEN strftime('%w',report_date)=? THEN 1 END) as cnt_same_dow
+                  COUNT(CASE WHEN strftime('%w',report_date)=? THEN 1 END) as cnt_same_dow,
+                  AVG(bb_prob) as avg_bb,
+                  AVG(CASE WHEN strftime('%w',report_date)=? THEN bb_prob END) as dow_bb
            FROM hall_day_seat
            WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
              AND machine_name != '_NODATA_' AND machine_name NOT LIKE '%データ%'
@@ -1266,8 +1332,29 @@ def get_today_targets(
              AND report_date >= date('now', '-' || ? || ' days')
            GROUP BY machine_name, seat_number
            HAVING total_days >= 3""",
-        (str(sql_dow), str(sql_dow), hall_name, days)
+        (str(sql_dow), str(sql_dow), str(sql_dow), hall_name, days)
     ).fetchall()
+
+    # 機種ごとのBB平均・標準偏差（z-score計算用）
+    machine_bb_stats: dict[str, tuple[float, float]] = {}
+    machine_bb_rows = conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name, seat_number HAVING COUNT(*) >= 2""",
+        (hall_name, days)
+    ).fetchall()
+    _m_bbs: dict[str, list[float]] = {}
+    for mr in machine_bb_rows:
+        _m_bbs.setdefault(mr[0], []).append(float(mr[2]))
+    for mname, bbs in _m_bbs.items():
+        if len(bbs) >= 2:
+            import statistics as _stats2
+            m = _stats2.mean(bbs)
+            s = _stats2.stdev(bbs) if len(bbs) > 1 else 0.001
+            machine_bb_stats[mname] = (m, s)
 
     # 最も好調な末尾（曜日重み付き）
     tail_rows = conn.execute(
@@ -1301,11 +1388,12 @@ def get_today_targets(
     conn.close()
 
     # ── 複合スコアリング ──────────────────────────────────────────────
-    # score = avg_diff(40%) + 同曜日avg(25%) + 安定性(20%) + 直近トレンド(15%)
+    # score = avg_diff(35%) + 同曜日avg(20%) + 安定性(15%) + トレンド(10%) + BB_z(20%)
     scored = []
     for r in seat_rows:
         (machine, seat, total_days, avg_diff, variance,
-         win_rate, avg_7d, cnt_7d, avg_same_dow, cnt_same_dow) = r
+         win_rate, avg_7d, cnt_7d, avg_same_dow, cnt_same_dow,
+         avg_bb, dow_bb) = r
 
         avg_diff      = avg_diff or 0
         variance      = max(variance or 0, 0)
@@ -1313,19 +1401,34 @@ def get_today_targets(
         avg_same_dow  = avg_same_dow if (avg_same_dow is not None and cnt_same_dow >= 1) else avg_diff
         win_rate      = win_rate or 0
 
-        # 安定性: 標準偏差が小さいほど高スコア（平均差枚に対する比率）
+        # 安定性: 標準偏差が小さいほど高スコア
         std = _math.sqrt(variance)
         stability = max(0.0, 1.0 - std / (abs(avg_diff) + 1500)) if avg_diff > 0 else 0.0
 
-        # 直近トレンド: 7日平均 vs 全期間平均の乖離（上振れ中か）
+        # 直近トレンド
         trend = avg_7d - avg_diff if cnt_7d >= 2 else 0.0
 
-        # 正規化スコア（差枚ベース、同曜日・安定性・トレンドで補正）
+        # BB確率z-score（機種内比較）→ 差枚スコアに上乗せ
+        bb_z = 0.0
+        if avg_bb and machine in machine_bb_stats:
+            m_bb, s_bb = machine_bb_stats[machine]
+            bb_z = (float(avg_bb) - m_bb) / max(s_bb, 1e-8)
+        # 同曜日BB確率も考慮（あれば）
+        if dow_bb and machine in machine_bb_stats:
+            m_bb, s_bb = machine_bb_stats[machine]
+            dow_bb_z = (float(dow_bb) - m_bb) / max(s_bb, 1e-8)
+            bb_z = bb_z * 0.6 + dow_bb_z * 0.4  # 同曜日を重く
+
+        # BB z-score → 差枚換算（z=1.0 ≈ +500枚相当で換算）
+        bb_bonus = bb_z * 500
+
+        # 正規化スコア（差枚ベース + BB確率シグナル）
         score = (
-            avg_diff      * 0.40 +
-            avg_same_dow  * 0.25 +
-            avg_diff * stability * 0.20 +
-            trend         * 0.15
+            avg_diff     * 0.35 +
+            avg_same_dow * 0.20 +
+            avg_diff * stability * 0.15 +
+            trend        * 0.10 +
+            bb_bonus     * 0.20
         )
 
         scored.append({
@@ -1337,6 +1440,7 @@ def get_today_targets(
             "avg_same_dow": int(avg_same_dow),
             "avg_7d": int(avg_7d) if cnt_7d >= 1 else None,
             "stability": round(stability, 2),
+            "bb_z": round(bb_z, 2),
             "score": round(score, 1),
         })
 

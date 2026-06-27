@@ -1535,6 +1535,7 @@ async function loadHallPage() {
   loadScrapeStatus();
   loadAnasloStatus();
   loadTodayTargets(hall);
+  loadBBSurgeSeats(hall);
   loadTodayDowMachines(hall);
   loadMachineSettingTendency(hall);
 }
@@ -2956,6 +2957,40 @@ async function loadMachineSettingTendency(hall) {
     }).join('');
   } catch(e) {
     if (card) card.style.display = 'none';
+  }
+}
+
+async function loadBBSurgeSeats(hall) {
+  const card = document.getElementById('bb-surge-card');
+  const body = document.getElementById('bb-surge-body');
+  if (!card) return;
+  try {
+    const rows = await apiFetch(`/api/hall/bb_surge_seats?hall_name=${encodeURIComponent(hall)}&days=3&min_surge=0.5`);
+    if (!rows || !rows.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    const html = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">直近3日のBB確率が過去60日平均より急上昇（設定変更シグナル）</p>
+      ${rows.slice(0, 8).map(r => {
+        const surgeCol = r.surge_z > 1.5 ? 'var(--warning)' : r.surge_z > 1.0 ? 'var(--success)' : 'var(--primary-h)';
+        const encHall = encodeURIComponent(hall);
+        const encM = encodeURIComponent(r.machine_name);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+          onclick="showSeatDetailModal(decodeURIComponent('${encHall}'),decodeURIComponent('${encM}'),${r.seat_number})">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:.82rem">${esc(r.machine_name)} <span style="color:var(--text3);font-weight:400">${r.seat_number}番</span></div>
+            <div style="font-size:.68rem;color:var(--text3);margin-top:2px">
+              ベースライン <span style="color:var(--text2)">${r.baseline_bb.toFixed(3)}%</span>
+              → 直近 <span style="color:var(--success);font-weight:700">${r.recent_bb.toFixed(3)}%</span>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:1rem;font-weight:900;color:${surgeCol}">+${r.surge_z}σ</div>
+            <div style="font-size:.62rem;color:var(--text3)">急上昇</div>
+          </div>
+        </div>`;
+      }).join('')}`;
+    body.innerHTML = html;
+  } catch(e) {
+    card.style.display = 'none';
   }
 }
 

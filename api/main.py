@@ -1788,6 +1788,78 @@ def get_hall_compare(days: int = Query(30)) -> list[dict]:
     ]
 
 
+@app.get("/api/hall/bb_surge_seats", tags=["hall"])
+def get_bb_surge_seats(
+    hall_name: str = Query(...),
+    days: int = Query(3),
+    min_surge: float = Query(0.5),
+) -> list[dict]:
+    """
+    前日比でBB確率が急上昇した台を検出。
+    設定入れ替え（低→高）の強いシグナル。
+    min_surge: 機種内z-scoreの最低上昇量（デフォルト0.5σ以上の急上昇）
+    """
+    import datetime as _dt
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+
+    prev_date = (date.today() - _dt.timedelta(days=days)).isoformat()
+
+    recent = conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND report_date >= ?
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+           GROUP BY machine_name, seat_number HAVING cnt >= 1""",
+        (hall_name, prev_date)
+    ).fetchall()
+
+    baseline = conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND report_date < ?
+             AND report_date >= date(?, '-60 days')
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+           GROUP BY machine_name, seat_number HAVING COUNT(*) >= 3""",
+        (hall_name, prev_date, prev_date)
+    ).fetchall()
+
+    machine_std: dict[str, float] = {}
+    m_bbs: dict[str, list[float]] = {}
+    for r in baseline:
+        m_bbs.setdefault(r[0], []).append(float(r[2]))
+    for mname, bbs in m_bbs.items():
+        import statistics as _s
+        machine_std[mname] = (_s.stdev(bbs) if len(bbs) > 1 else 0.001) or 0.001
+
+    baseline_map = {(r[0], r[1]): float(r[2]) for r in baseline}
+    conn.close()
+
+    results = []
+    for r in recent:
+        mname, seat, rec_bb = r[0], r[1], float(r[2])
+        base_bb = baseline_map.get((mname, seat))
+        if base_bb is None:
+            continue
+        std = machine_std.get(mname, 0.001)
+        surge_z = (rec_bb - base_bb) / std
+        if surge_z >= min_surge:
+            results.append({
+                "machine_name": mname,
+                "seat_number": seat,
+                "recent_bb": round(rec_bb * 100, 4),
+                "baseline_bb": round(base_bb * 100, 4),
+                "surge_z": round(surge_z, 2),
+                "recent_days": days,
+            })
+
+    results.sort(key=lambda x: -x["surge_z"])
+    return results[:20]
+
+
 # ---------------------------------------------------------------------------
 # AI エンドポイント
 # ---------------------------------------------------------------------------

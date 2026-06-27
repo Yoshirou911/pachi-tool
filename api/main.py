@@ -1106,6 +1106,64 @@ def get_hall_trend_summary(
     }
 
 
+@app.get("/api/hall/hot_machines", tags=["hall"])
+def get_hot_machines(
+    hall_name: Optional[str] = Query(None),
+    days: int = Query(7, le=60),
+    limit: int = Query(20, le=50),
+) -> list[dict]:
+    """期間内の急上昇機種ランキング (直近3日 vs 前週平均)"""
+    ckey = f"hot_machines:{hall_name}:{days}:{limit}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
+    conn = _get_reports_conn()
+    if conn is None:
+        return []
+    hall_filter = "AND hall_name = ?" if hall_name else ""
+    params_base = [hall_name] if hall_name else []
+    try:
+        rows = conn.execute(
+            f"""SELECT hall_name, machine_name,
+                  AVG(CASE WHEN report_date >= date('now','-3 days') THEN avg_diff_coins END) as rec,
+                  AVG(CASE WHEN report_date < date('now','-3 days')
+                           AND report_date >= date('now', '-' || ? || ' days') THEN avg_diff_coins END) as base,
+                  COUNT(DISTINCT report_date) as days_count,
+                  AVG(avg_diff_coins) as avg_overall
+               FROM hall_day_machine
+               WHERE avg_diff_coins IS NOT NULL
+                 AND report_date >= date('now', '-' || ? || ' days')
+                 {hall_filter}
+               GROUP BY hall_name, machine_name
+               HAVING rec IS NOT NULL AND base IS NOT NULL AND days_count >= 3""",
+            [days, days] + params_base
+        ).fetchall()
+    except Exception:
+        conn.close()
+        return []
+    conn.close()
+    result = []
+    for r in rows:
+        rec = float(r[2])
+        base = float(r[3])
+        if base == 0:
+            continue
+        surge = round(rec - base)
+        result.append({
+            "hall_name": r[0],
+            "machine_name": r[1],
+            "recent_avg": round(rec),
+            "base_avg": round(base),
+            "surge": surge,
+            "days_count": r[4],
+            "avg_overall": round(float(r[5])),
+        })
+    result.sort(key=lambda x: x["surge"], reverse=True)
+    result = result[:limit]
+    _cache_set(ckey, result)
+    return result
+
+
 @app.get("/api/hall/weekly_summary", tags=["hall"])
 def get_hall_weekly_summary(days: int = Query(7, le=14)) -> dict:
     """全ホールの週次サマリー — ランキング変動・急上昇・最高/最低機種"""

@@ -125,33 +125,41 @@ async function loadWeeklyHighlight() {
   const gen = document.getElementById('weekly-generated');
   if (!card || !body) return;
   try {
-    const data = await apiFetch('/api/hall/weekly_summary?days=7').catch(() => null);
-    if (!data || (!data.highlights?.length && !data.top_halls?.length)) {
-      card.style.display = 'none';
-      return;
-    }
+    const [data, hotMachines] = await Promise.all([
+      apiFetch('/api/hall/weekly_summary?days=7').catch(() => null),
+      apiFetch('/api/hall/hot_machines?days=14&limit=5').catch(() => []),
+    ]);
+    const hasWeekly = data && (data.highlights?.length || data.top_halls?.length);
+    const hasHot = hotMachines?.length > 0;
+    if (!hasWeekly && !hasHot) { card.style.display = 'none'; return; }
     card.style.display = 'block';
-    if (gen) gen.textContent = data.generated_at || '';
+    if (gen) gen.textContent = data?.generated_at || '';
     let html = '';
-    if (data.highlights?.length) {
-      html += data.highlights.slice(0, 3).map(h => {
-        const sign = h.trend >= 0 ? '+' : '';
-        return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
-          <span style="font-size:.8rem">📈</span>
-          <span style="flex:1;font-size:.75rem"><strong style="color:var(--text1)">${esc(h.machine_name)}</strong>
-            <span style="color:var(--text3);font-size:.68rem"> — ${esc(h.hall_name)}</span></span>
-          <span style="font-size:.72rem;font-weight:700;color:var(--success)">${sign}${h.trend}枚</span>
+    if (hotMachines?.length) {
+      html += `<div style="font-size:.65rem;color:var(--text3);margin-bottom:5px;font-weight:600;letter-spacing:.04em">⚡ 急上昇機種 (直近3日 vs 前週)</div>`;
+      html += hotMachines.slice(0, 5).map(h => {
+        const sign = h.surge >= 0 ? '+' : '';
+        const col = h.surge > 0 ? 'var(--success)' : 'var(--danger)';
+        return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.74rem;font-weight:700;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.machine_name)}</div>
+            <div style="font-size:.6rem;color:var(--text3)">${esc(h.hall_name)} · ${h.days_count}日</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:.72rem;font-weight:700;color:${col}">${sign}${h.surge}枚</div>
+            <div style="font-size:.58rem;color:var(--text3)">${h.recent_avg >= 0 ? '+' : ''}${h.recent_avg} / ${h.base_avg >= 0 ? '+' : ''}${h.base_avg}</div>
+          </div>
         </div>`;
       }).join('');
     }
-    if (data.top_halls?.length) {
-      html += `<div style="margin-top:6px;font-size:.62rem;color:var(--text3)">
+    if (data?.top_halls?.length) {
+      html += `<div style="margin-top:6px;font-size:.62rem;color:var(--text3);padding-top:5px;border-top:1px solid rgba(255,255,255,.06)">
         週間トップ: ${data.top_halls.slice(0,3).map(h =>
           `<span style="color:var(--text2)">${esc(h.hall_name)} <strong style="color:${h.avg_diff>=0?'var(--success)':'var(--danger)'}">${h.avg_diff>=0?'+':''}${h.avg_diff}</strong></span>`
         ).join(' / ')}
       </div>`;
     }
-    body.innerHTML = html;
+    body.innerHTML = html || '<span style="color:var(--text3);font-size:.75rem">データなし</span>';
   } catch(e) {
     const c = document.getElementById('weekly-highlight-card');
     if (c) c.style.display = 'none';

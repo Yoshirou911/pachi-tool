@@ -1433,7 +1433,13 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       : '';
     body.innerHTML = `
       <div style="margin-bottom:10px">
-        <div style="font-size:1.05rem;font-weight:800;margin-bottom:4px">${esc(machineName)} ${seatNumber}番台</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:1.05rem;font-weight:800">${esc(machineName)} ${seatNumber}番台</span>
+          <button onclick="togglePinSeat(${JSON.stringify(hall)},${JSON.stringify(machineName)},${seatNumber})" id="pin-seat-btn"
+            style="background:none;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">
+            ${isPinnedSeat(hall, machineName, seatNumber) ? '★ ピン中' : '☆ ピン'}
+          </button>
+        </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.8rem;margin-bottom:6px">
           <span style="color:var(--text3)">期間 <strong style="color:var(--text2)">${totalDays}日</strong></span>
           <span style="color:var(--text3)">平均差枚 <strong style="color:${avgDiff>=0?'var(--success)':'var(--danger)'}">${sign(avgDiff)}枚</strong></span>
@@ -1713,6 +1719,7 @@ async function loadHallPage() {
   loadScrapeStatus();
   loadAnasloStatus();
   loadTodayTargets(hall);
+  renderPinnedSeatsCard();
   loadTodayBriefing(hall);
   loadBBSurgeSeats(hall);
   loadEventDayPattern(hall);
@@ -2777,6 +2784,62 @@ function renderSeatAnalysis(sessions) {
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// ピン留め機能（LocalStorage）
+// ---------------------------------------------------------------------------
+function _pinKey() { return 'pachi_pinned_seats_v1'; }
+
+function getPinnedSeats() {
+  try { return JSON.parse(localStorage.getItem(_pinKey()) || '[]'); } catch { return []; }
+}
+
+function isPinnedSeat(hall, machine, seat) {
+  return getPinnedSeats().some(p => p.hall === hall && p.machine === machine && p.seat === seat);
+}
+
+function togglePinSeat(hall, machine, seat) {
+  const pins = getPinnedSeats();
+  const idx = pins.findIndex(p => p.hall === hall && p.machine === machine && p.seat === seat);
+  if (idx >= 0) {
+    pins.splice(idx, 1);
+    showToast(`${machine} ${seat}番台のピンを解除しました`);
+  } else {
+    pins.unshift({ hall, machine, seat, pinned_at: new Date().toISOString() });
+    showToast(`${machine} ${seat}番台をピン留めしました`);
+  }
+  localStorage.setItem(_pinKey(), JSON.stringify(pins.slice(0, 20)));
+  // ボタンを即座に更新
+  const btn = document.getElementById('pin-seat-btn');
+  if (btn) btn.textContent = isPinnedSeat(hall, machine, seat) ? '★ ピン中' : '☆ ピン';
+  // ホールページのピン一覧を更新
+  renderPinnedSeatsCard();
+}
+
+function renderPinnedSeatsCard() {
+  let card = document.getElementById('pinned-seats-card');
+  if (!card) return;
+  const pins = getPinnedSeats();
+  if (pins.length === 0) { card.style.display = 'none'; return; }
+  const hall = getSelectedHall();
+  const rows = pins.filter(p => !hall || p.hall === hall).map(p =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+       <div>
+         <div style="font-size:.82rem;font-weight:700">${esc(p.machine)} <span style="color:var(--primary-h)">${p.seat}番台</span></div>
+         <div style="font-size:.62rem;color:var(--text3)">${esc(p.hall)}</div>
+       </div>
+       <div style="display:flex;gap:6px">
+         <button onclick="showSeatDetailModal(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})"
+           style="background:var(--bg2);border:none;border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">詳細</button>
+         <button onclick="togglePinSeat(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})"
+           style="background:none;border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text3)">解除</button>
+       </div>
+     </div>`
+  ).join('');
+  if (!rows) { card.style.display = 'none'; return; }
+  document.getElementById('pinned-seats-body').innerHTML = rows;
+  card.style.display = 'block';
+}
+
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }

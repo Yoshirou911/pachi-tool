@@ -95,6 +95,20 @@ app.add_middleware(
 init_db()
 
 
+@app.on_event("startup")
+async def _warmup_cache() -> None:
+    """起動時にバックグラウンドで重いエンドポイントを事前キャッシュ生成"""
+    import asyncio, threading
+
+    def _warm() -> None:
+        try:
+            compare_halls(days=30)          # ホール比較
+        except Exception:
+            pass
+
+    threading.Thread(target=_warm, daemon=True).start()
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------

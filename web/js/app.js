@@ -156,7 +156,7 @@ async function loadMachineSnapshot(machineName) {
 
 estMachine?.addEventListener('change', () => loadMachineSnapshot(estMachine.value));
 
-// 台番入力 → 末尾傾向ヒント
+// 台番入力 → 末尾傾向ヒント + 台別過去成績
 document.getElementById('est-seat-number')?.addEventListener('input', async function() {
   const hint = document.getElementById('seat-tail-hint');
   if (!hint) return;
@@ -165,20 +165,51 @@ document.getElementById('est-seat-number')?.addEventListener('input', async func
   const hall = estHall?.value;
   if (!hall) { hint.style.display = 'none'; return; }
   const tail = seatNum % 10;
-  try {
-    const arr = await apiFetch(`/api/hall/tail_bb_analysis?hall_name=${encodeURIComponent(hall)}&days=180`);
-    if (!Array.isArray(arr) || !arr.length) { hint.style.display = 'none'; return; }
-    const tailData = arr.find(t => t.tail === tail);
-    if (!tailData) { hint.style.display = 'none'; return; }
-    const z = tailData.z_score;
-    const col = z >= 0.5 ? 'var(--success)' : z <= -0.5 ? 'var(--danger)' : 'var(--text3)';
-    const arrow = z >= 0.5 ? '▲' : z <= -0.5 ? '▼' : '─';
-    const sign = v => v >= 0 ? `+${v}` : `${v}`;
-    hint.innerHTML = `末尾<strong>${tail}</strong>番台: <span style="color:${col};font-weight:700">${arrow} z=${sign(z)}σ</span>
-      <span style="color:var(--text3);margin-left:6px">BB ${tailData.avg_bb}% / ${tailData.seat_cnt}台データ / ${sign(tailData.avg_diff)}枚</span>
-      ${z >= 0.5 ? '<span style="color:var(--success);margin-left:4px">高設定優遇の可能性</span>' : z <= -0.5 ? '<span style="color:var(--danger);margin-left:4px">低設定多め</span>' : ''}`;
+  const machine = state.currentMachine;
+  const sign = v => v >= 0 ? `+${v}` : `${v}`;
+
+  // 末尾傾向 + 台別詳細を並列取得
+  const [tailArr, seatDetail] = await Promise.all([
+    apiFetch(`/api/hall/tail_bb_analysis?hall_name=${encodeURIComponent(hall)}&days=180`).catch(() => null),
+    (machine && hall)
+      ? apiFetch(`/api/hall/seat_detail?hall_name=${encodeURIComponent(hall)}&machine_name=${encodeURIComponent(machine)}&seat_number=${seatNum}&days=90`).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  let html = '';
+
+  // 末尾ヒント
+  if (Array.isArray(tailArr) && tailArr.length) {
+    const tailData = tailArr.find(t => t.tail === tail);
+    if (tailData) {
+      const z = tailData.z_score;
+      const col = z >= 0.5 ? 'var(--success)' : z <= -0.5 ? 'var(--danger)' : 'var(--text3)';
+      const arrow = z >= 0.5 ? '▲' : z <= -0.5 ? '▼' : '─';
+      html += `<div>末尾<strong>${tail}</strong>: <span style="color:${col};font-weight:700">${arrow} z=${sign(z)}σ</span>
+        <span style="color:var(--text3);margin-left:6px">BB ${tailData.avg_bb}% / ${sign(tailData.avg_diff)}枚</span></div>`;
+    }
+  }
+
+  // 台別過去成績
+  if (seatDetail && seatDetail.total_days >= 2) {
+    const sd = seatDetail;
+    const diffCol = sd.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+    const wrCol = sd.win_rate >= 50 ? 'var(--success)' : 'var(--danger)';
+    let badges = '';
+    if (sd.win_streak >= 2) badges += `<span style="color:var(--success);font-size:.63rem"> 🔥${sd.win_streak}連勝</span>`;
+    if (sd.best_weekday) badges += `<span style="color:var(--primary-h);font-size:.63rem"> ${sd.best_weekday.weekday}曜強</span>`;
+    html += `<div style="margin-top:3px;font-size:.7rem">
+      <span style="color:var(--text3)">この台${sd.total_days}日 </span>
+      <span style="color:${diffCol};font-weight:700">${sign(sd.avg_diff)}枚</span>
+      <span style="color:var(--text3);margin-left:4px">勝率<span style="color:${wrCol}">${sd.win_rate}%</span></span>
+      ${badges}
+    </div>`;
+  }
+
+  if (html) {
+    hint.innerHTML = html;
     hint.style.display = 'block';
-  } catch(e) {
+  } else {
     hint.style.display = 'none';
   }
 });

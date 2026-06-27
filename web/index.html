@@ -470,230 +470,283 @@
     <section id="page-hall" class="page">
       <div class="page-inner">
 
-        <div class="card">
-          <select id="hall-select" class="form-select">
-            <optgroup label="── 大東市 ──">
-              <option value="ベガスベガス大東店">ベガスベガス大東店</option>
-              <option value="マルハン大東店">マルハン大東店</option>
-              <option value="ニコニコ住道店">ニコニコ住道店</option>
-              <option value="スーパーコスモプレミアム大東店">スーパーコスモプレミアム大東店</option>
-            </optgroup>
-            <optgroup label="── 枚方市 ──">
-              <option value="マルハン枚方店">マルハン枚方店</option>
-              <option value="ニコニコ枚方店">ニコニコ枚方店</option>
-              <option value="ベガビック1700枚方店">ベガビック1700枚方店</option>
-              <option value="G-ONE枚方宮之阪店">G-ONE枚方宮之阪店</option>
-            </optgroup>
-            <optgroup label="── 寝屋川市 ──">
-              <option value="ニコニコ寝屋川南インター店">ニコニコ寝屋川南インター店</option>
-              <option value="キコーナ寝屋川南店">キコーナ寝屋川南店</option>
-              <option value="マルハン寝屋川店">マルハン寝屋川店</option>
-              <option value="ベラジオ寝屋川店">ベラジオ寝屋川店</option>
-              <option value="ニコニコ寝屋川店スロット館">ニコニコ寝屋川店スロット館</option>
-            </optgroup>
-            <optgroup label="── 交野市 ──">
-              <option value="123交野店">123交野店</option>
-            </optgroup>
-            <optgroup label="── 守口・門真 ──">
-              <option value="キコーナ守口店">キコーナ守口店</option>
-              <option value="テキサス門真">テキサス門真</option>
-            </optgroup>
-            <optgroup label="── カスタム ──">
-              <option value="__custom__">その他（直接入力）</option>
-            </optgroup>
-          </select>
-          <input type="text" id="hall-custom-input" class="form-input"
-                 placeholder="みんレポの店舗名を入力（例: マルハン○○店）"
-                 style="display:none;margin-top:8px">
+        <!-- サブタブ -->
+        <div class="hall-sub-tabs">
+          <button class="hall-sub-btn active" data-htab="compare">比較</button>
+          <button class="hall-sub-btn" data-htab="detail">詳細</button>
+          <button class="hall-sub-btn" data-htab="admin">管理</button>
         </div>
 
-        <!-- ホール横断比較 -->
-        <div class="card" id="hall-compare-card" style="display:none">
-          <div class="card-title">ホール比較ランキング <span style="font-size:.65rem;color:var(--text3);font-weight:400">（BB率・設定傾向）</span></div>
-          <div id="hall-compare-body"></div>
-        </div>
-
-        <!-- ピン留め台 -->
-        <div class="card" id="pinned-seats-card" style="display:none">
-          <div class="card-title">ピン留め台 <span style="font-size:.65rem;color:var(--text3);font-weight:400">（要チェック台メモ）</span></div>
-          <div id="pinned-seats-body"></div>
-        </div>
-
-        <!-- 今日のブリーフィング -->
-        <div class="card" id="today-briefing-card" style="display:none">
-          <div class="card-title">本日ブリーフィング <span style="font-size:.65rem;color:var(--text3);font-weight:400">（開店前確認）</span></div>
-          <div id="today-briefing-body"></div>
-        </div>
-
-        <!-- 今日の狙い台 -->
-        <div class="card" id="today-targets-card" style="display:none">
-          <div class="card-title" id="today-targets-title">今日の狙い台</div>
-          <div id="today-targets-body"></div>
-        </div>
-
-        <!-- BB急上昇台 (設定入れ替え検知) -->
-        <div class="card" id="bb-surge-card" style="display:none">
-          <div class="card-title">BB確率急上昇台 <span style="font-size:.65rem;color:var(--text3);font-weight:400">（設定入れ替え検知）</span></div>
-          <div id="bb-surge-body"></div>
-        </div>
-
-        <!-- イベント日パターン -->
-        <div class="card" id="event-day-card" style="display:none">
-          <div class="card-title">イベント日パターン <span style="font-size:.65rem;color:var(--text3);font-weight:400">（BB確率上昇が高い日）</span></div>
-          <div id="event-day-body"></div>
-        </div>
-
-        <!-- 今日の曜日強機種 -->
-        <div class="card" id="today-dow-machines-card" style="display:none">
-          <div class="card-title" id="today-dow-machines-title">今日の曜日で強い機種</div>
-          <div id="today-dow-machines-body"></div>
-        </div>
-
-        <!-- 機種設定傾向 -->
-        <div class="card" id="machine-tendency-card" style="display:none">
-          <div class="card-title">機種別設定傾向（BB/RBから推定）</div>
-          <div id="machine-tendency-body"></div>
-        </div>
-
-        <!-- 機種×曜日ヒートマップ -->
-        <div class="card" id="dow-heatmap-card" style="display:none">
-          <div class="card-title">機種×曜日 BB率ヒートマップ <span style="font-size:.65rem;color:var(--text3);font-weight:400">（σ: 高=緑/低=赤）</span></div>
-          <div id="dow-heatmap-body" style="overflow-x:auto"></div>
-        </div>
-
-        <!-- 曜日スコア -->
-        <div class="card">
-          <div class="card-title">曜日別スコア</div>
-          <div id="hall-weekday-chart"></div>
-        </div>
-
-        <!-- 機種ランキング -->
-        <div class="card">
-          <div class="card-title">機種スコアランキング</div>
-          <div id="hall-machine-ranking"></div>
-        </div>
-
-        <!-- 特定日 -->
-        <div class="card">
-          <div class="card-title">📅 特定日の傾向</div>
-          <div id="hall-special-days"></div>
-        </div>
-
-        <!-- 今日の推奨 -->
-        <div class="card">
-          <div class="card-title">💡 今日の立ち回り推奨</div>
-          <div id="hall-today-recommend"></div>
-        </div>
-
-        <!-- 外部スクレイプデータ -->
-        <div class="card">
-          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-            <span>🌐 みんレポ データ</span>
-            <button id="scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px">
-              取得
-            </button>
-          </div>
-          <div id="scrape-status-bar" style="font-size:.78rem;color:var(--text3);margin-bottom:8px"></div>
-          <div id="scrape-date-row" style="display:none;margin-bottom:10px">
-            <select id="scrape-date-select" class="form-select" style="font-size:.8rem"></select>
-          </div>
-          <div id="scrape-report-table"></div>
-        </div>
-
-        <!-- 過去30日ランキング（スクレイプ） -->
-        <div class="card" id="scrape-trend-card" style="display:none">
-          <div class="card-title">📈 過去30日 機種別平均差枚</div>
-          <div id="scrape-top-machines"></div>
-        </div>
-
-        <!-- 機種別トレンドチャート -->
-        <div class="card" id="machine-trend-card" style="display:none">
-          <div class="card-title" id="machine-trend-title">📉 機種トレンド</div>
-          <canvas id="machine-trend-chart" height="180"></canvas>
-        </div>
-
-        <!-- アナスロ 台番別データ -->
-        <div class="card">
-          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-            <span>🎰 アナスロ 台番別データ</span>
-            <button id="anaslo-scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px">
-              取得
-            </button>
-          </div>
-          <div id="anaslo-status-bar" style="font-size:.78rem;color:var(--text3);margin-bottom:8px"></div>
-          <div style="display:flex;gap:6px;margin-bottom:8px">
-            <button id="anaslo-tab-seat" class="btn btn-primary" style="font-size:.75rem;padding:3px 10px">台番ランキング</button>
-            <button id="anaslo-tab-tail" class="btn btn-ghost" style="font-size:.75rem;padding:3px 10px">末尾分析</button>
-          </div>
-          <div id="anaslo-seat-section">
-            <div id="anaslo-date-row" style="display:none;margin-bottom:8px">
-              <select id="anaslo-date-select" class="form-select" style="font-size:.8rem"></select>
-            </div>
-            <div id="anaslo-seat-table"></div>
-          </div>
-          <div id="anaslo-tail-section" style="display:none">
-            <div id="anaslo-tail-table"></div>
+        <!-- ===== 比較タブ ===== -->
+        <div id="htab-compare" class="htab-pane active">
+          <div class="card" id="hall-compare-card" style="display:none">
+            <div class="card-title">ホール比較ランキング <span style="font-size:.65rem;color:var(--text3);font-weight:400">（BB率・設定傾向）</span></div>
+            <div id="hall-compare-body"></div>
           </div>
         </div>
 
-        <!-- スクレイプ管理パネル -->
-        <div class="card" id="scrape-manager-card">
-          <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-            <span>⚙️ 自動スクレイプ管理</span>
-            <button id="scrape-status-refresh-btn" onclick="loadScrapeManager()" class="btn btn-ghost" style="font-size:.7rem;padding:3px 8px">更新</button>
+        <!-- ===== 詳細タブ ===== -->
+        <div id="htab-detail" class="htab-pane">
+
+          <!-- ホール選択 -->
+          <div class="card">
+            <select id="hall-select" class="form-select">
+              <optgroup label="── 大東市 ──">
+                <option value="ベガスベガス大東店">ベガスベガス大東店</option>
+                <option value="マルハン大東店">マルハン大東店</option>
+                <option value="ニコニコ住道店">ニコニコ住道店</option>
+                <option value="スーパーコスモプレミアム大東店">スーパーコスモプレミアム大東店</option>
+              </optgroup>
+              <optgroup label="── 枚方市 ──">
+                <option value="マルハン枚方店">マルハン枚方店</option>
+                <option value="ニコニコ枚方店">ニコニコ枚方店</option>
+                <option value="ベガビック1700枚方店">ベガビック1700枚方店</option>
+                <option value="G-ONE枚方宮之阪店">G-ONE枚方宮之阪店</option>
+              </optgroup>
+              <optgroup label="── 寝屋川市 ──">
+                <option value="ニコニコ寝屋川南インター店">ニコニコ寝屋川南インター店</option>
+                <option value="キコーナ寝屋川南店">キコーナ寝屋川南店</option>
+                <option value="マルハン寝屋川店">マルハン寝屋川店</option>
+                <option value="ベラジオ寝屋川店">ベラジオ寝屋川店</option>
+                <option value="ニコニコ寝屋川店スロット館">ニコニコ寝屋川店スロット館</option>
+              </optgroup>
+              <optgroup label="── 交野市 ──">
+                <option value="123交野店">123交野店</option>
+              </optgroup>
+              <optgroup label="── 守口・門真 ──">
+                <option value="キコーナ守口店">キコーナ守口店</option>
+                <option value="テキサス門真">テキサス門真</option>
+              </optgroup>
+              <optgroup label="── カスタム ──">
+                <option value="__custom__">その他（直接入力）</option>
+              </optgroup>
+            </select>
+            <input type="text" id="hall-custom-input" class="form-input"
+                   placeholder="みんレポの店舗名を入力（例: マルハン○○店）"
+                   style="display:none;margin-top:8px">
           </div>
-          <!-- Cookieセクション -->
-          <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
-            <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">Cloudflare Cookie設定</div>
-            <div style="font-size:.68rem;color:var(--text3);margin-bottom:6px">
-              Chrome DevToolsでana-slo.comのCookieをコピーし、下に貼り付けてください。<br>
-              <span style="color:var(--warning)">cf_clearanceが必須です。期限切れになったら再登録してください。</span>
-            </div>
-            <textarea id="cookie-input" rows="3" style="width:100%;box-sizing:border-box;font-size:.65rem;font-family:monospace;
-              padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg1);color:var(--text1);
-              resize:vertical" placeholder="cf_clearance=xxx; _ga=yyy; ..."></textarea>
-            <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
-              <button id="save-cookie-btn" class="btn btn-primary" style="font-size:.75rem;padding:4px 12px">Cookie保存</button>
-              <span id="cookie-status-badge" style="font-size:.68rem;color:var(--text3)">読み込み中...</span>
-            </div>
-            <div id="cookie-alert" style="display:none;margin-top:8px;padding:8px 10px;border-radius:6px;
-              background:rgba(239,68,68,.15);border:1px solid var(--danger);font-size:.7rem;color:var(--danger);line-height:1.4">
+
+          <!-- ピン留め台 -->
+          <div class="card" id="pinned-seats-card" style="display:none">
+            <div class="card-title">ピン留め台 <span style="font-size:.65rem;color:var(--text3);font-weight:400">（要チェック台メモ）</span></div>
+            <div id="pinned-seats-body"></div>
+          </div>
+
+          <!-- 今日のブリーフィング -->
+          <div class="card" id="today-briefing-card" style="display:none">
+            <div class="card-title">本日ブリーフィング <span style="font-size:.65rem;color:var(--text3);font-weight:400">（開店前確認）</span></div>
+            <div id="today-briefing-body"></div>
+          </div>
+
+          <!-- 今日の狙い台 -->
+          <div class="card" id="today-targets-card" style="display:none">
+            <div class="card-title" id="today-targets-title">今日の狙い台</div>
+            <div id="today-targets-body"></div>
+          </div>
+
+          <!-- BB急上昇台 -->
+          <div class="card" id="bb-surge-card" style="display:none">
+            <div class="card-title">BB確率急上昇台 <span style="font-size:.65rem;color:var(--text3);font-weight:400">（設定入れ替え検知）</span></div>
+            <div id="bb-surge-body"></div>
+          </div>
+
+          <!-- イベント日パターン -->
+          <div class="card" id="event-day-card" style="display:none">
+            <div class="card-title">イベント日パターン <span style="font-size:.65rem;color:var(--text3);font-weight:400">（BB確率上昇が高い日）</span></div>
+            <div id="event-day-body"></div>
+          </div>
+
+          <!-- 今日の曜日強機種 -->
+          <div class="card" id="today-dow-machines-card" style="display:none">
+            <div class="card-title" id="today-dow-machines-title">今日の曜日で強い機種</div>
+            <div id="today-dow-machines-body"></div>
+          </div>
+
+          <!-- 機種設定傾向 -->
+          <div class="card" id="machine-tendency-card" style="display:none">
+            <div class="card-title">機種別設定傾向（BB/RBから推定）</div>
+            <div id="machine-tendency-body"></div>
+          </div>
+
+          <!-- 機種×曜日ヒートマップ -->
+          <div class="card" id="dow-heatmap-card" style="display:none">
+            <div class="card-title">機種×曜日 BB率ヒートマップ <span style="font-size:.65rem;color:var(--text3);font-weight:400">（σ: 高=緑/低=赤）</span></div>
+            <div id="dow-heatmap-body" style="overflow-x:auto"></div>
+          </div>
+
+          <!-- 曜日スコア -->
+          <div class="card card-col closed">
+            <div class="card-title card-col-hd">曜日別スコア <span class="col-arr">▾</span></div>
+            <div class="card-col-body">
+              <div id="hall-weekday-chart"></div>
             </div>
           </div>
-          <!-- 手動実行セクション -->
-          <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
-            <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">手動実行</div>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select id="scrape-days-select" class="form-select" style="font-size:.78rem;width:auto">
-                <option value="1">1日分(昨日のみ)</option>
-                <option value="3" selected>3日分</option>
-                <option value="7">7日分</option>
-                <option value="14">14日分</option>
-              </select>
-              <button id="scrape-run-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 12px">
-                全店舗スクレイプ実行
-              </button>
-              <span id="scrape-run-status" style="font-size:.68rem;color:var(--text3)"></span>
+
+          <!-- 機種ランキング -->
+          <div class="card card-col closed">
+            <div class="card-title card-col-hd">機種スコアランキング <span class="col-arr">▾</span></div>
+            <div class="card-col-body">
+              <div id="hall-machine-ranking"></div>
             </div>
           </div>
-          <!-- ホール管理セクション -->
-          <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
-            <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">スクレイプ対象ホール</div>
-            <div id="scrape-halls-list" style="margin-bottom:8px;max-height:160px;overflow-y:auto"></div>
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
-              <input id="add-hall-name" type="text" placeholder="ホール名" style="flex:1;min-width:120px;font-size:.72rem;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
-              <input id="add-hall-pref" type="text" placeholder="都道府県" value="大阪府" style="width:70px;font-size:.72rem;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
-              <button onclick="addScrapeHall()" class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px">＋追加</button>
+
+          <!-- 特定日 -->
+          <div class="card card-col closed">
+            <div class="card-title card-col-hd">📅 特定日の傾向 <span class="col-arr">▾</span></div>
+            <div class="card-col-body">
+              <div id="hall-special-days"></div>
             </div>
           </div>
-          <!-- スケジューラー状態 -->
-          <div id="scrape-scheduler-info" style="font-size:.72rem;color:var(--text3);margin-bottom:8px"></div>
-          <!-- 実行ログ -->
-          <div>
-            <div style="font-size:.68rem;color:var(--text3);font-weight:600;margin-bottom:4px">直近実行ログ</div>
-            <div id="scrape-log-table" style="font-size:.68rem"></div>
+
+          <!-- 今日の推奨 -->
+          <div class="card">
+            <div class="card-title">💡 今日の立ち回り推奨</div>
+            <div id="hall-today-recommend"></div>
           </div>
-        </div>
+
+          <!-- AI分析 -->
+          <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div class="card-title" style="margin-bottom:2px">🤖 AI 店舗分析</div>
+                <div style="font-size:.68rem;color:var(--text3)">ホールデータをAIが総合分析</div>
+              </div>
+              <button id="hall-ai-btn" class="btn btn-primary btn-sm">生成</button>
+            </div>
+            <div id="hall-ai-output" style="display:none;font-size:.82rem;line-height:1.75;color:var(--text2);white-space:pre-wrap;border-top:1px solid var(--border);padding-top:10px;margin-top:10px"></div>
+          </div>
+
+          <!-- みんレポ データ -->
+          <div class="card card-col closed">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div class="card-title card-col-hd" style="margin-bottom:0;flex:1">
+                🌐 みんレポ データ <span class="col-arr">▾</span>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
+                <select id="scrape-days-minrepo" class="form-select" style="font-size:.72rem;width:auto;padding:3px 6px">
+                  <option value="30">30日</option>
+                  <option value="90">90日</option>
+                  <option value="180">180日</option>
+                  <option value="365">1年</option>
+                </select>
+                <button id="scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px">取得</button>
+              </div>
+            </div>
+            <div class="card-col-body">
+              <div id="scrape-status-bar" style="font-size:.78rem;color:var(--text3);margin-bottom:8px"></div>
+              <div id="scrape-date-row" style="display:none;margin-bottom:10px">
+                <select id="scrape-date-select" class="form-select" style="font-size:.8rem"></select>
+              </div>
+              <div id="scrape-report-table"></div>
+            </div>
+          </div>
+
+          <!-- 過去30日ランキング -->
+          <div class="card card-col closed" id="scrape-trend-card" style="display:none">
+            <div class="card-title card-col-hd">📈 過去30日 機種別平均差枚 <span class="col-arr">▾</span></div>
+            <div class="card-col-body">
+              <div id="scrape-top-machines"></div>
+            </div>
+          </div>
+
+          <!-- 機種別トレンドチャート -->
+          <div class="card" id="machine-trend-card" style="display:none">
+            <div class="card-title" id="machine-trend-title">📉 機種トレンド</div>
+            <canvas id="machine-trend-chart" height="180"></canvas>
+          </div>
+
+          <!-- アナスロ 台番別データ -->
+          <div class="card card-col closed">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div class="card-title card-col-hd" style="margin-bottom:0;flex:1">
+                🎰 アナスロ 台番別データ <span class="col-arr">▾</span>
+              </div>
+              <button id="anaslo-scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px" onclick="event.stopPropagation()">取得</button>
+            </div>
+            <div class="card-col-body">
+              <div id="anaslo-status-bar" style="font-size:.78rem;color:var(--text3);margin-bottom:8px"></div>
+              <div style="display:flex;gap:6px;margin-bottom:8px">
+                <button id="anaslo-tab-seat" class="btn btn-primary" style="font-size:.75rem;padding:3px 10px">台番ランキング</button>
+                <button id="anaslo-tab-tail" class="btn btn-ghost" style="font-size:.75rem;padding:3px 10px">末尾分析</button>
+              </div>
+              <div id="anaslo-seat-section">
+                <div id="anaslo-date-row" style="display:none;margin-bottom:8px">
+                  <select id="anaslo-date-select" class="form-select" style="font-size:.8rem"></select>
+                </div>
+                <div id="anaslo-seat-table"></div>
+              </div>
+              <div id="anaslo-tail-section" style="display:none">
+                <div id="anaslo-tail-table"></div>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /htab-detail -->
+
+        <!-- ===== 管理タブ ===== -->
+        <div id="htab-admin" class="htab-pane">
+          <div class="card card-col closed" id="scrape-manager-card">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div class="card-title card-col-hd" style="margin-bottom:0;flex:1">
+                ⚙️ 自動スクレイプ管理 <span class="col-arr">▾</span>
+              </div>
+              <button id="scrape-status-refresh-btn" onclick="event.stopPropagation();loadScrapeManager()" class="btn btn-ghost" style="font-size:.7rem;padding:3px 8px">更新</button>
+            </div>
+            <div class="card-col-body">
+            <!-- Cookieセクション -->
+            <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
+              <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">Cloudflare Cookie設定</div>
+              <div style="font-size:.68rem;color:var(--text3);margin-bottom:6px">
+                Chrome DevToolsでana-slo.comのCookieをコピーし、下に貼り付けてください。<br>
+                <span style="color:var(--warning)">cf_clearanceが必須です。期限切れになったら再登録してください。</span>
+              </div>
+              <textarea id="cookie-input" rows="3" style="width:100%;box-sizing:border-box;font-size:.65rem;font-family:monospace;
+                padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg1);color:var(--text1);
+                resize:vertical" placeholder="cf_clearance=xxx; _ga=yyy; ..."></textarea>
+              <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+                <button id="save-cookie-btn" class="btn btn-primary" style="font-size:.75rem;padding:4px 12px">Cookie保存</button>
+                <span id="cookie-status-badge" style="font-size:.68rem;color:var(--text3)">読み込み中...</span>
+              </div>
+              <div id="cookie-alert" style="display:none;margin-top:8px;padding:8px 10px;border-radius:6px;
+                background:rgba(239,68,68,.15);border:1px solid var(--danger);font-size:.7rem;color:var(--danger);line-height:1.4">
+              </div>
+            </div>
+            <!-- 手動実行セクション -->
+            <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
+              <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">手動実行</div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <select id="scrape-days-select" class="form-select" style="font-size:.78rem;width:auto">
+                  <option value="1">1日分(昨日のみ)</option>
+                  <option value="3" selected>3日分</option>
+                  <option value="7">7日分</option>
+                  <option value="14">14日分</option>
+                </select>
+                <button id="scrape-run-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 12px">
+                  全店舗スクレイプ実行
+                </button>
+                <span id="scrape-run-status" style="font-size:.68rem;color:var(--text3)"></span>
+              </div>
+            </div>
+            <!-- ホール管理セクション -->
+            <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
+              <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">スクレイプ対象ホール</div>
+              <div id="scrape-halls-list" style="margin-bottom:8px;max-height:160px;overflow-y:auto"></div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">
+                <input id="add-hall-name" type="text" placeholder="ホール名" style="flex:1;min-width:120px;font-size:.72rem;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
+                <input id="add-hall-pref" type="text" placeholder="都道府県" value="大阪府" style="width:70px;font-size:.72rem;padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg1);color:var(--text1)">
+                <button onclick="addScrapeHall()" class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px">＋追加</button>
+              </div>
+            </div>
+            <!-- スケジューラー状態 -->
+            <div id="scrape-scheduler-info" style="font-size:.72rem;color:var(--text3);margin-bottom:8px"></div>
+            <!-- 実行ログ -->
+            <div>
+              <div style="font-size:.68rem;color:var(--text3);font-weight:600;margin-bottom:4px">直近実行ログ</div>
+              <div id="scrape-log-table" style="font-size:.68rem"></div>
+            </div>
+          </div><!-- /card-col-body -->
+          </div><!-- /scrape-manager-card -->
+        </div><!-- /htab-admin -->
 
       </div>
     </section>

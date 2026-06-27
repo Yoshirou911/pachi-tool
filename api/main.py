@@ -161,18 +161,21 @@ def _run_nightly_scrape() -> None:
         return
     _SCRAPE_RUNNING = True
     try:
-        from scraper.anaslo import scrape_hall
         halls = _get_active_halls()
-        print(f"[スクレイプ] 夜間バッチ開始: {len(halls)}店舗")
+        # ① アナスロ（台番BB/RB）
+        from scraper.anaslo import scrape_hall
+        print(f"[アナスロ] 夜間バッチ開始: {len(halls)}店舗")
         for h in halls:
             hname = h["hall_name"] if isinstance(h, dict) else h
             pref = h.get("prefecture", "大阪府") if isinstance(h, dict) else "大阪府"
             try:
                 scrape_hall(hname, prefecture=pref, max_days=5, unlimited=True)
             except Exception as e:
-                print(f"[スクレイプ] {hname} エラー: {e}")
+                print(f"[アナスロ] {hname} エラー: {e}")
             time.sleep(30)
-        print("[スクレイプ] 夜間バッチ完了")
+        print("[アナスロ] 夜間バッチ完了")
+        # ② みんレポ（機種別差枚）
+        _run_minrepo_nightly(halls, days=3)
     except Exception as e:
         print(f"[スクレイプ] バッチエラー: {e}")
     finally:
@@ -1039,7 +1042,7 @@ def get_top_machines(
 
 
 def _run_scrape(hall_name: str, days: int):
-    """バックグラウンドスクレイプ処理。"""
+    """バックグラウンドスクレイプ処理（みんレポ）。"""
     global _scrape_status
     _scrape_status[hall_name] = "running"
     try:
@@ -1049,7 +1052,8 @@ def _run_scrape(hall_name: str, days: int):
         )
         conn = init_db()
         tag_url = build_tag_url(hall_name)
-        links = fetch_report_links(tag_url, max_pages=3)
+        max_pages = max(1, (days + 9) // 10)  # ~10件/ページ
+        links = fetch_report_links(tag_url, max_pages=max_pages)
         year = date.today().year
         for date_text, report_url in links[:days]:
             date_str = parse_date_from_text(date_text, year)
@@ -1069,11 +1073,25 @@ def _run_scrape(hall_name: str, days: int):
         _scrape_status[hall_name] = f"error: {e}"
 
 
+def _run_minrepo_nightly(hall_list: list, days: int = 2) -> None:
+    """夜間バッチ：みんレポを全ホール取得（直近days日分、取得済みはスキップ）"""
+    print(f"[みんレポ] 夜間バッチ開始: {len(hall_list)}店舗")
+    for h in hall_list:
+        hname = h["hall_name"] if isinstance(h, dict) else h
+        try:
+            _run_scrape(hname, days=days)
+            print(f"[みんレポ] {hname} 完了")
+        except Exception as e:
+            print(f"[みんレポ] {hname} エラー: {e}")
+        time.sleep(3)
+    print("[みんレポ] 夜間バッチ完了")
+
+
 @app.post("/api/hall/scrape", tags=["hall"])
 def trigger_scrape(
     background_tasks: BackgroundTasks,
     hall_name: str = Query(...),
-    days: int = Query(30, le=90),
+    days: int = Query(30, le=365),
 ) -> dict:
     """ホールデータのスクレイプをバックグラウンドで開始する。"""
     if _scrape_status.get(hall_name) == "running":

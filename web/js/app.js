@@ -68,14 +68,33 @@ function switchTab(tabId) {
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${tabId}`));
   window.scrollTo(0, 0);
   if (tabId === 'session') loadSessions();
-  if (tabId === 'hall') { loadHallCompare(); loadHallPage(); }
+  if (tabId === 'hall') switchHallTab('compare');
   if (tabId === 'map') loadMapPage();
   if (tabId === 'ai') loadAiPage();
   if (tabId === 'machines') loadMachinesPage();
 }
 
+function switchHallTab(htabId) {
+  document.querySelectorAll('.hall-sub-btn').forEach(b => b.classList.toggle('active', b.dataset.htab === htabId));
+  document.querySelectorAll('.htab-pane').forEach(p => {
+    p.classList.toggle('active', p.id === `htab-${htabId}`);
+  });
+  if (htabId === 'compare') loadHallCompare();
+  if (htabId === 'detail') loadHallPage();
+  if (htabId === 'admin') loadScrapeManager();
+}
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+document.querySelectorAll('.hall-sub-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchHallTab(btn.dataset.htab));
+});
+
+// 折りたたみカード
+document.querySelectorAll('.card-col-hd').forEach(hd => {
+  hd.addEventListener('click', () => hd.closest('.card-col').classList.toggle('closed'));
 });
 
 // ---------------------------------------------------------------------------
@@ -1835,7 +1854,6 @@ if (sesImportInput) {
 // ---------------------------------------------------------------------------
 async function loadHallPage() {
   const hall = getSelectedHall();
-  loadHallCompare(); // ホール未選択でも常に比較表示
   if (!hall) return;
   try {
     // セッション統計を取得
@@ -2121,13 +2139,13 @@ document.getElementById('hall-select').addEventListener('change', () => {
     customInput.focus();
   } else {
     customInput.style.display = 'none';
-    loadHallPage();
+    switchHallTab('detail');
   }
 });
 
 document.getElementById('hall-custom-input').addEventListener('change', () => {
   const name = document.getElementById('hall-custom-input').value.trim();
-  if (name) loadHallPage();
+  if (name) switchHallTab('detail');
 });
 
 function getSelectedHall() {
@@ -2260,11 +2278,11 @@ async function loadTopMachines(hall) {
 document.getElementById('scrape-btn').addEventListener('click', async () => {
   const hall = getSelectedHall();
   const btn = document.getElementById('scrape-btn');
+  const days = document.getElementById('scrape-days-minrepo')?.value || 30;
   btn.disabled = true;
   try {
-    await apiFetch(`/api/hall/scrape?hall_name=${encodeURIComponent(hall)}&days=30`, { method: 'POST' });
-    showToast('スクレイプ開始しました。しばらくお待ちください。');
-    // ポーリング開始
+    await apiFetch(`/api/hall/scrape?hall_name=${encodeURIComponent(hall)}&days=${days}`, { method: 'POST' });
+    showToast(`みんレポ取得開始（${days}日分）。しばらくお待ちください。`);
     _scrapePoller = setInterval(() => loadScrapeStatus(), 3000);
   } catch(e) {
     showToast('スクレイプ開始失敗: ' + e.message, 'error');
@@ -4077,22 +4095,21 @@ async function loadHallCompare() {
   }
 }
 
-// ポップアップから店傾向へ遷移
+// 比較ランキングからホール詳細へ遷移
 window.switchToHall = function(hallName) {
   const sel = document.getElementById('hall-select');
-  // セレクターに存在するか確認
   let found = false;
   for (const opt of sel.options) {
     if (opt.value === hallName) { sel.value = hallName; found = true; break; }
   }
   if (!found) {
-    // カスタム入力
     sel.value = '__custom__';
     const ci = document.getElementById('hall-custom-input');
     ci.style.display = '';
     ci.value = hallName;
   }
   switchTab('hall');
+  switchHallTab('detail');
 };
 
 // ============================================================
@@ -4200,6 +4217,30 @@ function appendChatMessage(role, text) {
   return el;
 }
 
+
+// ============================================================
+// 店傾向 AI分析
+// ============================================================
+
+document.getElementById('hall-ai-btn').addEventListener('click', async () => {
+  const hall = getSelectedHall();
+  if (!hall) { showToast('ホールを選択してください', 'error'); return; }
+  const btn = document.getElementById('hall-ai-btn');
+  const out = document.getElementById('hall-ai-output');
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+  out.style.display = 'block';
+  out.textContent = '分析中...';
+  try {
+    const r = await apiFetch(`/api/ai/report?hall_name=${encodeURIComponent(hall)}`);
+    out.textContent = r.report || 'データが不足しています。スクレイプ後に再試行してください。';
+  } catch(e) {
+    out.textContent = 'AI分析失敗: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '生成';
+  }
+});
 
 // ============================================================
 // スクレイプ管理パネル

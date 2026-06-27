@@ -596,6 +596,46 @@ details[open] > summary::after { transform: rotate(90deg); }
 .page.active .card:nth-child(4) { animation-delay: .18s; }
 .page.active .card:nth-child(5) { animation-delay: .22s; }
 
+/* ===== Collapsible card ===== */
+.card-col-hd { cursor: pointer; user-select: none; margin-bottom: 0 !important; }
+.col-arr {
+  font-size: .72rem; color: var(--text3);
+  transition: transform .2s; display: inline-block; margin-left: 5px;
+}
+.card-col.closed .col-arr { transform: rotate(-90deg); }
+.card-col-body { margin-top: 12px; }
+.card-col.closed .card-col-body { display: none; }
+
+/* ===== Hall sub-tabs ===== */
+.hall-sub-tabs {
+  display: flex;
+  background: var(--bg2);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 14px;
+  gap: 2px;
+}
+.hall-sub-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 9px 0;
+  font-size: .8rem;
+  font-weight: 700;
+  color: var(--text3);
+  border-radius: 8px;
+  transition: all .18s;
+  letter-spacing: .02em;
+}
+.hall-sub-btn.active {
+  background: var(--bg3);
+  color: var(--primary-h);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+}
+.htab-pane { display: none; }
+.htab-pane.active { display: block; }
+
 /* ===== Desktop ===== */
 @media (min-width: 640px) {
   .page-container { padding-left: 22px; padding-right: 22px; }

@@ -156,6 +156,33 @@ async function loadMachineSnapshot(machineName) {
 
 estMachine?.addEventListener('change', () => loadMachineSnapshot(estMachine.value));
 
+// 台番入力 → 末尾傾向ヒント
+document.getElementById('est-seat-number')?.addEventListener('input', async function() {
+  const hint = document.getElementById('seat-tail-hint');
+  if (!hint) return;
+  const seatNum = parseInt(this.value);
+  if (!seatNum || seatNum < 1) { hint.style.display = 'none'; return; }
+  const hall = estHall?.value;
+  if (!hall) { hint.style.display = 'none'; return; }
+  const tail = seatNum % 10;
+  try {
+    const arr = await apiFetch(`/api/hall/tail_bb_analysis?hall_name=${encodeURIComponent(hall)}&days=180`);
+    if (!Array.isArray(arr) || !arr.length) { hint.style.display = 'none'; return; }
+    const tailData = arr.find(t => t.tail === tail);
+    if (!tailData) { hint.style.display = 'none'; return; }
+    const z = tailData.z_score;
+    const col = z >= 0.5 ? 'var(--success)' : z <= -0.5 ? 'var(--danger)' : 'var(--text3)';
+    const arrow = z >= 0.5 ? '▲' : z <= -0.5 ? '▼' : '─';
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    hint.innerHTML = `末尾<strong>${tail}</strong>番台: <span style="color:${col};font-weight:700">${arrow} z=${sign(z)}σ</span>
+      <span style="color:var(--text3);margin-left:6px">BB ${tailData.avg_bb}% / ${tailData.seat_cnt}台データ / ${sign(tailData.avg_diff)}枚</span>
+      ${z >= 0.5 ? '<span style="color:var(--success);margin-left:4px">高設定優遇の可能性</span>' : z <= -0.5 ? '<span style="color:var(--danger);margin-left:4px">低設定多め</span>' : ''}`;
+    hint.style.display = 'block';
+  } catch(e) {
+    hint.style.display = 'none';
+  }
+});
+
 estMachine.addEventListener('change', async () => {
   const name = estMachine.value;
   state.currentMachine = name;

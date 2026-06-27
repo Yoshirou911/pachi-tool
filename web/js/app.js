@@ -2481,9 +2481,17 @@ async function loadAnasloSeatReport(hall, date) {
   const container = document.getElementById('anaslo-seat-table');
   container.innerHTML = '<p class="hint" style="text-align:center;padding:10px">読み込み中...</p>';
   try {
-    const rows = await fetch(`/api/hall/seat_report?hall_name=${encodeURIComponent(hall)}&date=${date}&limit=50`).then(r => r.json());
+    let rows = await fetch(`/api/hall/seat_report?hall_name=${encodeURIComponent(hall)}&date=${date}&limit=200`).then(r => r.json());
     if (!rows.length) {
       container.innerHTML = `<div class="empty-hint"><span>🎰</span><span>${date} のアナスロデータなし</span></div>`;
+      return;
+    }
+    // 末尾フィルター
+    if (_anasloTailFilter) {
+      rows = rows.filter(r => String(r.seat_number).endsWith(_anasloTailFilter));
+    }
+    if (!rows.length) {
+      container.innerHTML = `<div class="empty-hint"><span>🎰</span><span>末尾${_anasloTailFilter}の台データなし</span></div>`;
       return;
     }
     const maxAbs = Math.max(...rows.map(r => Math.abs(r.diff_coins || 0)), 1);
@@ -2638,9 +2646,23 @@ document.getElementById('anaslo-scrape-btn').addEventListener('click', async () 
   }
 });
 
+let _anasloTailFilter = '';
+
 document.getElementById('anaslo-date-select').addEventListener('change', (e) => {
   const hall = getSelectedHall();
   loadAnasloSeatReport(hall, e.target.value);
+});
+
+// 末尾フィルターボタン
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.tail-filter-btn');
+  if (!btn) return;
+  document.querySelectorAll('.tail-filter-btn').forEach(b => b.classList.remove('active-tail'));
+  btn.classList.add('active-tail');
+  _anasloTailFilter = btn.dataset.tail || '';
+  const hall = getSelectedHall();
+  const date = document.getElementById('anaslo-date-select')?.value;
+  if (hall && date) loadAnasloSeatReport(hall, date);
 });
 
 document.getElementById('anaslo-tab-seat').addEventListener('click', () => {

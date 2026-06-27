@@ -305,6 +305,7 @@ body::before {
 .btn-full { width: 100%; }
 .btn-sm { padding: 6px 12px; font-size: .78rem; }
 .btn-xs { padding: 3px 8px; font-size: .68rem; }
+.active-tail { background: rgba(124,127,245,.2) !important; color: var(--primary-h) !important; border-color: rgba(124,127,245,.4) !important; }
 
 /* ===== Result card ===== */
 .result-card { padding: 0; overflow: hidden; }

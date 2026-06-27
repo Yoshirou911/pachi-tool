@@ -700,7 +700,17 @@
               </div>
               <div id="anaslo-seat-section">
                 <div id="anaslo-date-row" style="display:none;margin-bottom:8px">
-                  <select id="anaslo-date-select" class="form-select" style="font-size:.8rem"></select>
+                  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                    <select id="anaslo-date-select" class="form-select" style="font-size:.8rem;flex:1"></select>
+                    <div style="display:flex;gap:3px;flex-wrap:wrap">
+                      <button class="btn btn-ghost tail-filter-btn active-tail" data-tail="" style="font-size:.62rem;padding:2px 7px">全</button>
+                      <button class="btn btn-ghost tail-filter-btn" data-tail="1" style="font-size:.62rem;padding:2px 7px">末1</button>
+                      <button class="btn btn-ghost tail-filter-btn" data-tail="3" style="font-size:.62rem;padding:2px 7px">末3</button>
+                      <button class="btn btn-ghost tail-filter-btn" data-tail="5" style="font-size:.62rem;padding:2px 7px">末5</button>
+                      <button class="btn btn-ghost tail-filter-btn" data-tail="7" style="font-size:.62rem;padding:2px 7px">末7</button>
+                      <button class="btn btn-ghost tail-filter-btn" data-tail="9" style="font-size:.62rem;padding:2px 7px">末9</button>
+                    </div>
+                  </div>
                 </div>
                 <div id="anaslo-seat-table"></div>
               </div>

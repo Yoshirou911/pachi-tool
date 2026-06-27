@@ -1756,6 +1756,7 @@ async function loadHallPage() {
   loadAnasloStatus();
   loadTodayTargets(hall);
   renderPinnedSeatsCard();
+  loadDowHeatmap(hall);
   loadTodayBriefing(hall);
   loadBBSurgeSeats(hall);
   loadEventDayPattern(hall);
@@ -3285,6 +3286,48 @@ async function loadMachineSettingTendency(hall) {
     }).join('');
   } catch(e) {
     if (card) card.style.display = 'none';
+  }
+}
+
+async function loadDowHeatmap(hall) {
+  const card = document.getElementById('dow-heatmap-card');
+  const body = document.getElementById('dow-heatmap-body');
+  if (!card) return;
+  try {
+    const d = await apiFetch(`/api/hall/machine_dow_heatmap?hall_name=${encodeURIComponent(hall)}&top_n=12`);
+    if (!d || !d.machines?.length) { card.style.display = 'none'; return; }
+
+    const labels = d.dow_labels || ['月','火','水','木','金','土','日'];
+    const todayDow = new Date().getDay(); // 0=日
+    const jpTodayDow = todayDow === 0 ? 6 : todayDow - 1; // 月=0
+
+    const zColor = z => {
+      if (z == null) return 'var(--bg2)';
+      if (z >= 1.0) return 'rgba(16,185,129,.5)';
+      if (z >= 0.5) return 'rgba(16,185,129,.25)';
+      if (z <= -1.0) return 'rgba(239,68,68,.45)';
+      if (z <= -0.5) return 'rgba(239,68,68,.22)';
+      return 'var(--bg2)';
+    };
+    const zText = z => z == null ? '--' : (z >= 0 ? `+${z}` : `${z}`);
+
+    const header = `<tr><th style="font-size:.6rem;padding:4px 6px;text-align:left;color:var(--text3);white-space:nowrap;position:sticky;left:0;background:var(--bg)">機種</th>` +
+      labels.map((l, i) =>
+        `<th style="font-size:.65rem;padding:4px 5px;text-align:center;min-width:32px;${i === jpTodayDow ? 'color:var(--primary-h);font-weight:800' : 'color:var(--text3)'}">${l}</th>`
+      ).join('') + '</tr>';
+
+    const rows = d.machines.map(m => {
+      const cells = m.cells.map((c, i) =>
+        `<td title="${c.bb != null ? 'BB:'+c.bb+'%' : ''}" style="text-align:center;padding:3px 2px;background:${zColor(c.z)};font-size:.62rem;${i === jpTodayDow ? 'font-weight:800;outline:1px solid var(--primary-h)' : ''}">${zText(c.z)}</td>`
+      ).join('');
+      return `<tr><td style="font-size:.65rem;padding:4px 6px;white-space:nowrap;color:var(--text1);position:sticky;left:0;background:var(--bg)">${esc(m.machine)}</td>${cells}</tr>`;
+    }).join('');
+
+    body.innerHTML = `<table style="border-collapse:collapse;width:100%"><thead>${header}</thead><tbody>${rows}</tbody></table>
+      <div style="font-size:.6rem;color:var(--text3);margin-top:4px">σ値: 各機種のBB率を曜日間で標準化 / 今日の曜日を強調表示</div>`;
+    card.style.display = 'block';
+  } catch(e) {
+    card.style.display = 'none';
   }
 }
 

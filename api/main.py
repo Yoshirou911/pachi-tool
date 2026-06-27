@@ -1708,6 +1708,103 @@ def get_machine_setting_tendency(
     return result
 
 
+@app.get("/api/hall/machine_dow_heatmap", tags=["hall"])
+def get_machine_dow_heatmap(
+    hall_name: str = Query(...),
+    days: int = Query(90),
+    top_n: int = Query(10),
+) -> dict:
+    """
+    機種×曜日の平均BB確率ヒートマップ。
+    各セルに曜日基準からのz-scoreを返す（プラス=当日好調曜日）。
+    """
+    ckey = f"dow_heatmap:{hall_name}:{days}"
+    cached = _cache_get(ckey)
+    if cached:
+        return cached
+
+    conn = _get_reports_conn()
+    if not conn:
+        return {"machines": [], "dow_labels": []}
+
+    # 上位機種を先に絞り込み
+    top_machines = conn.execute(
+        """SELECT machine_name, COUNT(*) as cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY machine_name HAVING cnt >= 10
+           ORDER BY cnt DESC LIMIT ?""",
+        (hall_name, days, top_n)
+    ).fetchall()
+
+    if not top_machines:
+        conn.close()
+        return {"machines": [], "dow_labels": []}
+
+    machine_names = [r[0] for r in top_machines]
+    placeholders = ','.join('?' * len(machine_names))
+
+    rows = conn.execute(
+        f"""SELECT machine_name,
+                   CAST(strftime('%w', report_date) AS INTEGER) as dow,
+                   AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+            FROM hall_day_seat
+            WHERE hall_name=? AND bb_prob IS NOT NULL
+              AND machine_name IN ({placeholders})
+              AND report_date >= date('now', '-' || ? || ' days')
+            GROUP BY machine_name, dow""",
+        [hall_name] + machine_names + [days]
+    ).fetchall()
+    conn.close()
+
+    import math as _math
+    # strftime %w: 0=日, 1=月...6=土 → 日本式に変換: 月=0〜日=6
+    _DOW_MAP = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 0: 6}
+    DOW_LABELS = ["月", "火", "水", "木", "金", "土", "日"]
+
+    # machine → dow → avg_bb
+    data: dict[str, dict[int, float]] = {}
+    for row in rows:
+        mn, dow_raw, avg_bb, cnt = row
+        if mn not in data:
+            data[mn] = {}
+        jp_dow = _DOW_MAP.get(int(dow_raw), int(dow_raw))
+        data[mn][jp_dow] = float(avg_bb)
+
+    result_machines = []
+    for mn in machine_names:
+        if mn not in data:
+            continue
+        vals = list(data[mn].values())
+        if len(vals) < 2:
+            continue
+        mean_bb = sum(vals) / len(vals)
+        std_bb = _math.sqrt(sum((v - mean_bb)**2 for v in vals) / len(vals)) if len(vals) > 1 else 0.0001
+        if std_bb < 1e-9:
+            std_bb = 0.0001
+
+        cells = []
+        for jp_dow in range(7):
+            bb = data[mn].get(jp_dow)
+            if bb is not None:
+                z = round((bb - mean_bb) / std_bb, 2)
+                cells.append({"dow": jp_dow, "bb": round(bb * 100, 4), "z": z})
+            else:
+                cells.append({"dow": jp_dow, "bb": None, "z": None})
+
+        result_machines.append({
+            "machine": mn,
+            "mean_bb": round(mean_bb * 100, 4),
+            "cells": cells,
+        })
+
+    out = {"machines": result_machines, "dow_labels": DOW_LABELS}
+    _cache_set(ckey, out)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # マップ
 # ---------------------------------------------------------------------------

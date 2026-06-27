@@ -96,17 +96,88 @@ init_db()
 
 
 @app.on_event("startup")
-async def _warmup_cache() -> None:
-    """起動時にバックグラウンドで重いエンドポイントを事前キャッシュ生成"""
-    import asyncio, threading
+async def _startup() -> None:
+    """起動時の初期化: キャッシュウォームアップ + 夜間スクレイプスケジューラ起動"""
+    import threading
 
-    def _warm() -> None:
+    def _init() -> None:
         try:
-            compare_halls(days=30)          # ホール比較
+            compare_halls(days=30)
         except Exception:
             pass
+        _start_scrape_scheduler()
 
-    threading.Thread(target=_warm, daemon=True).start()
+    threading.Thread(target=_init, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# スクレイプスケジューラー (APScheduler)
+# ---------------------------------------------------------------------------
+
+_SCHEDULER = None
+_SCRAPE_RUNNING = False  # 多重実行防止フラグ
+
+# 自動スクレイプ対象ホール一覧
+SCRAPE_HALLS = [
+    "ベガスベガス大東店",
+    "マルハン大東店",
+    "ニコニコ住道店",
+    "スーパーコスモプレミアム大東店",
+    "マルハン枚方店",
+    "ニコニコ枚方店",
+    "ベガビック1700枚方店",
+    "G-ONE枚方宮之阪店",
+    "キコーナ寝屋川南店",
+    "ニコニコ寝屋川南インター店",
+    "マルハン寝屋川店",
+    "ベラジオ寝屋川店",
+    "ニコニコ寝屋川店スロット館",
+    "123交野店",
+    "キコーナ守口店",
+    "テキサス門真",
+]
+
+
+def _run_nightly_scrape() -> None:
+    """全対象ホールのスクレイプを順番に実行（夜間バッチ用）"""
+    global _SCRAPE_RUNNING
+    if _SCRAPE_RUNNING:
+        print("[スクレイプ] 前回の実行がまだ進行中のためスキップ")
+        return
+    _SCRAPE_RUNNING = True
+    try:
+        from scraper.anaslo import scrape_hall, get_scrape_logs
+        print(f"[スクレイプ] 夜間バッチ開始: {len(SCRAPE_HALLS)}店舗")
+        for hall in SCRAPE_HALLS:
+            try:
+                scrape_hall(hall, prefecture="大阪府", max_days=5)
+            except Exception as e:
+                print(f"[スクレイプ] {hall} エラー: {e}")
+            time.sleep(30)
+        print("[スクレイプ] 夜間バッチ完了")
+    except Exception as e:
+        print(f"[スクレイプ] バッチエラー: {e}")
+    finally:
+        _SCRAPE_RUNNING = False
+
+
+def _start_scrape_scheduler() -> None:
+    """APSchedulerで毎夜4時(JST)にスクレイプをスケジュール"""
+    global _SCHEDULER
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        _SCHEDULER = BackgroundScheduler(timezone="Asia/Tokyo")
+        _SCHEDULER.add_job(
+            _run_nightly_scrape,
+            CronTrigger(hour=4, minute=0, timezone="Asia/Tokyo"),
+            id="nightly_scrape",
+            replace_existing=True,
+        )
+        _SCHEDULER.start()
+        print("[スクレイプ] スケジューラー起動: 毎日04:00(JST)に自動実行")
+    except Exception as e:
+        print(f"[スクレイプ] スケジューラー起動失敗: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -1015,6 +1086,113 @@ def get_scrape_status(hall_name: str = Query(...)) -> dict:
         "scraped_days": count,
         "latest_date": latest_date,
     }
+
+
+# ---------------------------------------------------------------------------
+# スクレイプ管理エンドポイント
+# ---------------------------------------------------------------------------
+
+class CookieBody(BaseModel):
+    cookie_str: str
+
+@app.post("/api/scrape/cookie", tags=["scrape"])
+def set_scrape_cookie(body: CookieBody) -> dict:
+    """
+    ブラウザからコピーしたCookie文字列をサーバーに保存する。
+    cf_clearanceが含まれていれば自動スクレイプで使用される。
+    例: "cf_clearance=xxx; _ga=yyy"
+    """
+    try:
+        from scraper.anaslo import save_cookie
+        save_cookie(body.cookie_str)
+        has_cf = "cf_clearance" in body.cookie_str
+        return {
+            "ok": True,
+            "has_cf_clearance": has_cf,
+            "message": "Cookie保存完了" + ("" if has_cf else " ※cf_clearanceが含まれていません"),
+            "length": len(body.cookie_str),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scrape/cookie_status", tags=["scrape"])
+def get_cookie_status() -> dict:
+    """保存済みCookieの状態を確認する"""
+    try:
+        from scraper.anaslo import get_cookie
+        ck = get_cookie()
+        return {
+            "has_cookie": bool(ck),
+            "has_cf_clearance": "cf_clearance" in ck if ck else False,
+            "preview": ck[:60] + "..." if len(ck) > 60 else ck,
+        }
+    except Exception as e:
+        return {"has_cookie": False, "has_cf_clearance": False, "error": str(e)}
+
+
+@app.post("/api/scrape/run", tags=["scrape"])
+def trigger_nightly_scrape(
+    background_tasks: BackgroundTasks,
+    halls: Optional[str] = Query(None, description="カンマ区切りのホール名。省略時は全ホール"),
+    days: int = Query(3, ge=1, le=30),
+) -> dict:
+    """
+    スクレイプを手動でトリガーする（バックグラウンド実行）。
+    halls省略時はSCRAPE_HALLSの全店舗を対象にdaysで指定した日数を取得。
+    """
+    global _SCRAPE_RUNNING
+    if _SCRAPE_RUNNING:
+        return {"ok": False, "message": "すでにスクレイプ実行中です。完了後に再試行してください。"}
+
+    hall_list = [h.strip() for h in halls.split(",")] if halls else SCRAPE_HALLS
+
+    def _run() -> None:
+        global _SCRAPE_RUNNING
+        _SCRAPE_RUNNING = True
+        try:
+            from scraper.anaslo import scrape_hall
+            for hall in hall_list:
+                try:
+                    scrape_hall(hall, prefecture="大阪府", max_days=days)
+                except Exception as e:
+                    print(f"[スクレイプ] {hall} エラー: {e}")
+                time.sleep(30)
+        finally:
+            _SCRAPE_RUNNING = False
+
+    background_tasks.add_task(_run)
+    return {
+        "ok": True,
+        "message": f"{len(hall_list)}店舗のスクレイプを開始しました ({days}日分)",
+        "halls": hall_list,
+        "days": days,
+    }
+
+
+@app.get("/api/scrape/status", tags=["scrape"])
+def get_auto_scrape_status() -> dict:
+    """スクレイプスケジューラーの状態と直近実行ログを返す"""
+    try:
+        from scraper.anaslo import get_scrape_logs, get_cookie
+        logs = get_scrape_logs(limit=20)
+        ck = get_cookie()
+        next_run = None
+        if _SCHEDULER and _SCHEDULER.running:
+            job = _SCHEDULER.get_job("nightly_scrape")
+            if job and job.next_run_time:
+                next_run = job.next_run_time.isoformat()
+        return {
+            "scheduler_running": _SCHEDULER is not None and _SCHEDULER.running if _SCHEDULER else False,
+            "scrape_running": _SCRAPE_RUNNING,
+            "next_scheduled_run": next_run,
+            "has_cookie": bool(ck),
+            "has_cf_clearance": "cf_clearance" in ck if ck else False,
+            "total_halls": len(SCRAPE_HALLS),
+            "recent_logs": logs,
+        }
+    except Exception as e:
+        return {"error": str(e), "scheduler_running": False, "scrape_running": _SCRAPE_RUNNING}
 
 
 @app.get("/api/hall/compare", tags=["hall"])

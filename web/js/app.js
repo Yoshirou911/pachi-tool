@@ -4236,3 +4236,127 @@ function appendChatMessage(role, text) {
   container.scrollTop = container.scrollHeight;
   return el;
 }
+
+
+// ============================================================
+// スクレイプ管理パネル
+// ============================================================
+
+async function loadScrapeManager() {
+  try {
+    const [status, cookieSt] = await Promise.all([
+      apiFetch('/api/scrape/status').catch(() => null),
+      apiFetch('/api/scrape/cookie_status').catch(() => null),
+    ]);
+
+    // Cookie状態バッジ
+    const badge = document.getElementById('cookie-status-badge');
+    if (badge && cookieSt) {
+      if (cookieSt.has_cf_clearance) {
+        badge.innerHTML = '<span style="color:var(--success)">✓ cf_clearance登録済み</span>';
+      } else if (cookieSt.has_cookie) {
+        badge.innerHTML = '<span style="color:var(--warning)">⚠ Cookie登録済み（cf_clearanceなし）</span>';
+      } else {
+        badge.innerHTML = '<span style="color:var(--danger)">✗ Cookie未登録</span>';
+      }
+    }
+
+    // スケジューラー情報
+    const schedEl = document.getElementById('scrape-scheduler-info');
+    if (schedEl && status) {
+      const running = status.scrape_running ? '<span style="color:var(--warning)"> (スクレイプ実行中)</span>' : '';
+      const next = status.next_scheduled_run
+        ? `次回自動実行: ${new Date(status.next_scheduled_run).toLocaleString('ja-JP')}` : '次回実行未定';
+      const sched = status.scheduler_running
+        ? `<span style="color:var(--success)">● スケジューラー稼働中</span> — ${next}${running}`
+        : `<span style="color:var(--danger)">● スケジューラー停止中</span>`;
+      schedEl.innerHTML = sched + `<span style="color:var(--text3);margin-left:8px">対象${status.total_halls || 0}店舗</span>`;
+    }
+
+    // 実行ログ
+    const logEl = document.getElementById('scrape-log-table');
+    if (logEl && status && status.recent_logs) {
+      const logs = status.recent_logs.slice(0, 15);
+      if (logs.length === 0) {
+        logEl.innerHTML = '<span style="color:var(--text3)">実行ログなし</span>';
+      } else {
+        logEl.innerHTML = logs.map(l => {
+          const stCol = l.status === 'done' ? 'var(--success)' : l.status === 'running' ? 'var(--warning)' : 'var(--danger)';
+          const stIcon = l.status === 'done' ? '✓' : l.status === 'running' ? '⟳' : '✗';
+          const time = l.started_at ? l.started_at.slice(5, 16) : '';
+          return `<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px solid var(--bg2)">
+            <span style="color:${stCol};font-size:.75rem;width:14px">${stIcon}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(l.hall_name)}</span>
+            <span style="color:var(--text3);flex-shrink:0">${time}</span>
+            <span style="color:var(--text3);flex-shrink:0">${l.rows_saved || 0}件</span>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // 実行中ならポーリング
+    if (status && status.scrape_running) {
+      setTimeout(() => loadScrapeManager(), 5000);
+    }
+  } catch(e) {
+    console.error('scrape manager load error:', e);
+  }
+}
+
+// Cookie保存ボタン
+document.getElementById('save-cookie-btn')?.addEventListener('click', async () => {
+  const input = document.getElementById('cookie-input');
+  const btn = document.getElementById('save-cookie-btn');
+  const badge = document.getElementById('cookie-status-badge');
+  if (!input || !input.value.trim()) { showToast('Cookieを入力してください', 'error'); return; }
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+  try {
+    const res = await fetch('/api/scrape/cookie', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cookie_str: input.value.trim() }),
+    }).then(r => r.json());
+    if (res.ok) {
+      showToast(res.message || 'Cookie保存完了');
+      input.value = '';
+      await loadScrapeManager();
+    } else {
+      showToast('保存失敗: ' + (res.detail || JSON.stringify(res)), 'error');
+    }
+  } catch(e) {
+    showToast('エラー: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Cookie保存';
+  }
+});
+
+// 手動スクレイプ実行ボタン
+document.getElementById('scrape-run-btn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('scrape-run-btn');
+  const statusEl = document.getElementById('scrape-run-status');
+  const days = document.getElementById('scrape-days-select')?.value || '3';
+  btn.disabled = true;
+  statusEl.textContent = '開始中...';
+  try {
+    const res = await fetch(`/api/scrape/run?days=${days}`, { method: 'POST' }).then(r => r.json());
+    if (res.ok) {
+      showToast(`${res.message}`);
+      statusEl.innerHTML = `<span style="color:var(--success)">${res.halls?.length || 0}店舗を実行中 — ログで進捗確認</span>`;
+      setTimeout(() => loadScrapeManager(), 3000);
+    } else {
+      statusEl.innerHTML = `<span style="color:var(--danger)">${res.message || '実行失敗'}</span>`;
+    }
+  } catch(e) {
+    statusEl.innerHTML = `<span style="color:var(--danger)">エラー: ${e.message}</span>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ホールタブ切替時にスクレイプ管理パネルも更新
+const _origLoadHallPage = typeof loadHallPage === 'function' ? loadHallPage : null;
+document.addEventListener('DOMContentLoaded', () => {
+  loadScrapeManager();
+});

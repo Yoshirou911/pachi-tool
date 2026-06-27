@@ -52,11 +52,37 @@ HEADERS = {
 }
 
 
-def _make_scraper():
+def _make_scraper(cookie_str: str = ""):
     scraper = cloudscraper.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "mobile": False}
     )
-    # ChromeのCookieからcf_clearanceを注入してCloudflare回避
+    # 1. 引数で渡されたCookieを優先
+    if cookie_str:
+        for part in cookie_str.split(";"):
+            part = part.strip()
+            if "=" in part:
+                k, v = part.split("=", 1)
+                scraper.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
+        print(f"  [Cookie注入済み]")
+        return scraper
+    # 2. DB保存のCookieを使用（サーバーサイド自動実行用）
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        row = conn.execute(
+            "SELECT value FROM scrape_settings WHERE key='cf_cookie_str'"
+        ).fetchone()
+        conn.close()
+        if row and row[0]:
+            for part in row[0].split(";"):
+                part = part.strip()
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    scraper.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
+            print(f"  [DB保存Cookie使用]")
+            return scraper
+    except Exception:
+        pass
+    # 3. ローカル実行時のみ: ChromeのCookieを試みる
     try:
         import browser_cookie3
         cj = browser_cookie3.chrome(domain_name=".ana-slo.com")
@@ -65,9 +91,9 @@ def _make_scraper():
             scraper.cookies.update(cookies)
             print(f"  [Chrome Cookie使用: cf_clearance={cookies['cf_clearance'][:20]}...]")
         else:
-            print("  [警告] ChromeにCloudflareのCookieがありません。ブラウザでアナスロを開いてから再実行してください。")
+            print("  [警告] ChromeのCookieがありません。/api/scrape/cookie でCookieを登録してください。")
     except Exception as e:
-        print(f"  [Cookie取得失敗: {e}]")
+        print(f"  [Cookie取得スキップ: {e}]")
     return scraper
 
 
@@ -96,6 +122,25 @@ def init_db() -> sqlite3.Connection:
             UNIQUE(hall_name, report_date, machine_name, seat_number)
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS scrape_settings (
+            key        TEXT PRIMARY KEY,
+            value      TEXT,
+            updated_at TEXT DEFAULT (datetime('now','localtime'))
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS scrape_log (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            hall_name  TEXT NOT NULL,
+            started_at TEXT DEFAULT (datetime('now','localtime')),
+            finished_at TEXT,
+            days_fetched INTEGER DEFAULT 0,
+            rows_saved   INTEGER DEFAULT 0,
+            status     TEXT DEFAULT 'running',
+            error_msg  TEXT
+        )
+    """)
     for col, typ in [("bb_prob", "REAL"), ("rb_prob", "REAL"), ("source", "TEXT DEFAULT 'anaslo'")]:
         try:
             conn.execute(f"ALTER TABLE hall_day_seat ADD COLUMN {col} {typ}")
@@ -103,6 +148,47 @@ def init_db() -> sqlite3.Connection:
             pass
     conn.commit()
     return conn
+
+
+def save_cookie(cookie_str: str) -> None:
+    """Cookieをscrape_settingsテーブルに保存"""
+    conn = init_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO scrape_settings (key, value, updated_at) VALUES (?, ?, datetime('now','localtime'))",
+        ("cf_cookie_str", cookie_str)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_cookie() -> str:
+    """保存済みCookieを取得"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        row = conn.execute("SELECT value FROM scrape_settings WHERE key='cf_cookie_str'").fetchone()
+        conn.close()
+        return row[0] if row and row[0] else ""
+    except Exception:
+        return ""
+
+
+def get_scrape_logs(limit: int = 50) -> list[dict]:
+    """スクレイプ実行ログを返す"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            """SELECT hall_name, started_at, finished_at, days_fetched, rows_saved, status, error_msg
+               FROM scrape_log ORDER BY id DESC LIMIT ?""",
+            (limit,)
+        ).fetchall()
+        conn.close()
+        return [
+            {"hall_name": r[0], "started_at": r[1], "finished_at": r[2],
+             "days_fetched": r[3], "rows_saved": r[4], "status": r[5], "error_msg": r[6]}
+            for r in rows
+        ]
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -312,29 +398,36 @@ def _parse_seat_tables(soup: BeautifulSoup, url: str) -> list[dict]:
 # メイン
 # ---------------------------------------------------------------------------
 
-def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 30, cf_cookie: str = "", cookie_str: str = ""):
-    """指定ホールの台番別データをスクレイプ"""
+def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 30,
+               cf_cookie: str = "", cookie_str: str = "", log_id: Optional[int] = None):
+    """指定ホールの台番別データをスクレイプ。log_idが指定されればscrape_logを更新。"""
     conn = init_db()
-    scraper = _make_scraper()
-    if cookie_str:
-        # "key=val; key2=val2" 形式でまとめて注入
-        for part in cookie_str.split(";"):
-            part = part.strip()
-            if "=" in part:
-                k, v = part.split("=", 1)
-                scraper.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
-        print(f"  [全Cookie注入完了]")
-    elif cf_cookie:
-        scraper.cookies.set("cf_clearance", cf_cookie, domain=".ana-slo.com")
-        print(f"  [手動Cookie設定: cf_clearance={cf_cookie[:20]}...]")
+    # cf_cookieが指定されていればcookie_strに変換
+    if cf_cookie and not cookie_str:
+        cookie_str = f"cf_clearance={cf_cookie}"
+    scraper = _make_scraper(cookie_str=cookie_str)
     store_url = f"{BASE_URL}/ホールデータ/{prefecture}/{hall_name}-データ一覧/"
 
     print(f"\n=== アナスロ スクレーパー ===")
     print(f"ホール: {hall_name}")
     print(f"URL  : {store_url}\n")
 
+    # ログ記録開始
+    if log_id is None:
+        cur = conn.execute(
+            "INSERT INTO scrape_log (hall_name, status) VALUES (?, 'running')",
+            (hall_name,)
+        )
+        log_id = cur.lastrowid
+        conn.commit()
+
     soup = _get(scraper, store_url)
     if soup is None:
+        conn.execute(
+            "UPDATE scrape_log SET status='failed', error_msg=?, finished_at=datetime('now','localtime') WHERE id=?",
+            ("店舗ページ取得失敗", log_id)
+        )
+        conn.commit()
         print("店舗ページ取得失敗")
         conn.close()
         return
@@ -343,8 +436,12 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
     print(f"{len(date_links)} 件の日付データを発見\n")
 
     if not date_links:
+        conn.execute(
+            "UPDATE scrape_log SET status='no_data', finished_at=datetime('now','localtime') WHERE id=?",
+            (log_id,)
+        )
+        conn.commit()
         print("⚠ 日付リンクが見つかりません。")
-        print(f"ページ内容（先頭600文字）:\n{page_text[:600]}")
         conn.close()
         return
 
@@ -404,8 +501,15 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
         print(f"{saved}件保存")
         time.sleep(DELAY)
 
+    conn.execute(
+        """UPDATE scrape_log SET status='done', rows_saved=?, days_fetched=?,
+           finished_at=datetime('now','localtime') WHERE id=?""",
+        (total_saved, fetched, log_id)
+    )
+    conn.commit()
     print(f"\n=== 完了: 合計 {total_saved} 件保存 → {DB_PATH} ===")
     conn.close()
+    return total_saved
 
 
 # ---------------------------------------------------------------------------

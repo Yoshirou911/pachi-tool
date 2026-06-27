@@ -1708,52 +1708,53 @@ def add_manual_event(
 @app.get("/api/events/debug_scrape", tags=["events"])
 def debug_event_scrape(
     hall_name: str = Query(...),
-    source: str = Query("minpachi", description="minpachi | pachitown | twitter | facebook"),
+    source: str = Query("dste", description="dste | pworld | twitter | google"),
 ) -> dict:
     """スクレーパーのデバッグ: 何が取れているか確認用"""
     import traceback
     result = {"hall_name": hall_name, "source": source, "events": [], "debug": {}}
     try:
-        if source == "minpachi":
-            import requests, urllib.parse
-            from scraper.events import HEADERS, _minpachi_hall_url
-            # ① 検索ページ自体を確認
-            search_url = f"https://minpachi.jp/search/?name={urllib.parse.quote(hall_name)}&type=pachinko"
-            r0 = requests.get(search_url, headers=HEADERS, timeout=12)
+        import requests as _req, urllib.parse as _up
+        from scraper.events import HEADERS, NITTER_INSTANCES, _get
+
+        if source == "dste":
+            from scraper.events import _dste_search, scrape_dste
+            search_url = f"https://dste.jp/search/?q={_up.quote(hall_name)}"
+            r0 = _get(search_url)
             result["debug"]["search_url"] = search_url
-            result["debug"]["search_status"] = r0.status_code
-            result["debug"]["search_html"] = r0.text[:4000]
-            # ② リンク候補を全部列挙
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(r0.text, "html.parser")
-            all_links = [a.get("href","") for a in soup.select("a[href]")][:40]
-            result["debug"]["all_links"] = all_links
-            # ③ hall_url
-            hall_url = _minpachi_hall_url(hall_name)
+            result["debug"]["search_status"] = r0.status_code if r0 else "failed"
+            result["debug"]["search_html"] = r0.text[:3000] if r0 else ""
+            if r0:
+                from bs4 import BeautifulSoup as _BS
+                soup = _BS(r0.text, "html.parser")
+                result["debug"]["all_links"] = [a.get("href","") for a in soup.select("a[href]")][:40]
+            hall_url = _dste_search(hall_name)
             result["debug"]["hall_url"] = hall_url
-        elif source == "pachitown":
-            from scraper.events import scrape_pachitown
-            evs = scrape_pachitown(hall_name)
+            evs = scrape_dste(hall_name)
             result["events"] = evs
+
+        elif source == "pworld":
+            from scraper.events import _pworld_search, scrape_pworld
+            hall_url = _pworld_search(hall_name)
+            result["debug"]["hall_url"] = hall_url
+            evs = scrape_pworld(hall_name)
+            result["events"] = evs
+
         elif source == "twitter":
-            from scraper.events import scrape_twitter, NITTER_INSTANCES
-            import requests, urllib.parse
-            from scraper.events import HEADERS
             result["debug"]["nitter_instances"] = NITTER_INSTANCES
-            query = urllib.parse.quote(f"{hall_name} イベント")
-            for inst in NITTER_INSTANCES[:2]:
+            query = _up.quote(f"{hall_name} イベント")
+            for inst in NITTER_INSTANCES[:3]:
                 url = f"{inst}/search?q={query}&f=tweets"
-                try:
-                    r = requests.get(url, headers=HEADERS, timeout=8)
-                    result["debug"][f"{inst}_status"] = r.status_code
-                    result["debug"][f"{inst}_html"] = r.text[:1000]
-                except Exception as e:
-                    result["debug"][f"{inst}_error"] = str(e)
+                r = _get(url, timeout=10)
+                result["debug"][f"{inst}_status"] = r.status_code if r else "failed"
+                result["debug"][f"{inst}_html"] = r.text[:800] if r else ""
+            from scraper.events import scrape_twitter
             evs = scrape_twitter(hall_name)
             result["events"] = evs
-        elif source == "facebook":
-            from scraper.events import scrape_facebook
-            evs = scrape_facebook(hall_name)
+
+        elif source == "google":
+            from scraper.events import scrape_google
+            evs = scrape_google(hall_name)
             result["events"] = evs
     except Exception as e:
         result["error"] = str(e)

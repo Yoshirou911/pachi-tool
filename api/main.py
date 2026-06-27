@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -21,6 +22,33 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+# ---------------------------------------------------------------------------
+# 簡易インメモリキャッシュ（TTLベース）
+# ---------------------------------------------------------------------------
+_CACHE: dict[str, tuple[float, object]] = {}
+_CACHE_LOCK = threading.Lock()
+_CACHE_TTL = 600  # 10分
+
+
+def _cache_get(key: str) -> object | None:
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+        if entry and time.time() - entry[0] < _CACHE_TTL:
+            return entry[1]
+    return None
+
+
+def _cache_set(key: str, value: object) -> None:
+    with _CACHE_LOCK:
+        _CACHE[key] = (time.time(), value)
+
+
+def _cache_invalidate_prefix(prefix: str) -> None:
+    with _CACHE_LOCK:
+        keys = [k for k in _CACHE if k.startswith(prefix)]
+        for k in keys:
+            del _CACHE[k]
 
 try:
     from config import HALL_REPORTS_DB, MACHINES_DIR as _MACHINES_DIR
@@ -1785,6 +1813,10 @@ def get_event_day_pattern(
     日付パターン分析。「5のつく日」「月末」「毎週特定曜日」など
     どのパターンがBB確率上昇と相関するかを統計的に分析。
     """
+    ckey = f"event_day:{hall_name}:{days}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached  # type: ignore
     conn = _get_reports_conn()
     if not conn:
         return {}
@@ -1864,7 +1896,7 @@ def get_event_day_pattern(
 
     top_patterns.sort(key=lambda x: -x["z"])
 
-    return {
+    result = {
         "global_mean_bb": round(global_mean * 100, 4),
         "tail_results": tail_results,
         "dow_results": dow_results,
@@ -1872,6 +1904,8 @@ def get_event_day_pattern(
         "top_patterns": top_patterns[:5],
         "total_days": len(rows),
     }
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/zone_analysis", tags=["hall"])
@@ -1884,6 +1918,10 @@ def get_zone_analysis(
     台番号をzone_size単位でグループ化して高設定率を比較。
     特定の「島」または「ゾーン」に高設定が集中するパターンを検知。
     """
+    ckey = f"zone:{hall_name}:{days}:{zone_size}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached  # type: ignore
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -1936,6 +1974,7 @@ def get_zone_analysis(
         })
 
     result.sort(key=lambda x: -x["z_score"])
+    _cache_set(ckey, result)
     return result
 
 
@@ -1949,6 +1988,10 @@ def get_machine_high_rate(
     各台日のBB確率を機種内でz-score化し、z>=1.0の割合を「高設定率」として返す。
     高設定率が高い機種 = このホールが力を入れている機種。
     """
+    ckey = f"machine_high_rate:{hall_name}:{days}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached  # type: ignore
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -1996,7 +2039,9 @@ def get_machine_high_rate(
         })
 
     result.sort(key=lambda x: (-x["high_rate"], -x["total_seats"]))
-    return result[:20]
+    out = result[:20]
+    _cache_set(ckey, out)
+    return out
 
 
 @app.get("/api/hall/compare", tags=["hall"])

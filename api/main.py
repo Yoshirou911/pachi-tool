@@ -1223,6 +1223,22 @@ def get_seat_detail(
     variance = sum((d - avg)**2 for d in diffs) / len(diffs)
     std = round(_math.sqrt(variance))
 
+    # 連続好調日数（直近から遡ってdiff > 0 が続く日数）
+    streak = 0
+    for h in hist_list:
+        if (h["diff"] or 0) > 0:
+            streak += 1
+        else:
+            break
+
+    # BB確率トレンド：直近14日 vs 過去14-28日
+    bbs = [(h["date"], h["bb_prob"]) for h in hist_list if h["bb_prob"]]
+    recent14 = [b for d, b in bbs[:14]]
+    prev14 = [b for d, b in bbs[14:28]]
+    bb_trend = None
+    if recent14 and prev14:
+        bb_trend = round((sum(recent14)/len(recent14) - sum(prev14)/len(prev14)) * 100, 4)
+
     return {
         "machine_name": machine_name,
         "seat_number": seat_number,
@@ -1232,6 +1248,8 @@ def get_seat_detail(
         "best": best,
         "worst": worst,
         "std": std,
+        "win_streak": streak,
+        "bb_trend_14d": bb_trend,
         "history": hist_list[:60],
         "weekday_stats": weekday_stats,
     }

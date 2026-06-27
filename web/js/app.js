@@ -1276,14 +1276,27 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       </div>`;
     }).join('');
 
+    // 連続好調・BBトレンドバッジ
+    const streakBadge = (data.win_streak >= 2)
+      ? `<span style="background:rgba(16,185,129,.15);color:var(--success);font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:4px">🔥 ${data.win_streak}連勝中</span>`
+      : '';
+    const bbTrBadge = (data.bb_trend_14d !== null && data.bb_trend_14d !== undefined)
+      ? (() => {
+          const v = data.bb_trend_14d;
+          const col = v > 0.001 ? 'var(--success)' : v < -0.001 ? 'var(--danger)' : 'var(--text3)';
+          const arrow = v > 0.001 ? '↑' : v < -0.001 ? '↓' : '→';
+          return `<span style="color:${col};font-size:.68rem;font-weight:700;padding:2px 8px;background:rgba(255,255,255,.04);border-radius:4px">BB ${arrow} ${v > 0 ? '+' : ''}${v.toFixed(3)}%</span>`;
+        })()
+      : '';
     body.innerHTML = `
       <div style="margin-bottom:10px">
         <div style="font-size:1.05rem;font-weight:800;margin-bottom:4px">${esc(machineName)} ${seatNumber}番台</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.8rem">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.8rem;margin-bottom:6px">
           <span style="color:var(--text3)">期間 <strong style="color:var(--text2)">${totalDays}日</strong></span>
           <span style="color:var(--text3)">平均差枚 <strong style="color:${avgDiff>=0?'var(--success)':'var(--danger)'}">${sign(avgDiff)}枚</strong></span>
           <span style="color:var(--text3)">勝率 <strong style="color:${winRate>=50?'var(--success)':'var(--danger)'}">${winRate}%</strong></span>
         </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${streakBadge}${bbTrBadge}</div>
       </div>
       <canvas id="seat-detail-chart" height="150" style="margin-bottom:12px;display:block;width:100%"></canvas>
       ${dowRows ? `<div style="margin-bottom:10px">

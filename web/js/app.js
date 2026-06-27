@@ -1515,49 +1515,80 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       })() : ''}
     `;
 
-    // Chart.js で差枚推移グラフ（BB確率オーバーレイ付き）
+    // Chart.js — 差枚バー + BB/RB確率ライン（右軸）
     const ctx = document.getElementById('seat-detail-chart')?.getContext('2d');
     if (ctx && hist.length > 1) {
-      const labels = hist.map(h => h.date.slice(5)); // MM-DD
+      const labels = hist.map(h => h.date.slice(5));
       const values = diffs;
-      const bgColors = values.map(v => v >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(244,63,94,0.3)');
+      // 外れ値の差枚日を強調（平均から2σ以上）
+      const avgV = values.reduce((s, v) => s + v, 0) / values.length;
+      const stdV = Math.sqrt(values.reduce((s, v) => s + (v-avgV)**2, 0) / values.length) || 1;
+      const bgColors = values.map(v => {
+        const z = Math.abs(v - avgV) / stdV;
+        if (v >= 0) return z >= 2 ? 'rgba(16,185,129,0.7)' : 'rgba(16,185,129,0.3)';
+        return z >= 2 ? 'rgba(244,63,94,0.7)' : 'rgba(244,63,94,0.25)';
+      });
       const bbProbs = hist.map(h => h.bb_prob ? +(h.bb_prob * 100).toFixed(4) : null);
+      const rbProbs = hist.map(h => h.rb_prob ? +(h.rb_prob * 100).toFixed(4) : null);
       const hasBB = bbProbs.some(v => v !== null);
+      const hasRB = rbProbs.some(v => v !== null);
       const datasets = [{
         type: 'bar',
+        label: '差枚',
         data: values,
         backgroundColor: bgColors,
         borderColor: values.map(v => v >= 0 ? '#10b981' : '#f43f5e'),
         borderWidth: 1,
         yAxisID: 'y',
-        order: 2,
+        order: 3,
       }];
-      if (hasBB) {
-        datasets.push({
-          type: 'line',
-          label: 'BB確率%',
-          data: bbProbs,
-          borderColor: 'rgba(124,127,245,0.8)',
-          backgroundColor: 'transparent',
-          borderWidth: 1.5,
-          pointRadius: 2,
-          tension: 0.3,
-          yAxisID: 'y2',
-          order: 1,
-          spanGaps: true,
-        });
-      }
+      if (hasBB) datasets.push({
+        type: 'line', label: 'BB%',
+        data: bbProbs,
+        borderColor: 'rgba(124,127,245,0.9)',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        pointRadius: 2.5,
+        pointBackgroundColor: 'rgba(124,127,245,0.9)',
+        tension: 0.3,
+        yAxisID: 'y2', order: 1, spanGaps: true,
+      });
+      if (hasRB) datasets.push({
+        type: 'line', label: 'RB%',
+        data: rbProbs,
+        borderColor: 'rgba(251,146,60,0.75)',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [4, 3],
+        pointRadius: 1.5,
+        tension: 0.3,
+        yAxisID: 'y2', order: 2, spanGaps: true,
+      });
       new Chart(ctx, {
         data: { labels, datasets },
         options: {
           responsive: true,
           interaction: { mode: 'index', intersect: false },
-          plugins: { legend: { display: hasBB, labels: { font: { size: 9 }, color: '#6b7280', boxWidth: 10 } } },
+          plugins: {
+            legend: { display: hasBB || hasRB, labels: { font: { size: 9 }, color: '#6b7280', boxWidth: 10 } },
+            tooltip: {
+              callbacks: {
+                afterLabel: (ctx) => {
+                  if (ctx.datasetIndex === 0 && hist[ctx.dataIndex]) {
+                    const h = hist[ctx.dataIndex];
+                    return h.games ? `${h.games}G` : '';
+                  }
+                  return '';
+                }
+              }
+            }
+          },
           scales: {
             x: { ticks: { font: { size: 9 }, color: '#6b7280', maxTicksLimit: 12 }, grid: { display: false } },
             y: { ticks: { font: { size: 9 }, color: '#6b7280' }, grid: { color: 'rgba(255,255,255,0.05)' } },
-            ...(hasBB ? { y2: {
-              position: 'right', ticks: { font: { size: 8 }, color: 'rgba(124,127,245,0.7)' },
+            ...(hasBB || hasRB ? { y2: {
+              position: 'right',
+              ticks: { font: { size: 8 }, color: 'rgba(124,127,245,0.7)', callback: v => v + '%' },
               grid: { display: false },
             }} : {}),
           }

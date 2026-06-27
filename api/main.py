@@ -1860,6 +1860,71 @@ def get_event_day_pattern(
     }
 
 
+@app.get("/api/hall/zone_analysis", tags=["hall"])
+def get_zone_analysis(
+    hall_name: str = Query(...),
+    days: int = Query(90),
+    zone_size: int = Query(10),
+) -> list[dict]:
+    """
+    台番号をzone_size単位でグループ化して高設定率を比較。
+    特定の「島」または「ゾーン」に高設定が集中するパターンを検知。
+    """
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+
+    rows = conn.execute(
+        """SELECT seat_number, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL AND seat_number IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY seat_number HAVING cnt >= 3""",
+        (hall_name, days)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return []
+
+    import statistics as _stats
+
+    # ゾーンに集計
+    zone_data: dict[int, list[float]] = {}
+    seat_counts: dict[int, int] = {}
+    for seat_num, avg_bb, cnt in rows:
+        z_key = ((int(seat_num) - 1) // zone_size) * zone_size + 1
+        zone_data.setdefault(z_key, []).append(float(avg_bb))
+        seat_counts[z_key] = seat_counts.get(z_key, 0) + 1
+
+    if len(zone_data) < 2:
+        return []
+
+    zone_means = {k: sum(v) / len(v) for k, v in zone_data.items()}
+    all_bbs = [v for vals in zone_data.values() for v in vals]
+    global_mean = _stats.mean(all_bbs)
+    global_std = _stats.stdev(all_bbs) if len(all_bbs) > 1 else 0.0001
+
+    result = []
+    for z_start in sorted(zone_data.keys()):
+        vals = zone_data[z_start]
+        mean_bb = zone_means[z_start]
+        z_score = (mean_bb - global_mean) / max(global_std, 1e-8)
+        result.append({
+            "zone_start": z_start,
+            "zone_end": z_start + zone_size - 1,
+            "label": f"{z_start}~{z_start+zone_size-1}番台",
+            "seat_count": seat_counts[z_start],
+            "record_count": len(vals),
+            "avg_bb": round(mean_bb * 100, 4),
+            "z_score": round(z_score, 2),
+        })
+
+    result.sort(key=lambda x: -x["z_score"])
+    return result
+
+
 @app.get("/api/hall/machine_high_rate", tags=["hall"])
 def get_machine_high_rate(
     hall_name: str = Query(...),

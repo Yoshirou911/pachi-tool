@@ -2127,8 +2127,50 @@ async function loadAnasloTailAnalysis(hall) {
     } else {
       container.innerHTML = '<p class="hint center">末尾データなし（台番付きデータが必要）</p>';
     }
+
+    // ゾーン分析を末尾テーブルの下に追加
+    loadZoneAnalysis(hall);
   } catch(e) {
     container.innerHTML = `<p class="hint center">取得失敗</p>`;
+  }
+}
+
+async function loadZoneAnalysis(hall) {
+  let zoneEl = document.getElementById('zone-analysis-table');
+  if (!zoneEl) {
+    zoneEl = document.createElement('div');
+    zoneEl.id = 'zone-analysis-table';
+    zoneEl.style.cssText = 'margin-top:12px';
+    const tailTable = document.getElementById('anaslo-tail-table');
+    if (tailTable) tailTable.parentNode.appendChild(zoneEl);
+  }
+  try {
+    const rows = await apiFetch(`/api/hall/zone_analysis?hall_name=${encodeURIComponent(hall)}&days=90&zone_size=10`);
+    if (!rows || rows.length < 2) { zoneEl.style.display = 'none'; return; }
+    const top3 = rows.slice(0, 3);
+    const tableRows = rows.map(r => {
+      const zCol = r.z_score > 0.5 ? 'var(--success)' : r.z_score < -0.5 ? 'var(--danger)' : 'var(--text3)';
+      const rowBg = r.z_score > 1.0 ? 'rgba(16,185,129,.07)' : r.z_score < -1.0 ? 'rgba(244,63,94,.05)' : '';
+      return `<tr style="border-bottom:1px solid var(--bg2);background:${rowBg}">
+        <td style="padding:4px 6px;font-size:.75rem;white-space:nowrap">${esc(r.label)}</td>
+        <td style="padding:4px 6px;text-align:right;font-size:.7rem">${r.avg_bb.toFixed(3)}%</td>
+        <td style="padding:4px 6px;text-align:right;font-weight:700;color:${zCol}">${r.z_score>0?'+':''}${r.z_score}σ</td>
+        <td style="padding:4px 6px;text-align:right;color:var(--text3);font-size:.7rem">${r.seat_count}席/${r.record_count}件</td>
+      </tr>`;
+    }).join('');
+    zoneEl.innerHTML = `<p style="font-size:.72rem;color:var(--text3);margin:10px 0 6px">台番ゾーン別BB確率（10台単位 / 過去90日）</p>
+      <table style="width:100%;font-size:.78rem;border-collapse:collapse">
+        <thead><tr style="background:var(--bg2);color:var(--text2)">
+          <th style="padding:4px 6px;text-align:left">ゾーン</th>
+          <th style="padding:4px 6px;text-align:right">BB確率</th>
+          <th style="padding:4px 6px;text-align:right">σ</th>
+          <th style="padding:4px 6px;text-align:right">データ</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>`;
+    zoneEl.style.display = '';
+  } catch(e) {
+    if (zoneEl) zoneEl.style.display = 'none';
   }
 }
 

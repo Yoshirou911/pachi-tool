@@ -1659,6 +1659,7 @@ async function loadHallPage() {
   loadScrapeStatus();
   loadAnasloStatus();
   loadTodayTargets(hall);
+  loadTodayBriefing(hall);
   loadBBSurgeSeats(hall);
   loadEventDayPattern(hall);
   loadTodayDowMachines(hall);
@@ -3131,6 +3132,69 @@ async function loadMachineSettingTendency(hall) {
     }).join('');
   } catch(e) {
     if (card) card.style.display = 'none';
+  }
+}
+
+async function loadTodayBriefing(hall) {
+  const card = document.getElementById('today-briefing-card');
+  const body = document.getElementById('today-briefing-body');
+  if (!card) return;
+  try {
+    const d = await apiFetch(`/api/hall/today_briefing?hall_name=${encodeURIComponent(hall)}`);
+    if (!d || d.error) { card.style.display = 'none'; return; }
+
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    const eventBanner = d.is_event_candidate
+      ? `<div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:8px;padding:7px 12px;margin-bottom:8px;font-size:.8rem">
+           <strong style="color:var(--success)">本日はイベント日候補 (+${d.event_z}σ)</strong>
+           <span style="color:var(--text2);margin-left:8px;font-size:.72rem">高設定比率が統計的に上昇しやすい日</span>
+         </div>`
+      : '';
+
+    const dowColor = d.dow_rank === 1 ? 'var(--success)' : d.dow_rank <= 2 ? 'var(--warning)' : 'var(--text2)';
+    const dowRow = d.dow_avg_diff !== null
+      ? `<div style="font-size:.78rem;margin-bottom:6px">
+           <span style="color:var(--text3)">${d.weekday}曜日の傾向:</span>
+           <strong style="color:${dowColor};margin-left:6px">${sign(d.dow_avg_diff)}枚平均 / ${d.dow_total}曜日中${d.dow_rank}位</strong>
+         </div>` : '';
+
+    const surgeRows = d.bb_surge_seats?.map(s =>
+      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0">
+         <span style="color:var(--text1)">${esc(s.machine)} <strong>${s.seat}番台</strong></span>
+         <span style="color:var(--success);font-weight:700">BB急上昇 +${s.surge_z}σ</span>
+       </div>`
+    ).join('') || '<span style="font-size:.72rem;color:var(--text3)">なし</span>';
+
+    const topSeatRows = d.top_seats?.map((s, i) =>
+      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0;border-bottom:1px solid var(--border)">
+         <span><strong style="color:var(--text3);margin-right:4px">${i+1}.</strong>${esc(s.machine)} ${s.seat}番台</span>
+         <span style="color:${s.avg_diff>=0?'var(--success)':'var(--danger)'};font-weight:700">${sign(s.avg_diff)}枚</span>
+       </div>`
+    ).join('') || '';
+
+    const hrRows = d.high_rate_machines?.map(m =>
+      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:2px 0">
+         <span>${esc(m.machine)}</span>
+         <span style="color:${m.high_rate>=25?'var(--success)':m.high_rate>=15?'var(--warning)':'var(--text3)'}">高設定率${m.high_rate}%</span>
+       </div>`
+    ).join('') || '';
+
+    body.innerHTML = `${eventBanner}${dowRow}
+      <div style="margin-bottom:8px">
+        <div style="font-size:.65rem;color:var(--text3);font-weight:600;margin-bottom:4px">BB急上昇台 (設定入替シグナル)</div>
+        ${surgeRows}
+      </div>
+      <div style="margin-bottom:8px">
+        <div style="font-size:.65rem;color:var(--text3);font-weight:600;margin-bottom:4px">狙い台TOP${d.top_seats?.length || 0}</div>
+        ${topSeatRows}
+      </div>
+      ${hrRows ? `<div>
+        <div style="font-size:.65rem;color:var(--text3);font-weight:600;margin-bottom:4px">高設定率機種</div>
+        ${hrRows}
+      </div>` : ''}`;
+    card.style.display = 'block';
+  } catch(e) {
+    card.style.display = 'none';
   }
 }
 

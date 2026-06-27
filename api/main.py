@@ -2088,6 +2088,134 @@ def get_hall_compare(days: int = Query(30)) -> list[dict]:
     ]
 
 
+@app.get("/api/hall/today_briefing", tags=["hall"])
+def get_today_briefing(hall_name: str = Query(...)) -> dict:
+    """
+    本日の攻略ブリーフィング。開店前に確認すべき全情報を1回のAPIコールで返す。
+    - イベント日候補か
+    - 今日の曜日の傾向スコア
+    - BB急上昇台リスト（上位3台）
+    - 連続好調台リスト（上位3台）
+    - 今日の狙い台ランキング（上位5台）
+    - 高設定率機種TOP3
+    """
+    import datetime as _dt, statistics as _s
+    today = _dt.date.today()
+    sql_dow = str((today.weekday() + 1) % 7)
+    dow_ja = ["月","火","水","木","金","土","日"][today.weekday()]
+    conn = _get_reports_conn()
+    if not conn:
+        return {"error": "DB接続失敗"}
+
+    # 今日の曜日傾向
+    dow_rows = conn.execute(
+        """SELECT strftime('%w',report_date) as dow, AVG(diff_coins) as avg_diff, COUNT(*) as cnt
+           FROM hall_day_seat WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+           GROUP BY dow HAVING cnt >= 5""",
+        (hall_name,)
+    ).fetchall()
+    dow_data = {r[0]: float(r[1] or 0) for r in dow_rows}
+    today_dow_diff = dow_data.get(sql_dow)
+    dow_all = sorted(dow_data.values(), reverse=True)
+    dow_rank = dow_all.index(today_dow_diff) + 1 if today_dow_diff is not None else None
+
+    # BB急上昇台
+    prev_date = (today - _dt.timedelta(days=3)).isoformat()
+    recent_bb = {(r[0], r[1]): float(r[2]) for r in conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL AND report_date >= ?
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+           GROUP BY machine_name, seat_number HAVING COUNT(*) >= 1""",
+        (hall_name, prev_date)
+    ).fetchall()}
+    baseline_bb = {(r[0], r[1]): float(r[2]) for r in conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL AND report_date < ?
+             AND report_date >= date(?, '-60 days')
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+           GROUP BY machine_name, seat_number HAVING COUNT(*) >= 3""",
+        (hall_name, prev_date, prev_date)
+    ).fetchall()}
+    m_bbs: dict = {}
+    for (m, s), b in baseline_bb.items():
+        m_bbs.setdefault(m, []).append(b)
+    m_std = {m: (_s.stdev(v) if len(v) > 1 else 0.001) for m, v in m_bbs.items()}
+    surges = []
+    for (m, s), rec_bb in recent_bb.items():
+        base = baseline_bb.get((m, s))
+        if base is None:
+            continue
+        z = (rec_bb - base) / max(m_std.get(m, 0.001), 1e-8)
+        if z >= 0.8:
+            surges.append({"machine": m, "seat": s, "surge_z": round(z, 1),
+                           "recent_bb": round(rec_bb * 100, 3), "baseline_bb": round(base * 100, 3)})
+    surges.sort(key=lambda x: -x["surge_z"])
+
+    # 狙い台TOP5
+    top_rows = conn.execute(
+        """SELECT machine_name, seat_number,
+                  COUNT(*) as days,
+                  ROUND(AVG(diff_coins)) as avg_diff,
+                  ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate,
+                  AVG(bb_prob) as avg_bb
+           FROM hall_day_seat
+           WHERE hall_name=? AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND report_date >= date('now','-30 days')
+           GROUP BY machine_name, seat_number HAVING days >= 3
+           ORDER BY avg_diff DESC LIMIT 5""",
+        (hall_name,)
+    ).fetchall()
+    top_seats = [{"machine": r[0], "seat": r[1], "days": r[2],
+                  "avg_diff": int(r[3] or 0), "win_rate": round(r[4] or 0, 1),
+                  "avg_bb": round(float(r[5] or 0) * 100, 3)} for r in top_rows]
+
+    # 高設定率機種TOP3
+    hr_rows = conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
+           FROM hall_day_seat WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND report_date >= date('now','-90 days')
+           GROUP BY machine_name, seat_number HAVING COUNT(*) >= 3""",
+        (hall_name,)
+    ).fetchall()
+    conn.close()
+    mach_seats: dict = {}
+    for m, s, bb in hr_rows:
+        mach_seats.setdefault(m, []).append(float(bb))
+    hr_list = []
+    for m, bbs in mach_seats.items():
+        if len(bbs) < 2:
+            continue
+        mean_bb = sum(bbs) / len(bbs)
+        std_bb = _s.stdev(bbs)
+        high_r = sum(1 for b in bbs if (b - mean_bb) / max(std_bb, 1e-8) >= 1.0) / len(bbs)
+        hr_list.append({"machine": m, "high_rate": round(high_r * 100, 1), "seats": len(bbs)})
+    hr_list.sort(key=lambda x: -x["high_rate"])
+
+    # イベント日判定
+    event_z = None
+    try:
+        from hall.prior import _compute_today_event_z
+        event_z = _compute_today_event_z(hall_name)
+    except Exception:
+        pass
+
+    return {
+        "date": today.isoformat(),
+        "weekday": dow_ja,
+        "is_event_candidate": event_z is not None and event_z >= 0.5,
+        "event_z": round(event_z, 2) if event_z else None,
+        "dow_avg_diff": round(today_dow_diff) if today_dow_diff is not None else None,
+        "dow_rank": dow_rank,
+        "dow_total": len(dow_data),
+        "bb_surge_seats": surges[:3],
+        "top_seats": top_seats,
+        "high_rate_machines": hr_list[:3],
+    }
+
+
 @app.get("/api/hall/bb_surge_seats", tags=["hall"])
 def get_bb_surge_seats(
     hall_name: str = Query(...),

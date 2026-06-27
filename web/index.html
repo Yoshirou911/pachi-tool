@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#6366f1">
@@ -503,7 +503,10 @@
           <div class="card" id="hall-compare-card" style="display:none">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
               <div class="card-title" style="margin-bottom:0">ホール比較ランキング</div>
-              <span id="compare-subtitle" style="font-size:.62rem;color:var(--text3)"></span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span id="compare-subtitle" style="font-size:.62rem;color:var(--text3)"></span>
+                <button onclick="copyCompareRanking()" class="btn btn-ghost" style="font-size:.62rem;padding:2px 8px" title="ランキングをコピー">📋</button>
+              </div>
             </div>
             <div id="hall-compare-body"></div>
           </div>

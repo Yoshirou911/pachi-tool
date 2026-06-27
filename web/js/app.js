@@ -4238,7 +4238,9 @@ async function loadHallCompare() {
                                  'border-bottom:1px solid var(--border);padding:7px 0';
       const rankNumStyle = i === 0 ? 'font-size:.78rem;font-weight:900;color:#fbbf24;width:18px;text-align:center;flex-shrink:0' :
                            'font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0';
+      const copyText = `${i+1}位 ${r.hall_name} ${r.avg_diff >= 0 ? '+' : ''}${r.avg_diff}枚 (${r.days_data}日 勝率${r.win_rate}%)`;
       return `<div style="display:flex;align-items:center;gap:8px;cursor:pointer;${rankStyle}"
+        data-copy-rank="${esc(copyText)}"
         onclick="switchToHall(decodeURIComponent('${encH}'))">
         <span style="${rankNumStyle}">${i+1}</span>
         <div style="flex:1;min-width:0">
@@ -4258,6 +4260,16 @@ async function loadHallCompare() {
     body.innerHTML = `<div style="color:var(--danger);font-size:.8rem;padding:12px">エラー: ${e.message}</div>`;
   }
 }
+
+// 比較ランキングをテキストでコピー
+window.copyCompareRanking = function() {
+  const body = document.getElementById('hall-compare-body');
+  if (!body) return;
+  const items = body.querySelectorAll('[data-copy-rank]');
+  if (!items.length) { showToast('コピーできるデータなし', 'error'); return; }
+  const lines = Array.from(items).map(el => el.dataset.copyRank).join('\n');
+  navigator.clipboard.writeText(lines).then(() => showToast('ランキングをコピーしました'));
+};
 
 // 比較ランキングからホール詳細へ遷移
 window.switchToHall = function(hallName) {
@@ -4323,7 +4335,13 @@ document.addEventListener('DOMContentLoaded', () => {
     out.textContent = '分析中です。しばらくお待ちください...';
     try {
       const data = await fetch(`/api/ai/report?hall_name=${encodeURIComponent(getAiHall())}`).then(r => r.json());
-      out.textContent = data.report;
+      const txt = data.report || '';
+      out.innerHTML = txt
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/^###?\s+(.+)$/gm, '<strong style="color:var(--text1);display:block;margin:10px 0 4px">$1</strong>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/^[-•]\s+(.+)$/gm, '• $1<br>');
     } catch (e) {
       out.textContent = 'エラーが発生しました: ' + e.message;
     } finally {
@@ -4919,15 +4937,21 @@ async function bulkAddEvents() {
 
 async function addManualEvent() {
   const dateStr = _calSelectedDate;
-  if (!dateStr) return;
+  if (!dateStr) { showToast('カレンダーの日付をクリックして選択してください', 'error'); return; }
   const hall = document.getElementById('manual-hall')?.value;
   const type = document.getElementById('manual-type')?.value;
   const title = document.getElementById('manual-title')?.value || '';
-  if (!hall) { alert('店舗を選択してください'); return; }
-  await fetch(`/api/events/manual?hall_name=${encodeURIComponent(hall)}&event_date=${dateStr}&event_type=${encodeURIComponent(type)}&event_title=${encodeURIComponent(title)}`, { method: 'POST' });
-  document.getElementById('manual-title').value = '';
-  await loadCalendar();
-  selectCalDay(dateStr);
+  if (!hall) { showToast('店舗を選択してください', 'error'); return; }
+  try {
+    const res = await fetch(`/api/events/manual?hall_name=${encodeURIComponent(hall)}&event_date=${dateStr}&event_type=${encodeURIComponent(type)}&event_title=${encodeURIComponent(title)}`, { method: 'POST' });
+    if (!res.ok) throw new Error(res.statusText);
+    document.getElementById('manual-title').value = '';
+    showToast(`${dateStr} に${type}を登録しました`);
+    await loadCalendar();
+    selectCalDay(dateStr);
+  } catch(e) {
+    showToast('登録失敗: ' + e.message, 'error');
+  }
 }
 
 async function loadCalStrength() {

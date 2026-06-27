@@ -2416,19 +2416,45 @@ def get_map_halls(days: int = Query(30)) -> list[dict]:
     if not conn:
         return []
 
-    rows = conn.execute("""
-        SELECT hall_name,
-               AVG(diff_coins) AS avg_diff,
-               COUNT(DISTINCT report_date) AS days_cnt,
-               SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS win_rate
-        FROM hall_day_seat
-        WHERE bb_prob IS NOT NULL
-          AND report_date >= date('now', '-' || ? || ' days')
-          AND machine_name NOT LIKE '末尾%' AND machine_name != '全データ一覧'
-        GROUP BY hall_name
-        HAVING days_cnt >= 1
-        ORDER BY avg_diff DESC
-    """, (days,)).fetchall()
+    # アナスロデータ優先、なければみんレポで補完
+    rows = []
+    try:
+        rows = conn.execute("""
+            SELECT hall_name,
+                   AVG(diff_coins) AS avg_diff,
+                   COUNT(DISTINCT report_date) AS days_cnt,
+                   SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS win_rate
+            FROM hall_day_seat
+            WHERE bb_prob IS NOT NULL
+              AND report_date >= date('now', '-' || ? || ' days')
+              AND machine_name NOT LIKE '末尾%' AND machine_name != '全データ一覧'
+            GROUP BY hall_name
+            HAVING days_cnt >= 1
+            ORDER BY avg_diff DESC
+        """, (days,)).fetchall()
+    except Exception:
+        pass
+
+    seat_halls = {r[0] for r in rows}
+    try:
+        mr_rows = conn.execute("""
+            SELECT hall_name,
+                   AVG(diff_coins) AS avg_diff,
+                   COUNT(DISTINCT report_date) AS days_cnt,
+                   SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS win_rate
+            FROM hall_day_machine
+            WHERE report_date >= date('now', '-' || ? || ' days')
+              AND diff_coins IS NOT NULL
+            GROUP BY hall_name
+            HAVING days_cnt >= 1
+            ORDER BY avg_diff DESC
+        """, (days,)).fetchall()
+        for r in mr_rows:
+            if r[0] not in seat_halls:
+                rows.append(r)
+    except Exception:
+        pass
+
     conn.close()
 
     if not rows:

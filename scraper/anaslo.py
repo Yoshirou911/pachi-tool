@@ -34,7 +34,7 @@ except ImportError:
 
 BASE_URL = "https://ana-slo.com"
 DELAY = 60.0       # Cloudflare対策: 60秒待機
-MAX_PER_RUN = 10   # 1回の実行で最大10日分まで
+MAX_PER_RUN = 10   # 手動実行の1回あたり上限（夜間バッチは無制限）
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -209,10 +209,26 @@ def _float(s: str) -> Optional[float]:
     if not s:
         return None
     try:
+        # 分数形式: "1/289.8" → 確率に変換
+        m = re.match(r'^(\d+(?:\.\d+)?)\s*/\s*(\d+(?:\.\d+)?)$', s.strip())
+        if m:
+            num, den = float(m.group(1)), float(m.group(2))
+            return round(num / den, 6) if den != 0 else None
         cleaned = re.sub(r'[^\d\.\-]', '', s)
         return float(cleaned) if cleaned else None
     except Exception:
         return None
+
+
+def _normalize_machine_name(name: str) -> str:
+    """機種名の表記ゆれ正規化: 全角スペース→半角、前後スペース除去、連続スペース圧縮"""
+    if not name:
+        return name
+    name = name.replace('　', ' ').strip()
+    name = re.sub(r'\s+', ' ', name)
+    # 記号の全角→半角
+    name = name.replace('　', ' ').replace('（', '(').replace('）', ')')
+    return name
 
 
 def _parse_date(text: str, year: int) -> str:
@@ -235,13 +251,28 @@ def _parse_date(text: str, year: int) -> str:
     return ""
 
 
+class CloudflareBlockedError(Exception):
+    pass
+
+
 def _get(scraper, url: str) -> Optional[BeautifulSoup]:
     try:
         resp = scraper.get(url, headers=HEADERS, timeout=20)
+        # Cloudflare challenge/block検知
+        cf_blocked = (
+            resp.status_code in (403, 503) or
+            "cf-ray" in resp.headers and resp.status_code != 200 or
+            "cf-browser-verification" in resp.text or
+            "Just a moment" in resp.text and "cf_clearance" in resp.text
+        )
+        if cf_blocked:
+            raise CloudflareBlockedError(f"Cloudflare blocked (HTTP {resp.status_code})")
         if resp.status_code != 200:
             print(f"  HTTP {resp.status_code}: {url}")
             return None
         return BeautifulSoup(resp.text, "lxml")
+    except CloudflareBlockedError:
+        raise
     except Exception as e:
         print(f"  取得エラー: {e}")
         return None
@@ -381,7 +412,7 @@ def _parse_seat_tables(soup: BeautifulSoup, url: str) -> list[dict]:
                 continue
 
             rows.append({
-                'machine_name': machine_name or "不明",
+                'machine_name': _normalize_machine_name(machine_name) or "不明",
                 'seat_number': seat,
                 'diff_coins': _int(td('diff')),
                 'games': _int(td('games')),
@@ -399,8 +430,9 @@ def _parse_seat_tables(soup: BeautifulSoup, url: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 30,
-               cf_cookie: str = "", cookie_str: str = "", log_id: Optional[int] = None):
-    """指定ホールの台番別データをスクレイプ。log_idが指定されればscrape_logを更新。"""
+               cf_cookie: str = "", cookie_str: str = "", log_id: Optional[int] = None,
+               unlimited: bool = False):
+    """指定ホールの台番別データをスクレイプ。unlimited=TrueでMAX_PER_RUN制限を無効化（夜間バッチ用）。"""
     conn = init_db()
     # cf_cookieが指定されていればcookie_strに変換
     if cf_cookie and not cookie_str:
@@ -456,13 +488,24 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
             print(f"  [{i+1:3d}] {date_str} スキップ ({existing}件取得済み)")
             continue
 
-        if fetched >= MAX_PER_RUN:
+        if not unlimited and fetched >= MAX_PER_RUN:
             print(f"\n  ⚠ 1回の実行制限 ({MAX_PER_RUN}件) に達しました。時間をおいて再実行してください。")
             break
 
         print(f"  [{i+1:3d}/{min(len(date_links), max_days)}] {date_str} 取得中...", end=" ", flush=True)
         fetched += 1
-        day_soup = _get(scraper, date_url)
+        try:
+            day_soup = _get(scraper, date_url)
+        except CloudflareBlockedError as cf_e:
+            err_msg = f"Cloudflareブロック: {cf_e}"
+            print(f"\n  🚫 {err_msg}")
+            conn.execute(
+                "UPDATE scrape_log SET status='cf_blocked', error_msg=?, finished_at=datetime('now','localtime') WHERE id=?",
+                (err_msg, log_id)
+            )
+            conn.commit()
+            conn.close()
+            return total_saved
         if day_soup is None:
             print("失敗")
             continue

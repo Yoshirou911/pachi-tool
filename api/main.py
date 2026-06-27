@@ -150,7 +150,7 @@ def _run_nightly_scrape() -> None:
         print(f"[スクレイプ] 夜間バッチ開始: {len(SCRAPE_HALLS)}店舗")
         for hall in SCRAPE_HALLS:
             try:
-                scrape_hall(hall, prefecture="大阪府", max_days=5)
+                scrape_hall(hall, prefecture="大阪府", max_days=5, unlimited=True)
             except Exception as e:
                 print(f"[スクレイプ] {hall} エラー: {e}")
             time.sleep(30)

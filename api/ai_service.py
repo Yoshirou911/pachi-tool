@@ -339,6 +339,104 @@ def _top_streak_seats(hall_name: str) -> str:
         return ""
 
 
+def _event_day_hint(hall_name: str) -> str:
+    """今日がイベント日候補かどうかをBBパターン統計から判定"""
+    try:
+        import datetime as _dt
+        import statistics as _s
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        rows = conn.execute(
+            """SELECT report_date, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+               FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND report_date >= date('now', '-180 days')
+               GROUP BY report_date HAVING cnt >= 3""",
+            (hall_name,)
+        ).fetchall()
+        conn.close()
+        if len(rows) < 10:
+            return ""
+
+        all_bbs = [float(r[1]) for r in rows]
+        global_mean = _s.mean(all_bbs)
+        global_std  = _s.stdev(all_bbs) if len(all_bbs) > 1 else 0.001
+
+        today = _dt.date.today()
+        today_tail = today.day % 10
+        today_dow  = ["月","火","水","木","金","土","日"][today.weekday()]
+        today_dow_int = (today.weekday() + 1) % 7  # strftime %w (0=Sun)
+        is_five = today.day in (5, 15, 25)
+
+        hits = []
+        for tail in [today_tail]:
+            p = [float(r[1]) for r in rows if _dt.date.fromisoformat(r[0]).day % 10 == tail]
+            if len(p) >= 3:
+                z = (sum(p)/len(p) - global_mean) / max(global_std, 1e-8)
+                if z >= 0.5:
+                    hits.append(f"末尾{tail}の日(+{z:.1f}σ)")
+        for dow_i, dow_n in [(today_dow_int, today_dow)]:
+            p = [float(r[1]) for r in rows if _dt.date.fromisoformat(r[0]).weekday() == (dow_i - 1) % 7]
+            if len(p) >= 3:
+                z = (sum(p)/len(p) - global_mean) / max(global_std, 1e-8)
+                if z >= 0.5:
+                    hits.append(f"{dow_n}曜日(+{z:.1f}σ)")
+        if is_five:
+            p = [float(r[1]) for r in rows if _dt.date.fromisoformat(r[0]).day in (5,15,25)]
+            if len(p) >= 2:
+                z = (sum(p)/len(p) - global_mean) / max(global_std, 1e-8)
+                if z >= 0.5:
+                    hits.append(f"5・15・25日(+{z:.1f}σ)")
+
+        if not hits:
+            return f"【今日({today.month}/{today.day} {today_dow}曜日)】イベント日特有のパターンなし"
+        return (f"【今日({today.month}/{today.day} {today_dow}曜日)はイベント日候補！】\n"
+                f"  該当パターン: {'、'.join(hits)}\n  → 高設定比率が統計的に上昇する傾向あり")
+    except Exception:
+        return ""
+
+
+def _zone_summary(hall_name: str) -> str:
+    """台番ゾーン別BB傾向（AIレポート用）"""
+    try:
+        import statistics as _s
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        rows = conn.execute(
+            """SELECT seat_number, AVG(bb_prob) as avg_bb
+               FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL AND seat_number IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND report_date >= date('now', '-90 days')
+               GROUP BY seat_number HAVING COUNT(*) >= 3""",
+            (hall_name,)
+        ).fetchall()
+        conn.close()
+        if len(rows) < 5:
+            return ""
+
+        zone_data: dict[int, list[float]] = {}
+        for seat, bb in rows:
+            z = ((int(seat)-1)//10)*10+1
+            zone_data.setdefault(z, []).append(float(bb))
+
+        if len(zone_data) < 2:
+            return ""
+        all_bbs = [v for vals in zone_data.values() for v in vals]
+        gm = _s.mean(all_bbs)
+        gs = _s.stdev(all_bbs) if len(all_bbs) > 1 else 0.001
+
+        zones = [(z, sum(v)/len(v), (sum(v)/len(v)-gm)/max(gs,1e-8))
+                 for z, v in zone_data.items()]
+        zones.sort(key=lambda x: -x[2])
+        top = zones[:3]
+        lines = ["【台番ゾーン別BB傾向TOP3（高設定が集まりやすいゾーン）】"]
+        for z_start, mean_bb, zs in top:
+            lines.append(f"  {z_start}~{z_start+9}番台: BB {mean_bb*100:.3f}% ({'+' if zs>=0 else ''}{zs:.1f}σ)")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def _today_dow_best(hall_name: str) -> str:
     """本日曜日に強い機種TOP5"""
     try:
@@ -461,8 +559,10 @@ def generate_report(hall_name: str) -> str:
         return "GROQ_API_KEY が設定されていません。"
 
     context = "\n\n".join(filter(None, [
+        _event_day_hint(hall_name),
         _hall_summary(hall_name, days=30),
         _tail_summary(hall_name),
+        _zone_summary(hall_name),
         _weekday_summary(hall_name),
         _today_dow_best(hall_name),
         _machine_setting_tendency(hall_name),
@@ -477,19 +577,21 @@ def generate_report(hall_name: str) -> str:
 {context}
 
 レポートに含める内容（データがある部分のみ）:
+0. 今日がイベント日候補かどうか（データある場合は必ず最初に言及）
 1. 狙い目の台番ベスト3（機種名・台番・理由を明記。平均差枚・勝率・BB確率を根拠にする）
 2. 機種別推定設定傾向から判断した「今日打つべき機種」TOP2（推定設定と高設定確率を根拠に）
 3. BB確率急上昇台（設定入れ替えが疑われる台 — 最優先狙い候補）
 4. 連続好調台（3日以上プラス継続中の台）
 5. 本日曜日に強い機種（曜日特化傾向から）
-6. 末尾傾向から見た立ち回り方針
+6. 末尾傾向・ゾーン傾向から見た立ち回り方針（高設定が集まりやすいゾーンに言及）
 7. 避けるべき台番ワースト2（具体的な数字で理由を示す）
 8. 今日のひとこと総括と最重要狙い台1点
 
 ・データが少ない場合は「データ不足のため参考程度」と明記
 ・具体的な数字（差枚・勝率・推定設定・BBσ）を使って信頼性を示すこと
 ・BB急上昇はσ値が高いほど設定入れ替えの証拠として強力であることを考慮すること
-・推奨台は「○○の△番台（平均+□□枚、高設定確率○○%）」の形式で示すこと"""
+・推奨台は「○○の△番台（平均+□□枚、高設定確率○○%）」の形式で示すこと
+・ゾーン傾向が強い場合は「○○~○○番台エリアを優先」と立ち回り方針に組み込むこと"""
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

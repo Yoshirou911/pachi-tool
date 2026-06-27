@@ -448,6 +448,43 @@ def _estimate_prior_from_anaslo(
                 for s in low_settings:
                     log_likes[s] += -shift
 
+        # 末尾別BB傾向によるホールレベル補正
+        # 台番がわかる場合のみ: この末尾はホール全体でBBが高いか？
+        if seat_number is not None:
+            tail = int(seat_number) % 10
+            try:
+                conn2 = sqlite3.connect(HALL_REPORTS_DB)
+                tail_rows = conn2.execute(
+                    """SELECT (seat_number % 10) as t, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+                       FROM hall_day_seat
+                       WHERE hall_name=? AND bb_prob IS NOT NULL AND seat_number IS NOT NULL
+                         AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                         AND report_date >= date('now', '-90 days')
+                       GROUP BY t HAVING cnt >= 5""",
+                    (hall_name,)
+                ).fetchall()
+                conn2.close()
+                if len(tail_rows) >= 4:
+                    tail_bbs = {int(r[0]): float(r[1]) for r in tail_rows}
+                    all_tail_vals = list(tail_bbs.values())
+                    t_mean = sum(all_tail_vals) / len(all_tail_vals)
+                    t_std = math.sqrt(sum((x-t_mean)**2 for x in all_tail_vals)/len(all_tail_vals)) or 0.0001
+                    if tail in tail_bbs:
+                        tail_z = (tail_bbs[tail] - t_mean) / t_std
+                        if abs(tail_z) >= 0.4:
+                            # 末尾傾向は座席固有BBより弱い信号 — 0.15倍で反映
+                            tail_shift = math.tanh(tail_z * 0.4) * 0.15
+                            high_s = [s for s in settings if int(s) >= 4]
+                            low_s  = [s for s in settings if int(s) < 4]
+                            if tail_shift > 0:
+                                for s in high_s:
+                                    log_likes[s] += tail_shift
+                            else:
+                                for s in low_s:
+                                    log_likes[s] += -tail_shift
+            except Exception:
+                pass
+
         # softmax 正規化
         max_ll = max(log_likes.values())
         exps = {s: math.exp(ll - max_ll) for s, ll in log_likes.items()}

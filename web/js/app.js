@@ -1419,29 +1419,51 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       })() : ''}
     `;
 
-    // Chart.js で差枚推移グラフ
+    // Chart.js で差枚推移グラフ（BB確率オーバーレイ付き）
     const ctx = document.getElementById('seat-detail-chart')?.getContext('2d');
     if (ctx && hist.length > 1) {
       const labels = hist.map(h => h.date.slice(5)); // MM-DD
       const values = diffs;
       const bgColors = values.map(v => v >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(244,63,94,0.3)');
-      new Chart(ctx, {
+      const bbProbs = hist.map(h => h.bb_prob ? +(h.bb_prob * 100).toFixed(4) : null);
+      const hasBB = bbProbs.some(v => v !== null);
+      const datasets = [{
         type: 'bar',
-        data: {
-          labels,
-          datasets: [{
-            data: values,
-            backgroundColor: bgColors,
-            borderColor: values.map(v => v >= 0 ? '#10b981' : '#f43f5e'),
-            borderWidth: 1,
-          }]
-        },
+        data: values,
+        backgroundColor: bgColors,
+        borderColor: values.map(v => v >= 0 ? '#10b981' : '#f43f5e'),
+        borderWidth: 1,
+        yAxisID: 'y',
+        order: 2,
+      }];
+      if (hasBB) {
+        datasets.push({
+          type: 'line',
+          label: 'BB確率%',
+          data: bbProbs,
+          borderColor: 'rgba(124,127,245,0.8)',
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          pointRadius: 2,
+          tension: 0.3,
+          yAxisID: 'y2',
+          order: 1,
+          spanGaps: true,
+        });
+      }
+      new Chart(ctx, {
+        data: { labels, datasets },
         options: {
           responsive: true,
-          plugins: { legend: { display: false } },
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { display: hasBB, labels: { font: { size: 9 }, color: '#6b7280', boxWidth: 10 } } },
           scales: {
             x: { ticks: { font: { size: 9 }, color: '#6b7280', maxTicksLimit: 12 }, grid: { display: false } },
-            y: { ticks: { font: { size: 9 }, color: '#6b7280' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+            y: { ticks: { font: { size: 9 }, color: '#6b7280' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            ...(hasBB ? { y2: {
+              position: 'right', ticks: { font: { size: 8 }, color: 'rgba(124,127,245,0.7)' },
+              grid: { display: false },
+            }} : {}),
           }
         }
       });

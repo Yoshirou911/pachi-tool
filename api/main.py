@@ -1312,6 +1312,11 @@ def get_seat_bb_ranking(
     同機種の平均BB確率との差（z-score）で「この台は高設定が多い」かを判定。
     設定判別の根拠となる最強シグナル。
     """
+    ckey = f"seat_bb_rank:{hall_name}:{machine_name}:{days}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached  # type: ignore
+
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -1363,6 +1368,7 @@ def get_seat_bb_ranking(
         })
 
     result.sort(key=lambda x: -x["z_score"])
+    _cache_set(ckey, result, ttl=600)
     return result
 
 

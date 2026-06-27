@@ -1825,12 +1825,25 @@ async function loadHallPage() {
       renderSpecialDays(data.special_days);
       renderTodayRecommend(data);
     } else {
-      // 他ホール or DAITO失敗 → セッション由来データで代替
+      // 他ホール → anaslo DBの機種ランキングを使用
       renderWeekdayChartFromSessions(hall);
-      document.getElementById('hall-machine-ranking').innerHTML =
-        stats && stats.machine_stats
-          ? renderMachineRankingFromSessions(stats.machine_stats)
-          : '<p class="hint">まだ記録がありません</p>';
+      // anaslo机種ランキングを優先表示（なければセッション由来）
+      try {
+        const anasloRanking = await api.getMachineRanking(hall);
+        const rankEl = document.getElementById('hall-machine-ranking');
+        if (anasloRanking && anasloRanking.length > 0 && anasloRanking[0].source === 'anaslo_db') {
+          rankEl.innerHTML = renderAnasloMachineRanking(anasloRanking);
+        } else if (stats && stats.machine_stats) {
+          rankEl.innerHTML = renderMachineRankingFromSessions(stats.machine_stats);
+        } else {
+          rankEl.innerHTML = '<p class="hint">まだ記録がありません</p>';
+        }
+      } catch(e) {
+        document.getElementById('hall-machine-ranking').innerHTML =
+          stats && stats.machine_stats
+            ? renderMachineRankingFromSessions(stats.machine_stats)
+            : '<p class="hint">まだ記録がありません</p>';
+      }
       document.getElementById('hall-special-days').innerHTML =
         '<p class="hint">特定日分析には50件以上のデータが必要です</p>';
       document.getElementById('hall-today-recommend').innerHTML =
@@ -1963,6 +1976,30 @@ function renderMachineRanking(machines) {
         </div>
       </div>
     `;
+  }).join('');
+}
+
+function renderAnasloMachineRanking(machines) {
+  const sign = v => v >= 0 ? `+${v}` : `${v}`;
+  return machines.slice(0, 10).map((m, i) => {
+    const avgDiff = m.avg_diff || 0;
+    const diffColor = avgDiff >= 0 ? 'var(--success)' : 'var(--danger)';
+    const wrColor = (m.win_rate || 0) >= 50 ? 'var(--success)' : 'var(--danger)';
+    let trendHtml = '';
+    if (m.bb_trend_14d !== null && m.bb_trend_14d !== undefined) {
+      const t = m.bb_trend_14d;
+      const tc = t > 1 ? 'var(--success)' : t < -1 ? 'var(--danger)' : 'var(--text3)';
+      const ta = t > 1 ? '↑' : t < -1 ? '↓' : '→';
+      trendHtml = `<span style="font-size:.6rem;color:${tc};margin-left:4px">BB${ta}${t > 0 ? '+' : ''}${t}%</span>`;
+    }
+    return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span style="font-size:.75rem;color:var(--text3);width:22px;flex-shrink:0">${i+1}</span>
+      <span style="font-size:.82rem;flex:1;color:var(--text1)">${esc(m.machine)}${trendHtml}</span>
+      <div style="text-align:right;flex-shrink:0">
+        <div style="font-size:.8rem;font-weight:700;color:${diffColor}">${sign(avgDiff)}枚</div>
+        <div style="font-size:.65rem;color:${wrColor}">勝率${m.win_rate || 0}%</div>
+      </div>
+    </div>`;
   }).join('');
 }
 

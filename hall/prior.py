@@ -864,17 +864,44 @@ def machine_ranking(hall_name: str) -> list[dict]:
                LIMIT 20""",
             (hall_name,)
         ).fetchall()
+
+        # 直近14日間 vs 過去60日間のBBトレンドを取得
+        trend_recent = {r[0]: float(r[1]) for r in conn.execute(
+            """SELECT machine_name, AVG(bb_prob) FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND report_date >= date('now', '-14 days')
+               GROUP BY machine_name HAVING COUNT(*) >= 2""",
+            (hall_name,)
+        ).fetchall()}
+        trend_base = {r[0]: float(r[1]) for r in conn.execute(
+            """SELECT machine_name, AVG(bb_prob) FROM hall_day_seat
+               WHERE hall_name=? AND bb_prob IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND report_date < date('now', '-14 days')
+                 AND report_date >= date('now', '-74 days')
+               GROUP BY machine_name HAVING COUNT(*) >= 5""",
+            (hall_name,)
+        ).fetchall()}
         conn.close()
+
         if rows:
-            return [
-                {
-                    "machine": r[0], "avg_diff": r[1],
+            result = []
+            for r in rows:
+                mname = r[0]
+                rec = trend_recent.get(mname)
+                base = trend_base.get(mname)
+                bb_trend = None
+                if rec and base and base > 0:
+                    bb_trend = round((rec - base) / base * 100, 1)  # % change
+                result.append({
+                    "machine": mname, "avg_diff": r[1],
                     "appearances": r[2], "units": r[3],
                     "win_rate": round(r[4], 1),
+                    "bb_trend_14d": bb_trend,
                     "source": "anaslo_db",
-                }
-                for r in rows
-            ]
+                })
+            return result
     except Exception:
         pass
 

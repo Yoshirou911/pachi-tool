@@ -4249,15 +4249,37 @@ async function loadScrapeManager() {
       apiFetch('/api/scrape/cookie_status').catch(() => null),
     ]);
 
-    // Cookie状態バッジ
+    // Cookie状態バッジ（期限・CFブロック警告含む）
     const badge = document.getElementById('cookie-status-badge');
     if (badge && cookieSt) {
+      const age = cookieSt.age_hours;
+      const ageStr = age != null
+        ? (age < 1 ? `${Math.round(age * 60)}分前` : `${age}時間前`)
+        : '';
+      const ageWarnColor = age == null ? '' : age >= 24 ? 'var(--danger)' : age >= 6 ? 'var(--warning)' : 'var(--text3)';
+      const ageHtml = ageStr
+        ? ` <span style="color:${ageWarnColor};font-size:.75rem">(${ageStr}に登録${age >= 6 ? ' — 期限切れの可能性' : ''})</span>`
+        : '';
+
       if (cookieSt.has_cf_clearance) {
-        badge.innerHTML = '<span style="color:var(--success)">✓ cf_clearance登録済み</span>';
+        const iconColor = age != null && age >= 24 ? 'var(--warning)' : 'var(--success)';
+        badge.innerHTML = `<span style="color:${iconColor}">✓ cf_clearance登録済み</span>${ageHtml}`;
       } else if (cookieSt.has_cookie) {
-        badge.innerHTML = '<span style="color:var(--warning)">⚠ Cookie登録済み（cf_clearanceなし）</span>';
+        badge.innerHTML = `<span style="color:var(--warning)">⚠ Cookie登録済み（cf_clearanceなし）</span>${ageHtml}`;
       } else {
         badge.innerHTML = '<span style="color:var(--danger)">✗ Cookie未登録</span>';
+      }
+
+      // CFブロック警告バナー
+      const alertEl = document.getElementById('cookie-alert');
+      if (alertEl) {
+        const blocked = cookieSt.cf_blocked_halls || [];
+        if (blocked.length > 0) {
+          alertEl.style.display = 'block';
+          alertEl.innerHTML = `🚫 <strong>Cloudflareブロック検知</strong>: ${blocked.slice(0,3).map(h => esc(h)).join('、')}${blocked.length > 3 ? `他${blocked.length-3}店` : ''} — <strong>Cookieを更新してください</strong>`;
+        } else {
+          alertEl.style.display = 'none';
+        }
       }
     }
 

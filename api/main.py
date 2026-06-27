@@ -1120,12 +1120,49 @@ def set_scrape_cookie(body: CookieBody) -> dict:
 def get_cookie_status() -> dict:
     """保存済みCookieの状態を確認する"""
     try:
-        from scraper.anaslo import get_cookie
+        import sqlite3 as _sq3
+        from scraper.anaslo import get_cookie, DB_PATH
         ck = get_cookie()
+
+        # 保存日時と経過時間
+        saved_at = None
+        age_hours = None
+        try:
+            conn2 = _sq3.connect(DB_PATH)
+            row = conn2.execute(
+                "SELECT updated_at FROM scrape_settings WHERE key='cf_cookie_str'"
+            ).fetchone()
+            conn2.close()
+            if row and row[0]:
+                saved_at = row[0]
+                from datetime import datetime as _dt
+                saved_dt = _dt.fromisoformat(saved_at)
+                age_hours = round((_dt.now() - saved_dt).total_seconds() / 3600, 1)
+        except Exception:
+            pass
+
+        # 直近のCFブロック記録（24時間以内）
+        cf_blocked_halls: list[str] = []
+        try:
+            conn3 = _sq3.connect(DB_PATH)
+            rows = conn3.execute(
+                """SELECT hall_name FROM scrape_log
+                   WHERE status='cf_blocked'
+                     AND started_at >= datetime('now','-24 hours','localtime')
+                   ORDER BY id DESC LIMIT 5"""
+            ).fetchall()
+            conn3.close()
+            cf_blocked_halls = [r[0] for r in rows]
+        except Exception:
+            pass
+
         return {
             "has_cookie": bool(ck),
             "has_cf_clearance": "cf_clearance" in ck if ck else False,
             "preview": ck[:60] + "..." if len(ck) > 60 else ck,
+            "saved_at": saved_at,
+            "age_hours": age_hours,
+            "cf_blocked_halls": cf_blocked_halls,
         }
     except Exception as e:
         return {"has_cookie": False, "has_cf_clearance": False, "error": str(e)}

@@ -1328,8 +1328,8 @@ def get_scrape_logs_api(limit: int = Query(50, ge=1, le=200)) -> list[dict]:
 @app.get("/api/hall/compare", tags=["hall"])
 def compare_halls(days: int = Query(30)) -> list[dict]:
     """
-    全ホールのBB/RB平均・設定傾向を横断比較する。
-    最も高設定率が高いホールをランキング順で返す。
+    全ホールの設定傾向を横断比較する。
+    アナスロ(hall_day_seat)を優先し、なければみんレポ(hall_day_machine)を使う。
     """
     ckey = f"hall_compare:{days}"
     cached = _cache_get(ckey)
@@ -1340,7 +1340,8 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
     if not conn:
         return []
 
-    rows = conn.execute(
+    # アナスロ (hall_day_seat) データ
+    seat_rows = conn.execute(
         """SELECT hall_name,
                   COUNT(DISTINCT report_date) as days_count,
                   COUNT(DISTINCT machine_name) as machine_count,
@@ -1359,12 +1360,42 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
              AND machine_name NOT LIKE '%データ%'
              AND report_date >= date('now', '-' || ? || ' days')
            GROUP BY hall_name
-           HAVING record_count >= 20
+           HAVING record_count >= 5
+           ORDER BY avg_diff DESC""",
+        (days,)
+    ).fetchall()
+    seat_halls = {r[0] for r in seat_rows}
+
+    # みんレポ (hall_day_machine) データ — アナスロにないホールを補完
+    minrepo_rows = conn.execute(
+        """SELECT hall_name,
+                  COUNT(DISTINCT report_date) as days_count,
+                  COUNT(DISTINCT machine_name) as machine_count,
+                  0 as seat_count,
+                  NULL as avg_bb,
+                  NULL as avg_rb,
+                  AVG(diff_coins) as avg_diff,
+                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate,
+                  MAX(report_date) as latest_date,
+                  COUNT(*) as record_count,
+                  NULL as bb_7d,
+                  NULL as bb_prev
+           FROM hall_day_machine
+           WHERE report_date >= date('now', '-' || ? || ' days')
+             AND diff_coins IS NOT NULL
+           GROUP BY hall_name
+           HAVING record_count >= 3
            ORDER BY avg_diff DESC""",
         (days,)
     ).fetchall()
 
-    # BB急上昇台数 (直近3日 vs 過去30日の平均比較、1.5倍以上を急上昇とみなす)
+    # マージ（アナスロ優先、みんレポで補完）
+    rows = list(seat_rows)
+    for r in minrepo_rows:
+        if r[0] not in seat_halls:
+            rows.append(r)
+
+    # BB急上昇台数
     surge_counts: dict[str, int] = {}
     try:
         surge_rows = conn.execute(
@@ -1389,7 +1420,10 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
     if not rows:
         return []
 
-    # 各ホールのイベント日スコアを計算
+    # avg_diffでソート
+    rows.sort(key=lambda r: float(r[6] or 0), reverse=True)
+
+    # 各ホールのイベント日スコア
     event_zs: dict = {}
     try:
         from hall.prior import _compute_today_event_z
@@ -1405,8 +1439,8 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
 
     result = []
     for i, r in enumerate(rows):
-        bb = float(r[4]) if r[4] else 0
-        z = round((bb - mean_bb) / max(std_bb, 0.00001), 2)
+        bb = float(r[4]) if r[4] else None
+        z = round((bb - mean_bb) / max(std_bb, 0.00001), 2) if bb is not None else 0.0
         bb_7d = float(r[10]) if r[10] else None
         bb_prev = float(r[11]) if r[11] else None
         bb_trend = None
@@ -1419,8 +1453,8 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
             "days_data": r[1],
             "machine_count": r[2],
             "seat_count": r[3] or 0,
-            "avg_bb": round(bb, 2),
-            "avg_rb": round(float(r[5] or 0), 2),
+            "avg_bb": round(bb, 2) if bb is not None else None,
+            "avg_rb": round(float(r[5] or 0), 2) if r[5] else None,
             "avg_diff": round(float(r[6] or 0)),
             "win_rate": round(float(r[7] or 0), 1),
             "latest_date": r[8] or "",
@@ -1429,6 +1463,7 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
             "bb_trend_7d": bb_trend,
             "surge_seat_count": surge_counts.get(r[0], 0),
             "today_event_z": round(ez, 2) if ez is not None else None,
+            "data_source": "anaslo" if r[0] in seat_halls else "minrepo",
         })
 
     _cache_set(ckey, result)

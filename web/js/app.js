@@ -4050,10 +4050,14 @@ async function loadHallCompare() {
   const card = document.getElementById('hall-compare-card');
   const body = document.getElementById('hall-compare-body');
   if (!card) return;
+  card.style.display = 'block';
+  body.innerHTML = '<div style="color:var(--text3);font-size:.8rem;text-align:center;padding:12px">読み込み中...</div>';
   try {
     const rows = await apiFetch('/api/hall/compare?days=30');
-    if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
-    card.style.display = 'block';
+    if (!rows || rows.length === 0) {
+      body.innerHTML = '<div style="color:var(--text3);font-size:.8rem;text-align:center;padding:12px">データなし（管理タブでスクレイプしてください）</div>';
+      return;
+    }
     const maxAbs = Math.max(...rows.map(r => Math.abs(r.avg_diff)), 1);
     const sign = v => v >= 0 ? `+${v}` : `${v}`;
     body.innerHTML = rows.map((r, i) => {
@@ -4074,15 +4078,20 @@ async function loadHallCompare() {
       const eventHtml = r.today_event_z != null && r.today_event_z >= 0.5
         ? `<span style="color:var(--primary-h);font-size:.58rem;margin-left:4px">📅イベント候補 z=${r.today_event_z.toFixed(1)}σ</span>`
         : '';
+      const srcBadge = r.data_source === 'minrepo'
+        ? `<span style="font-size:.52rem;color:var(--text3);margin-left:3px">みんレポ</span>`
+        : '';
+      const bbLine = r.avg_bb != null
+        ? `BB ${r.bb_z > 0 ? '+' : ''}${r.bb_z}σ` : 'みんレポデータ';
       return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
         onclick="switchToHall(decodeURIComponent('${encH}'))">
         <span style="font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${trendHtml}${surgeHtml}${eventHtml}</div>
+          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${srcBadge}${trendHtml}${surgeHtml}${eventHtml}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
             <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>
-          <div style="font-size:.58rem;color:var(--text3);margin-top:2px">${r.days_data}日 ${r.machine_count}機種 ${r.record_count}件 勝率${r.win_rate}% <span style="color:${zCol}">BB ${r.bb_z > 0 ? '+' : ''}${r.bb_z}σ</span></div>
+          <div style="font-size:.58rem;color:var(--text3);margin-top:2px">${r.days_data}日 ${r.machine_count}機種 ${r.record_count}件 勝率${r.win_rate}% <span style="color:${zCol}">${bbLine}</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
@@ -4091,7 +4100,7 @@ async function loadHallCompare() {
       </div>`;
     }).join('');
   } catch(e) {
-    if (card) card.style.display = 'none';
+    body.innerHTML = `<div style="color:var(--danger);font-size:.8rem;padding:12px">エラー: ${e.message}</div>`;
   }
 }
 

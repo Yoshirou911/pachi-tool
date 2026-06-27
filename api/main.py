@@ -1003,6 +1003,76 @@ def get_scrape_status(hall_name: str = Query(...)) -> dict:
     }
 
 
+@app.get("/api/hall/compare", tags=["hall"])
+def compare_halls(days: int = Query(30)) -> list[dict]:
+    """
+    全ホールのBB/RB平均・設定傾向を横断比較する。
+    最も高設定率が高いホールをランキング順で返す。
+    """
+    ckey = f"hall_compare:{days}"
+    cached = _cache_get(ckey)
+    if cached:
+        return cached
+
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+
+    rows = conn.execute(
+        """SELECT hall_name,
+                  COUNT(DISTINCT report_date) as days_count,
+                  COUNT(DISTINCT machine_name) as machine_count,
+                  COUNT(DISTINCT seat_number) as seat_count,
+                  AVG(bb_prob) as avg_bb,
+                  AVG(rb_prob) as avg_rb,
+                  AVG(diff_coins) as avg_diff,
+                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate,
+                  MAX(report_date) as latest_date,
+                  COUNT(*) as record_count
+           FROM hall_day_seat
+           WHERE bb_prob IS NOT NULL
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY hall_name
+           HAVING record_count >= 20
+           ORDER BY avg_bb DESC""",
+        (days,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return []
+
+    import statistics as _stats
+    bbs = [float(r[4]) for r in rows if r[4]]
+    if len(bbs) < 2:
+        return []
+    mean_bb = _stats.mean(bbs)
+    std_bb = _stats.stdev(bbs) if len(bbs) > 1 else 0.0001
+
+    result = []
+    for i, r in enumerate(rows):
+        bb = float(r[4]) if r[4] else 0
+        z = round((bb - mean_bb) / max(std_bb, 0.00001), 2)
+        result.append({
+            "rank": i + 1,
+            "hall_name": r[0],
+            "days_data": r[1],
+            "machine_count": r[2],
+            "seat_count": r[3] or 0,
+            "avg_bb_pct": round(bb * 100, 4),
+            "avg_rb_pct": round(float(r[5] or 0) * 100, 4),
+            "avg_diff": round(float(r[6] or 0)),
+            "win_rate": round(float(r[7] or 0), 1),
+            "latest_date": r[8] or "",
+            "record_count": r[9],
+            "bb_z": z,
+        })
+
+    _cache_set(ckey, result)
+    return result
+
+
 @app.post("/api/cache/clear", tags=["admin"])
 def clear_cache(hall_name: Optional[str] = Query(None)) -> dict:
     """インメモリキャッシュを消去する。hall_name 指定でそのホールのみ。"""

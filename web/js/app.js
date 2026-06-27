@@ -67,7 +67,7 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${tabId}`));
   if (tabId === 'session') loadSessions();
-  if (tabId === 'hall') loadHallPage();
+  if (tabId === 'hall') { loadHallCompare(); loadHallPage(); }
   if (tabId === 'map') loadMapPage();
   if (tabId === 'ai') loadAiPage();
   if (tabId === 'machines') loadMachinesPage();
@@ -1788,6 +1788,7 @@ if (sesImportInput) {
 // ---------------------------------------------------------------------------
 async function loadHallPage() {
   const hall = getSelectedHall();
+  loadHallCompare(); // ホール未選択でも常に比較表示
   if (!hall) return;
   try {
     // セッション統計を取得
@@ -3359,6 +3360,60 @@ async function loadMachineSettingTendency(hall) {
   } catch(e) {
     if (card) card.style.display = 'none';
   }
+}
+
+async function loadHallCompare() {
+  const card = document.getElementById('hall-compare-card');
+  const body = document.getElementById('hall-compare-body');
+  if (!card) return;
+  try {
+    const halls = await apiFetch('/api/hall/compare?days=30');
+    if (!halls?.length) { card.style.display = 'none'; return; }
+
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    const rows = halls.slice(0, 10).map((h, i) => {
+      const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+      const zCol = h.bb_z >= 0.5 ? 'var(--success)' : h.bb_z <= -0.5 ? 'var(--danger)' : 'var(--text3)';
+      const diffCol = h.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+      const isSelected = h.hall_name === getSelectedHall();
+      return `<div onclick="selectHall(${JSON.stringify(h.hall_name)})"
+        style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--bg2);cursor:pointer;
+               ${isSelected ? 'background:rgba(124,127,245,.08);border-radius:6px;' : ''}"
+        title="${h.record_count}レコード / ${h.days_data}日分">
+        <span style="font-size:.8rem;min-width:24px;text-align:center">${medal}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.78rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                      color:${isSelected ? 'var(--primary-h)' : 'var(--text1)'}">${esc(h.hall_name)}</div>
+          <div style="font-size:.62rem;color:var(--text3)">${h.machine_count}機種 / 直近${h.days_data}日</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:.75rem;font-weight:700;color:${zCol}">BB z=${sign(h.bb_z)}σ</div>
+          <div style="font-size:.62rem;color:${diffCol}">${sign(h.avg_diff)}枚</div>
+        </div>
+      </div>`;
+    }).join('');
+
+    body.innerHTML = rows + `<div style="font-size:.6rem;color:var(--text3);margin-top:6px">クリックでホールを切り替え / 直近30日のBB確率比較</div>`;
+    card.style.display = 'block';
+  } catch(e) {
+    card.style.display = 'none';
+  }
+}
+
+function selectHall(hallName) {
+  const sel = document.getElementById('hall-select');
+  if (!sel) return;
+  // 既存optionに存在するか確認
+  const opt = [...sel.options].find(o => o.value === hallName);
+  if (opt) {
+    sel.value = hallName;
+  } else {
+    // カスタム入力に設定
+    sel.value = '__custom__';
+    const customInput = document.getElementById('hall-custom-input');
+    if (customInput) { customInput.value = hallName; customInput.style.display = ''; }
+  }
+  loadHallPage();
 }
 
 async function loadDowHeatmap(hall) {

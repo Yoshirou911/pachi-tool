@@ -618,22 +618,8 @@
 
           <!-- みんレポ データ -->
           <div class="card card-col closed">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <div class="card-title card-col-hd" style="margin-bottom:0;flex:1">
-                🌐 みんレポ データ <span class="col-arr">▾</span>
-              </div>
-              <div style="display:flex;gap:6px;align-items:center" onclick="event.stopPropagation()">
-                <select id="scrape-days-minrepo" class="form-select" style="font-size:.72rem;width:auto;padding:3px 6px">
-                  <option value="30">30日</option>
-                  <option value="90">90日</option>
-                  <option value="180">180日</option>
-                  <option value="365">1年</option>
-                </select>
-                <button id="scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px">取得</button>
-              </div>
-            </div>
+            <div class="card-title card-col-hd">🌐 みんレポ データ <span class="col-arr">▾</span></div>
             <div class="card-col-body">
-              <div id="scrape-status-bar" style="font-size:.78rem;color:var(--text3);margin-bottom:8px"></div>
               <div id="scrape-date-row" style="display:none;margin-bottom:10px">
                 <select id="scrape-date-select" class="form-select" style="font-size:.8rem"></select>
               </div>
@@ -657,14 +643,8 @@
 
           <!-- アナスロ 台番別データ -->
           <div class="card card-col closed">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <div class="card-title card-col-hd" style="margin-bottom:0;flex:1">
-                🎰 アナスロ 台番別データ <span class="col-arr">▾</span>
-              </div>
-              <button id="anaslo-scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px" onclick="event.stopPropagation()">取得</button>
-            </div>
+            <div class="card-title card-col-hd">🎰 アナスロ 台番別データ <span class="col-arr">▾</span></div>
             <div class="card-col-body">
-              <div id="anaslo-status-bar" style="font-size:.78rem;color:var(--text3);margin-bottom:8px"></div>
               <div style="display:flex;gap:6px;margin-bottom:8px">
                 <button id="anaslo-tab-seat" class="btn btn-primary" style="font-size:.75rem;padding:3px 10px">台番ランキング</button>
                 <button id="anaslo-tab-tail" class="btn btn-ghost" style="font-size:.75rem;padding:3px 10px">末尾分析</button>
@@ -711,9 +691,32 @@
                 background:rgba(239,68,68,.15);border:1px solid var(--danger);font-size:.7rem;color:var(--danger);line-height:1.4">
               </div>
             </div>
-            <!-- 手動実行セクション -->
+            <!-- 個別スクレイプセクション -->
             <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
-              <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">手動実行</div>
+              <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">個別スクレイプ</div>
+              <div style="font-size:.68rem;color:var(--text3);margin-bottom:8px">詳細タブで選択中のホールを対象にします</div>
+              <!-- みんレポ -->
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+                <span style="font-size:.72rem;color:var(--text2);min-width:56px">みんレポ:</span>
+                <select id="scrape-days-minrepo" class="form-select" style="font-size:.72rem;width:auto;padding:3px 6px">
+                  <option value="30">30日</option>
+                  <option value="90">90日</option>
+                  <option value="180">180日</option>
+                  <option value="365">1年</option>
+                </select>
+                <button id="scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px">取得</button>
+                <span id="scrape-status-bar" style="font-size:.68rem;color:var(--text3)"></span>
+              </div>
+              <!-- アナスロ -->
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <span style="font-size:.72rem;color:var(--text2);min-width:56px">アナスロ:</span>
+                <button id="anaslo-scrape-btn" class="btn btn-secondary" style="font-size:.75rem;padding:4px 10px">取得</button>
+                <span id="anaslo-status-bar" style="font-size:.68rem;color:var(--text3)"></span>
+              </div>
+            </div>
+            <!-- 全店舗実行セクション -->
+            <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
+              <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">全店舗一括実行</div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <select id="scrape-days-select" class="form-select" style="font-size:.78rem;width:auto">
                   <option value="1">1日分(昨日のみ)</option>

@@ -1789,7 +1789,8 @@ def get_machine_seat_ranking(
     import statistics as _stats
     bb_vals = [float(r[8]) for r in rows if r[8] is not None]
     bb_mean = _stats.mean(bb_vals) if bb_vals else 0
-    bb_std = _stats.stdev(bb_vals) if len(bb_vals) > 1 else 0.0001
+    raw_bb_std = _stats.stdev(bb_vals) if len(bb_vals) > 1 else 0.0
+    bb_std = max(raw_bb_std, bb_mean * 0.20, 0.5)
 
     result = []
     for r in rows:
@@ -1879,7 +1880,8 @@ def get_today_targets(
         if len(bbs) >= 2:
             import statistics as _stats2
             m = _stats2.mean(bbs)
-            s = _stats2.stdev(bbs) if len(bbs) > 1 else 0.001
+            raw_s = _stats2.stdev(bbs) if len(bbs) > 1 else 0.0
+            s = max(raw_s, m * 0.20, 0.5)
             machine_bb_stats[mname] = (m, s)
 
     # 最も好調な末尾（曜日重み付き）

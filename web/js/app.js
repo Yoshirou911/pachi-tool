@@ -1587,7 +1587,7 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
           return `<div style="display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:4px;
             background:${isCur?'rgba(124,127,245,.15)':'transparent'};margin-bottom:2px">
             <span style="font-size:.68rem;color:${isCur?'var(--primary-h)':'var(--text3)'};width:40px;font-weight:${isCur?'700':'400'}">${r.seat_number}番台</span>
-            <span style="font-size:.68rem;color:var(--text3)">BB ${r.avg_bb.toFixed(3)}%</span>
+            <span style="font-size:.68rem;color:var(--text3)">BB ${r.avg_bb.toFixed(1)}回</span>
             <span style="font-size:.68rem;font-weight:700;color:${zCol}">${r.z_score > 0 ? '+' : ''}${r.z_score}σ</span>
             ${isCur ? '<span style="font-size:.6rem;background:var(--primary-h);color:#fff;border-radius:3px;padding:0 4px">この台</span>' : ''}
           </div>`;
@@ -2382,7 +2382,7 @@ async function loadAnasloTailAnalysis(hall) {
             const rowBg = r.z_score > 1.0 ? 'rgba(16,185,129,.07)' : r.z_score < -1.0 ? 'rgba(244,63,94,.05)' : '';
             return `<tr style="border-bottom:1px solid var(--bg2);background:${rowBg}">
               <td style="padding:4px 6px;text-align:center;font-size:1.1rem;font-weight:900">${r.tail}</td>
-              <td style="padding:4px 6px;text-align:right;font-size:.7rem">${r.avg_bb.toFixed(3)}%</td>
+              <td style="padding:4px 6px;text-align:right;font-size:.7rem">${r.avg_bb.toFixed(1)}回</td>
               <td style="padding:4px 6px;text-align:right;font-weight:700;color:${zCol}">${r.z_score > 0 ? '+' : ''}${r.z_score}σ</td>
               <td style="padding:4px 6px;text-align:right;color:${r.avg_diff>=0?'var(--success)':'var(--danger)'}">${sign(r.avg_diff)}</td>
               <td style="padding:4px 6px;text-align:right">${r.win_rate}%</td>
@@ -2430,7 +2430,7 @@ async function loadZoneAnalysis(hall) {
       const rowBg = r.z_score > 1.0 ? 'rgba(16,185,129,.07)' : r.z_score < -1.0 ? 'rgba(244,63,94,.05)' : '';
       return `<tr style="border-bottom:1px solid var(--bg2);background:${rowBg}">
         <td style="padding:4px 6px;font-size:.75rem;white-space:nowrap">${esc(r.label)}</td>
-        <td style="padding:4px 6px;text-align:right;font-size:.7rem">${r.avg_bb.toFixed(3)}%</td>
+        <td style="padding:4px 6px;text-align:right;font-size:.7rem">${r.avg_bb.toFixed(1)}回</td>
         <td style="padding:4px 6px;text-align:right;font-weight:700;color:${zCol}">${r.z_score>0?'+':''}${r.z_score}σ</td>
         <td style="padding:4px 6px;text-align:right;color:var(--text3);font-size:.7rem">${r.seat_count}席/${r.record_count}件</td>
       </tr>`;
@@ -3668,7 +3668,7 @@ async function loadEventDayPattern(hall) {
     }).join('');
 
     body.innerHTML = todayBanner + rows +
-      `<div style="font-size:.65rem;color:var(--text3);margin-top:6px">過去${d.total_days}日・全台平均BB ${d.global_mean_bb?.toFixed(3)}% | σはBB確率の上昇幅</div>`;
+      `<div style="font-size:.65rem;color:var(--text3);margin-top:6px">過去${d.total_days}日・全台平均BB ${d.global_mean_bb?.toFixed(1)}回/日 | σはBB回数の機種内偏差</div>`;
     card.style.display = 'block';
   } catch (e) {
     card.style.display = 'none';

@@ -1341,53 +1341,61 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
         return []
 
     # アナスロ (hall_day_seat) データ
-    seat_rows = conn.execute(
-        """SELECT hall_name,
-                  COUNT(DISTINCT report_date) as days_count,
-                  COUNT(DISTINCT machine_name) as machine_count,
-                  COUNT(DISTINCT seat_number) as seat_count,
-                  AVG(bb_prob) as avg_bb,
-                  AVG(rb_prob) as avg_rb,
-                  AVG(diff_coins) as avg_diff,
-                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate,
-                  MAX(report_date) as latest_date,
-                  COUNT(*) as record_count,
-                  AVG(CASE WHEN report_date >= date('now','-7 days') THEN bb_prob END) as bb_7d,
-                  AVG(CASE WHEN report_date < date('now','-7 days') THEN bb_prob END) as bb_prev
-           FROM hall_day_seat
-           WHERE bb_prob IS NOT NULL
-             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-             AND machine_name NOT LIKE '%データ%'
-             AND report_date >= date('now', '-' || ? || ' days')
-           GROUP BY hall_name
-           HAVING record_count >= 5
-           ORDER BY avg_diff DESC""",
-        (days,)
-    ).fetchall()
+    seat_rows = []
+    try:
+        seat_rows = conn.execute(
+            """SELECT hall_name,
+                      COUNT(DISTINCT report_date) as days_count,
+                      COUNT(DISTINCT machine_name) as machine_count,
+                      COUNT(DISTINCT seat_number) as seat_count,
+                      AVG(bb_prob) as avg_bb,
+                      AVG(rb_prob) as avg_rb,
+                      AVG(diff_coins) as avg_diff,
+                      SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate,
+                      MAX(report_date) as latest_date,
+                      COUNT(*) as record_count,
+                      AVG(CASE WHEN report_date >= date('now','-7 days') THEN bb_prob END) as bb_7d,
+                      AVG(CASE WHEN report_date < date('now','-7 days') THEN bb_prob END) as bb_prev
+               FROM hall_day_seat
+               WHERE bb_prob IS NOT NULL
+                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                 AND machine_name NOT LIKE '%データ%'
+                 AND report_date >= date('now', '-' || ? || ' days')
+               GROUP BY hall_name
+               HAVING record_count >= 5
+               ORDER BY avg_diff DESC""",
+            (days,)
+        ).fetchall()
+    except Exception:
+        pass
     seat_halls = {r[0] for r in seat_rows}
 
     # みんレポ (hall_day_machine) データ — アナスロにないホールを補完
-    minrepo_rows = conn.execute(
-        """SELECT hall_name,
-                  COUNT(DISTINCT report_date) as days_count,
-                  COUNT(DISTINCT machine_name) as machine_count,
-                  0 as seat_count,
-                  NULL as avg_bb,
-                  NULL as avg_rb,
-                  AVG(diff_coins) as avg_diff,
-                  SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate,
-                  MAX(report_date) as latest_date,
-                  COUNT(*) as record_count,
-                  NULL as bb_7d,
-                  NULL as bb_prev
-           FROM hall_day_machine
-           WHERE report_date >= date('now', '-' || ? || ' days')
-             AND diff_coins IS NOT NULL
-           GROUP BY hall_name
-           HAVING record_count >= 3
-           ORDER BY avg_diff DESC""",
-        (days,)
-    ).fetchall()
+    minrepo_rows = []
+    try:
+        minrepo_rows = conn.execute(
+            """SELECT hall_name,
+                      COUNT(DISTINCT report_date) as days_count,
+                      COUNT(DISTINCT machine_name) as machine_count,
+                      0 as seat_count,
+                      NULL as avg_bb,
+                      NULL as avg_rb,
+                      AVG(diff_coins) as avg_diff,
+                      SUM(CASE WHEN diff_coins > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as win_rate,
+                      MAX(report_date) as latest_date,
+                      COUNT(*) as record_count,
+                      NULL as bb_7d,
+                      NULL as bb_prev
+               FROM hall_day_machine
+               WHERE report_date >= date('now', '-' || ? || ' days')
+                 AND diff_coins IS NOT NULL
+               GROUP BY hall_name
+               HAVING record_count >= 3
+               ORDER BY avg_diff DESC""",
+            (days,)
+        ).fetchall()
+    except Exception:
+        pass
 
     # マージ（アナスロ優先、みんレポで補完）
     rows = list(seat_rows)
@@ -2774,48 +2782,6 @@ def get_machine_high_rate(
     return out
 
 
-@app.get("/api/hall/compare", tags=["hall"])
-def get_hall_compare(days: int = Query(30)) -> list[dict]:
-    """
-    全ホールの設定レベルを比較。
-    ホール間の機種別推定設定と差枚を一覧化することで、どのホールが出ているかを分析。
-    """
-    conn = _get_reports_conn()
-    if not conn:
-        return []
-    rows = conn.execute(
-        """SELECT hall_name,
-                  ROUND(AVG(diff_coins)) as avg_diff,
-                  COUNT(*) as records,
-                  COUNT(DISTINCT machine_name) as machine_cnt,
-                  COUNT(DISTINCT report_date) as days_cnt,
-                  ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate,
-                  ROUND(AVG(bb_prob)*100, 4) as avg_bb_pct,
-                  MAX(report_date) as last_date
-           FROM hall_day_seat
-           WHERE machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-             AND machine_name NOT LIKE '%データ%'
-             AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
-             AND report_date >= date('now', '-' || ? || ' days')
-           GROUP BY hall_name
-           HAVING records >= 10
-           ORDER BY avg_diff DESC""",
-        (days,)
-    ).fetchall()
-    conn.close()
-    return [
-        {
-            "hall_name": r[0],
-            "avg_diff": int(r[1] or 0),
-            "records": r[2],
-            "machine_cnt": r[3],
-            "days_cnt": r[4],
-            "win_rate": float(r[5] or 0),
-            "avg_bb_pct": float(r[6] or 0),
-            "last_date": r[7],
-        }
-        for r in rows
-    ]
 
 
 @app.get("/api/hall/today_briefing", tags=["hall"])

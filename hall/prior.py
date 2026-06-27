@@ -352,8 +352,22 @@ def _estimate_prior_from_anaslo(
         var_d   = sum((d - mean_d)**2 * w for d, w in diffs_weighted) / total_w
         std_d   = math.sqrt(max(var_d, 1.0))
 
+        # 機種の機械割から期待差枚を算出 (理論値がある場合)
+        # 平均ゲーム数 × (機械割 - 1.0) × コインレート(3円/枚仮定)
+        theory_kw: dict[str, float] | None = None
+        if theory and "machine_kw" in theory:
+            theory_kw = {str(k): float(v) for k, v in theory["machine_kw"].items()}
+
+        avg_games_obs = (sum(float(r[3] or 0) for r in rows) / len(rows)) if rows else 800.0
+        avg_g = max(avg_games_obs, 400.0)
+
         setting_expected: dict[str, float] = {}
-        if len(settings) == 6:
+        if theory_kw and all(s in theory_kw for s in settings):
+            # 機械割から期待差枚 = avg_games * (kw - 1.0) * 3 (コイン1枚≈3円)
+            for s in settings:
+                kw = theory_kw[s]
+                setting_expected[s] = avg_g * (kw - 1.0) * 3.0
+        elif len(settings) == 6:
             ref = {"1": -350, "2": -200, "3": -50, "4": +100, "5": +250, "6": +450}
             for s in settings:
                 setting_expected[s] = ref.get(s, 0.0)
@@ -362,36 +376,44 @@ def _estimate_prior_from_anaslo(
             for i, s in enumerate(settings):
                 setting_expected[s] = vals[i]
 
-        sigma_d = max(std_d, 300.0)
+        # sigma_d: データのばらつきに適応（過小評価を防ぐため最低400）
+        sigma_d = max(std_d, 400.0)
         log_likes: dict[str, float] = {
             s: -0.5 * ((mean_d - setting_expected[s]) / sigma_d) ** 2
             for s in settings
         }
 
         # ── BB/RB 実測確率 vs 理論値 ガウス尤度 ─────────────────────────
-        theory = _load_machine_theory(machine_name)
-        if theory and bb_probs_weighted and len(bb_probs_weighted) >= 3:
+        # サンプル数が多いほどsigmaを絞れる（CLTに基づく）
+        n_bb = len(bb_probs_weighted)
+        if theory and bb_probs_weighted and n_bb >= 3:
             tw_bb = sum(w for _, w in bb_probs_weighted)
             mean_bb = sum(p*w for p, w in bb_probs_weighted) / tw_bb
             var_bb = sum((p - mean_bb)**2 * w for p, w in bb_probs_weighted) / tw_bb
             std_bb = math.sqrt(max(var_bb, 1e-8))
 
-            # BBに相当する要素を探す
+            # サンプル数に基づく信頼度スケーリング（n>=20で最大精度）
+            confidence = min(1.0, math.log1p(n_bb) / math.log1p(20))
+
             bb_el = next((el for el in theory.get("elements", [])
                           if any(kw in el["name"] for kw in ["BB", "BIG", "ボーナス合算", "AT初当"])), None)
             if bb_el:
-                # 理論BBプロブ (分数表現: 1/300 → 0.00333)
                 for s in settings:
                     theo_p = bb_el.get("p", {}).get(s, 0.0)
                     if theo_p > 0:
-                        sigma_bb = max(std_bb, theo_p * 0.15)  # 理論値の±15%を下限に
-                        log_likes[s] += -0.5 * ((mean_bb - theo_p) / sigma_bb) ** 2
+                        # sigma: サンプルが多いほど絞る (min 10%, max 25% of theo_p)
+                        sigma_floor = theo_p * (0.25 - 0.15 * confidence)
+                        sigma_bb = max(std_bb, sigma_floor)
+                        log_likes[s] += confidence * (-0.5 * ((mean_bb - theo_p) / sigma_bb) ** 2)
 
-        if theory and rb_probs_weighted and len(rb_probs_weighted) >= 3:
+        n_rb = len(rb_probs_weighted)
+        if theory and rb_probs_weighted and n_rb >= 3:
             tw_rb = sum(w for _, w in rb_probs_weighted)
             mean_rb = sum(p*w for p, w in rb_probs_weighted) / tw_rb
             var_rb = sum((p - mean_rb)**2 * w for p, w in rb_probs_weighted) / tw_rb
             std_rb = math.sqrt(max(var_rb, 1e-8))
+
+            confidence_rb = min(1.0, math.log1p(n_rb) / math.log1p(20))
 
             rb_el = next((el for el in theory.get("elements", [])
                           if any(kw in el["name"] for kw in ["RB", "REG", "単独RB"])), None)
@@ -399,8 +421,9 @@ def _estimate_prior_from_anaslo(
                 for s in settings:
                     theo_p = rb_el.get("p", {}).get(s, 0.0)
                     if theo_p > 0:
-                        sigma_rb = max(std_rb, theo_p * 0.20)
-                        log_likes[s] += -0.5 * ((mean_rb - theo_p) / sigma_rb) ** 2
+                        sigma_floor_rb = theo_p * (0.30 - 0.15 * confidence_rb)
+                        sigma_rb = max(std_rb, sigma_floor_rb)
+                        log_likes[s] += confidence_rb * (-0.5 * ((mean_rb - theo_p) / sigma_rb) ** 2)
 
         # 台番z-scoreを事前に反映（+1σ以上 = 高設定寄りに補正）
         if seat_bb_z is not None and abs(seat_bb_z) >= 0.3:

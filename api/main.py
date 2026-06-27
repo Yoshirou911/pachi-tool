@@ -1715,17 +1715,22 @@ def debug_event_scrape(
     result = {"hall_name": hall_name, "source": source, "events": [], "debug": {}}
     try:
         if source == "minpachi":
-            from scraper.events import _minpachi_hall_url, scrape_minpachi
+            import requests, urllib.parse
+            from scraper.events import HEADERS, _minpachi_hall_url
+            # ① 検索ページ自体を確認
+            search_url = f"https://minpachi.jp/search/?name={urllib.parse.quote(hall_name)}&type=pachinko"
+            r0 = requests.get(search_url, headers=HEADERS, timeout=12)
+            result["debug"]["search_url"] = search_url
+            result["debug"]["search_status"] = r0.status_code
+            result["debug"]["search_html"] = r0.text[:4000]
+            # ② リンク候補を全部列挙
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(r0.text, "html.parser")
+            all_links = [a.get("href","") for a in soup.select("a[href]")][:40]
+            result["debug"]["all_links"] = all_links
+            # ③ hall_url
             hall_url = _minpachi_hall_url(hall_name)
             result["debug"]["hall_url"] = hall_url
-            if hall_url:
-                import requests
-                from scraper.events import HEADERS
-                r = requests.get(hall_url.rstrip("/") + "/event/", headers=HEADERS, timeout=12)
-                result["debug"]["status_code"] = r.status_code
-                result["debug"]["html_snippet"] = r.text[:3000]
-            evs = scrape_minpachi(hall_name)
-            result["events"] = evs
         elif source == "pachitown":
             from scraper.events import scrape_pachitown
             evs = scrape_pachitown(hall_name)

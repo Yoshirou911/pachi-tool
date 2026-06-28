@@ -1968,9 +1968,12 @@ if (sesImportInput) {
 // ---------------------------------------------------------------------------
 // Hall page
 // ---------------------------------------------------------------------------
+let _loadHallPageGen = 0; // race condition guard
 async function loadHallPage() {
   const hall = getSelectedHall();
   if (!hall) return;
+  const gen = ++_loadHallPageGen;
+  const isStale = () => gen !== _loadHallPageGen;
   _addRecentHall(hall);
   _loadHallMemo(hall);
   try {
@@ -1979,6 +1982,7 @@ async function loadHallPage() {
       api.getDaitoAnalysis(),
       apiFetch(`/api/hall/stats?hall_name=${encodeURIComponent(hall)}`),
     ]);
+    if (isStale()) return; // 別のホールに切り替わっていたら中止
 
     // 自分のセッションによる機種ランキング（セッション側を優先）
     const stats = hallStats.status === 'fulfilled' ? hallStats.value : null;
@@ -1998,6 +2002,7 @@ async function loadHallPage() {
       // anaslo机種ランキングを優先表示（なければセッション由来）
       try {
         const anasloRanking = await api.getMachineRanking(hall);
+        if (isStale()) return;
         const rankEl = document.getElementById('hall-machine-ranking');
         if (anasloRanking && anasloRanking.length > 0 && anasloRanking[0].source === 'anaslo_db') {
           rankEl.innerHTML = renderAnasloMachineRanking(anasloRanking);

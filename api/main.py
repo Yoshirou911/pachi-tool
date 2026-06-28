@@ -1085,6 +1085,10 @@ def get_hall_trend_summary(
     days: int = Query(14, le=60),
 ) -> dict:
     """直近N日のホール出玉トレンドサマリー（折れ線グラフ用）"""
+    ckey = f"trend_summary:{hall_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if conn is None:
         return {"dates": [], "values": [], "hall_name": hall_name}
@@ -1105,7 +1109,7 @@ def get_hall_trend_summary(
     values = [int(r["day_avg"]) if r["day_avg"] is not None else 0 for r in rows]
     avg = round(sum(values) / len(values)) if values else 0
     trend = values[-1] - values[0] if len(values) >= 2 else 0
-    return {
+    result = {
         "hall_name": hall_name,
         "dates": dates,
         "values": values,
@@ -1113,6 +1117,8 @@ def get_hall_trend_summary(
         "trend": trend,
         "days_data": len(dates),
     }
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/hot_machines", tags=["hall"])
@@ -3625,6 +3631,10 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
     """
     import datetime as _dt, statistics as _s
     today = _dt.date.today()
+    ckey = f"today_briefing:{hall_name}:{today}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     sql_dow = str((today.weekday() + 1) % 7)
     dow_ja = ["月","火","水","木","金","土","日"][today.weekday()]
     conn = _get_reports_conn()
@@ -3762,7 +3772,7 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
     except Exception:
         pass
 
-    return {
+    result = {
         "date": today.isoformat(),
         "weekday": dow_ja,
         "is_event_candidate": event_z is not None and event_z >= 0.5,
@@ -3775,6 +3785,8 @@ def get_today_briefing(hall_name: str = Query(...)) -> dict:
         "top_seats": top_seats,
         "high_rate_machines": hr_list[:3],
     }
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/bb_surge_seats", tags=["hall"])

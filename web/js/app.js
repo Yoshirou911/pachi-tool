@@ -1614,6 +1614,33 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 });
 
 // 台詳細モーダル（BB/RBヒストリー）
+function _addSeatHistory(hall, machine, seat) {
+  const key = 'seat_history_v1';
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+  hist = hist.filter(h => !(h.hall === hall && h.machine === machine && h.seat === seat));
+  hist.unshift({ hall, machine, seat, ts: Date.now() });
+  localStorage.setItem(key, JSON.stringify(hist.slice(0, 8)));
+  _renderSeatHistory();
+}
+
+function _renderSeatHistory() {
+  const el = document.getElementById('seat-history-list');
+  if (!el) return;
+  const key = 'seat_history_v1';
+  let hist = [];
+  try { hist = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+  const hall = getSelectedHall();
+  const filtered = hist.filter(h => !hall || h.hall === hall).slice(0, 5);
+  if (!filtered.length) { el.style.display = 'none'; return; }
+  el.style.display = 'flex';
+  el.innerHTML = filtered.map(h => {
+    const encH = encodeURIComponent(h.hall), encM = encodeURIComponent(h.machine);
+    return `<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 8px;flex-shrink:0;white-space:nowrap"
+      onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${h.seat})">${h.seat}番</button>`;
+  }).join('');
+}
+
 async function showSeatDetailModal(hall, machineName, seatNumber) {
   const body = document.getElementById('modal-body');
   const overlay = document.getElementById('modal-overlay');
@@ -1623,6 +1650,7 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
   if (footer) footer.style.display = 'none';
   if (title) title.textContent = `${machineName} ${seatNumber}番台`;
   overlay.style.display = 'flex';
+  _addSeatHistory(hall, machineName, seatNumber);
 
   try {
     const [data, bbRank] = await Promise.all([
@@ -2032,6 +2060,7 @@ async function loadHallPage() {
   loadAnasloStatus();
   loadTodayTargets(hall);
   renderPinnedSeatsCard();
+  _renderSeatHistory();
   loadDowHeatmap(hall);
   loadTodayBriefing(hall);
   loadBBSurgeSeats(hall);

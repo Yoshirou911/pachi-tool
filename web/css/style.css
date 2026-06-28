@@ -162,6 +162,10 @@ body::before {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+@keyframes pulse {
+  0%, 100% { opacity: .4; }
+  50% { opacity: .8; }
+}
 .page-inner { display: flex; flex-direction: column; gap: 14px; }
 
 /* ===== Cards — glass with visible gradient border ===== */
@@ -306,6 +310,7 @@ body::before {
 .btn-sm { padding: 6px 12px; font-size: .78rem; }
 .btn-xs { padding: 3px 8px; font-size: .68rem; }
 .active-tail { background: rgba(124,127,245,.2) !important; color: var(--primary-h) !important; border-color: rgba(124,127,245,.4) !important; }
+.active-period { background: rgba(124,127,245,.15) !important; color: var(--primary-h) !important; border-color: rgba(124,127,245,.4) !important; font-weight: 700 !important; }
 
 /* ===== Result card ===== */
 .result-card { padding: 0; overflow: hidden; }

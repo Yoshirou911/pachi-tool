@@ -35,6 +35,16 @@ const api = {
 };
 
 // ---------------------------------------------------------------------------
+// Loading helpers
+// ---------------------------------------------------------------------------
+function loadingHtml(lines = 2) {
+  const rows = Array.from({ length: lines }, (_, i) =>
+    `<div style="height:${i === 0 ? 14 : 10}px;width:${i === 0 ? 70 : 50}%;background:rgba(255,255,255,.06);border-radius:4px;animation:pulse 1.4s ease-in-out infinite ${i * 0.15}s"></div>`
+  ).join('');
+  return `<div style="display:flex;flex-direction:column;gap:8px;padding:10px 0">${rows}</div>`;
+}
+
+// ---------------------------------------------------------------------------
 // Toast
 // ---------------------------------------------------------------------------
 let _toastTimer;
@@ -1601,7 +1611,7 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 async function showSeatDetailModal(hall, machineName, seatNumber) {
   const body = document.getElementById('modal-body');
   const overlay = document.getElementById('modal-overlay');
-  body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text3)">読み込み中...</div>`;
+  body.innerHTML = loadingHtml(3);
   overlay.style.display = 'flex';
 
   try {
@@ -4300,8 +4310,8 @@ document.addEventListener('click', e => {
   _compareDays = parseInt(btn.dataset.days);
   document.querySelectorAll('.compare-days-btn').forEach(b => {
     b.classList.toggle('active-period', b === btn);
-    b.style.borderColor = b === btn ? 'rgba(124,127,245,.4)' : '';
-    b.style.color = b === btn ? 'var(--primary-h)' : '';
+    b.style.borderColor = '';
+    b.style.color = '';
   });
   loadHallCompare();
 });
@@ -4345,7 +4355,7 @@ async function loadHallCompare() {
   const body = document.getElementById('hall-compare-body');
   if (!card) return;
   card.style.display = 'block';
-  body.innerHTML = '<div style="color:var(--text3);font-size:.8rem;text-align:center;padding:12px">読み込み中...</div>';
+  body.innerHTML = loadingHtml(2);
   const sub = document.getElementById('compare-subtitle');
   if (sub) sub.textContent = `過去${_compareDays}日`;
   loadTodayPickCard();

@@ -2731,31 +2731,30 @@ async function loadAnasloTailAnalysis(hall) {
     ]);
 
     if (bbRows && bbRows.length > 0) {
-      // BB確率z-scoreで表示（より精度高い）
+      // BB確率z-scoreでバーチャート表示（より精度高い）
       const sign = v => v >= 0 ? `+${v}` : `${v}`;
-      const html = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:6px">末尾別BB確率（z-scoreで相対比較 / 過去90日）★差枚より精度高</p>
-        <table style="width:100%;font-size:.78rem;border-collapse:collapse">
-          <thead><tr style="background:var(--bg2);color:var(--text2)">
-            <th style="padding:4px 6px;text-align:center">末尾</th>
-            <th style="padding:4px 6px;text-align:right">BB確率</th>
-            <th style="padding:4px 6px;text-align:right">σ</th>
-            <th style="padding:4px 6px;text-align:right">平均差枚</th>
-            <th style="padding:4px 6px;text-align:right">勝率</th>
-            <th style="padding:4px 6px;text-align:right">件数</th>
-          </tr></thead>
-          <tbody>${bbRows.map(r => {
-            const zCol = r.z_score > 0.5 ? 'var(--success)' : r.z_score < -0.5 ? 'var(--danger)' : 'var(--text3)';
-            const rowBg = r.z_score > 1.0 ? 'rgba(16,185,129,.07)' : r.z_score < -1.0 ? 'rgba(244,63,94,.05)' : '';
-            return `<tr style="border-bottom:1px solid var(--bg2);background:${rowBg}">
-              <td style="padding:4px 6px;text-align:center;font-size:1.1rem;font-weight:900">${r.tail}</td>
-              <td style="padding:4px 6px;text-align:right;font-size:.7rem">${r.avg_bb.toFixed(1)}回</td>
-              <td style="padding:4px 6px;text-align:right;font-weight:700;color:${zCol}">${r.z_score > 0 ? '+' : ''}${r.z_score}σ</td>
-              <td style="padding:4px 6px;text-align:right;color:${r.avg_diff>=0?'var(--success)':'var(--danger)'}">${sign(r.avg_diff)}</td>
-              <td style="padding:4px 6px;text-align:right">${r.win_rate}%</td>
-              <td style="padding:4px 6px;text-align:right;color:var(--text3)">${r.count}</td>
-            </tr>`;
-          }).join('')}</tbody>
-        </table>`;
+      const maxAbsZ = Math.max(...bbRows.map(r => Math.abs(r.z_score)), 0.5);
+      const topTail = bbRows[0];
+      const html = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">
+          末尾別BB確率（過去90日 / z-scoreで相対比較）
+          ${topTail && topTail.z_score > 0.5 ? `<strong style="color:var(--success)"> 末尾${topTail.tail}が高め</strong>` : ''}
+        </p>
+        <div style="display:flex;flex-direction:column;gap:5px">
+        ${bbRows.map(r => {
+          const z = r.z_score;
+          const zCol = z > 0.5 ? 'var(--success)' : z < -0.5 ? 'var(--danger)' : 'var(--text3)';
+          const barPct = Math.min(Math.round(Math.abs(z) / maxAbsZ * 100), 100);
+          const barCol = z > 0 ? 'var(--success)' : 'var(--danger)';
+          return `<div style="display:flex;align-items:center;gap:6px">
+            <div style="width:24px;text-align:center;font-size:1rem;font-weight:900;color:${z > 0.5 ? 'var(--success)' : z < -0.5 ? 'var(--danger)' : 'var(--text2)'};flex-shrink:0">${r.tail}</div>
+            <div style="flex:1;height:10px;background:var(--bg3);border-radius:5px;overflow:hidden">
+              <div class="anim-bar" style="width:${barPct}%;height:100%;background:${barCol};border-radius:5px;opacity:.75"></div>
+            </div>
+            <div style="width:36px;text-align:right;font-size:.7rem;font-weight:700;color:${zCol};flex-shrink:0">${z>0?'+':''}${z}σ</div>
+            <div style="width:52px;text-align:right;font-size:.62rem;color:var(--text3);flex-shrink:0">${r.avg_bb.toFixed(1)}回 ${r.win_rate}%勝</div>
+          </div>`;
+        }).join('')}
+        </div>`;
       container.innerHTML = html;
     } else if (diffRows && diffRows.length > 0) {
       // フォールバック: 差枚ベース
@@ -2795,26 +2794,25 @@ async function loadZoneAnalysis(hall) {
     const rows = await apiFetch(`/api/hall/zone_analysis?hall_name=${encodeURIComponent(hall)}&days=90&zone_size=10`);
     if (!rows || rows.length < 2) { zoneEl.style.display = 'none'; return; }
     const top3 = rows.slice(0, 3);
-    const tableRows = rows.map(r => {
-      const zCol = r.z_score > 0.5 ? 'var(--success)' : r.z_score < -0.5 ? 'var(--danger)' : 'var(--text3)';
-      const rowBg = r.z_score > 1.0 ? 'rgba(16,185,129,.07)' : r.z_score < -1.0 ? 'rgba(244,63,94,.05)' : '';
-      return `<tr style="border-bottom:1px solid var(--bg2);background:${rowBg}">
-        <td style="padding:4px 6px;font-size:.75rem;white-space:nowrap">${esc(r.label)}</td>
-        <td style="padding:4px 6px;text-align:right;font-size:.7rem">${r.avg_bb.toFixed(1)}回</td>
-        <td style="padding:4px 6px;text-align:right;font-weight:700;color:${zCol}">${r.z_score>0?'+':''}${r.z_score}σ</td>
-        <td style="padding:4px 6px;text-align:right;color:var(--text3);font-size:.7rem">${r.seat_count}席/${r.record_count}件</td>
-      </tr>`;
+    const maxAbsZ = Math.max(...rows.map(r => Math.abs(r.z_score)), 1);
+    const zoneItems = rows.map(r => {
+      const z = r.z_score;
+      const zCol = z > 0.5 ? 'var(--success)' : z < -0.5 ? 'var(--danger)' : 'var(--text3)';
+      const barPct = Math.min(Math.round(Math.abs(z) / maxAbsZ * 100), 100);
+      const barCol = z > 0 ? 'var(--success)' : 'var(--danger)';
+      const isTop = z === Math.max(...rows.map(r2 => r2.z_score));
+      return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;${isTop ? 'background:rgba(16,185,129,.04);border-radius:4px;padding:4px 4px;' : ''}">
+        <div style="width:70px;font-size:.68rem;color:var(--text2);flex-shrink:0;font-weight:${isTop?'700':'400'}">${esc(r.label)}</div>
+        <div style="flex:1;height:8px;background:var(--bg2);border-radius:4px;position:relative">
+          <div class="anim-bar" style="width:${barPct}%;height:100%;background:${barCol};border-radius:4px;opacity:.7"></div>
+        </div>
+        <div style="width:38px;text-align:right;font-size:.68rem;font-weight:700;color:${zCol};flex-shrink:0">${z>0?'+':''}${z}σ</div>
+        <div style="width:28px;text-align:right;font-size:.6rem;color:var(--text3);flex-shrink:0">${r.avg_bb.toFixed(1)}</div>
+      </div>`;
     }).join('');
-    zoneEl.innerHTML = `<p style="font-size:.72rem;color:var(--text3);margin:10px 0 6px">台番ゾーン別BB確率（10台単位 / 過去90日）</p>
-      <table style="width:100%;font-size:.78rem;border-collapse:collapse">
-        <thead><tr style="background:var(--bg2);color:var(--text2)">
-          <th style="padding:4px 6px;text-align:left">ゾーン</th>
-          <th style="padding:4px 6px;text-align:right">BB確率</th>
-          <th style="padding:4px 6px;text-align:right">σ</th>
-          <th style="padding:4px 6px;text-align:right">データ</th>
-        </tr></thead>
-        <tbody>${tableRows}</tbody>
-      </table>`;
+    zoneEl.innerHTML = `<p style="font-size:.72rem;color:var(--text3);margin:10px 0 6px">台番ゾーン別BB確率（10台単位 / 過去90日）
+      <span style="font-size:.6rem;color:var(--text3);margin-left:6px">右端: BB確率/日</span></p>
+      ${zoneItems}`;
     zoneEl.style.display = '';
   } catch(e) {
     if (zoneEl) zoneEl.style.display = 'none';

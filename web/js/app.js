@@ -1508,6 +1508,9 @@ async function openSessionModal(id) {
 
   document.getElementById('modal-edit').onclick = () => openSessionEdit(s);
 
+  // セッションモーダルではフッターを表示
+  const footer = document.getElementById('modal-delete')?.closest('.modal-footer');
+  if (footer) footer.style.display = '';
   document.getElementById('modal-overlay').style.display = 'flex';
 }
 
@@ -1600,6 +1603,9 @@ function renderMiniPosterior(posterior) {
 
 function closeModal() {
   document.getElementById('modal-overlay').style.display = 'none';
+  // フッターをデフォルト状態に戻す（次回開くときに正しく表示される）
+  const footer = document.getElementById('modal-delete')?.closest('.modal-footer');
+  if (footer) footer.style.display = '';
 }
 document.getElementById('modal-close').addEventListener('click', closeModal);
 document.getElementById('modal-close2').addEventListener('click', closeModal);
@@ -1611,7 +1617,11 @@ document.getElementById('modal-overlay').addEventListener('click', e => {
 async function showSeatDetailModal(hall, machineName, seatNumber) {
   const body = document.getElementById('modal-body');
   const overlay = document.getElementById('modal-overlay');
+  const footer = document.getElementById('modal-delete')?.closest('.modal-footer');
+  const title = document.getElementById('modal-title');
   body.innerHTML = loadingHtml(3);
+  if (footer) footer.style.display = 'none';
+  if (title) title.textContent = `${machineName} ${seatNumber}番台`;
   overlay.style.display = 'flex';
 
   try {
@@ -3846,16 +3856,21 @@ async function loadTodayBriefing(hall) {
            <strong style="color:${dowColor};margin-left:6px">${sign(d.dow_avg_diff)}枚平均 / ${d.dow_total}曜日中${d.dow_rank}位</strong>
          </div>` : '';
 
+    const _seatBtn = (machine, seat, content) => {
+      const encH = encodeURIComponent(hall), encM = encodeURIComponent(machine);
+      return `<span style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px"
+        onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${seat})">${content}</span>`;
+    };
     const surgeRows = d.bb_surge_seats?.map(s =>
       `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0">
-         <span style="color:var(--text1)">${esc(s.machine)} <strong>${s.seat}番台</strong></span>
+         <span style="color:var(--text1)">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
          <span style="color:var(--success);font-weight:700">BB急上昇 +${s.surge_z}σ</span>
        </div>`
     ).join('') || '<span style="font-size:.72rem;color:var(--text3)">なし</span>';
 
     const topSeatRows = d.top_seats?.map((s, i) =>
       `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0;border-bottom:1px solid var(--border)">
-         <span><strong style="color:var(--text3);margin-right:4px">${i+1}.</strong>${esc(s.machine)} ${s.seat}番台</span>
+         <span><strong style="color:var(--text3);margin-right:4px">${i+1}.</strong>${_seatBtn(s.machine, s.seat, `${esc(s.machine)} ${s.seat}番台`)}</span>
          <span style="color:${s.avg_diff>=0?'var(--success)':'var(--danger)'};font-weight:700">${sign(s.avg_diff)}枚</span>
        </div>`
     ).join('') || '';
@@ -3863,7 +3878,7 @@ async function loadTodayBriefing(hall) {
     const streakRows = d.streak_seats?.length
       ? d.streak_seats.map(s =>
           `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0">
-             <span style="color:var(--text1)">${esc(s.machine)} <strong>${s.seat}番台</strong></span>
+             <span style="color:var(--text1)">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
              <span style="color:var(--success);font-weight:700">🔥 ${s.streak}連勝 / 平均${sign(s.avg_diff)}枚</span>
            </div>`
         ).join('')

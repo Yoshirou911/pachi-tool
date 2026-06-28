@@ -2169,7 +2169,7 @@ def compare_halls(days: int = Query(30)) -> list[dict]:
     全ホールの設定傾向を横断比較する。
     アナスロ(hall_day_seat)を優先し、なければみんレポ(hall_day_machine)を使う。
     """
-    ckey = f"hall_compare:{days}"
+    ckey = f"hall_compare:{days}:{date.today()}"
     cached = _cache_get(ckey)
     if cached:
         return cached
@@ -2560,7 +2560,7 @@ def get_seat_bb_ranking(
     同機種の平均BB確率との差（z-score）で「この台は高設定が多い」かを判定。
     設定判別の根拠となる最強シグナル。
     """
-    ckey = f"seat_bb_rank:{hall_name}:{machine_name}:{days}"
+    ckey = f"seat_bb_rank:{hall_name}:{machine_name}:{days}:{date.today()}"
     cached = _cache_get(ckey)
     if cached is not None:
         return cached  # type: ignore
@@ -3168,7 +3168,7 @@ def get_machine_dow_heatmap(
     機種×曜日の平均BB確率ヒートマップ。
     各セルに曜日基準からのz-scoreを返す（プラス=当日好調曜日）。
     """
-    ckey = f"dow_heatmap:{hall_name}:{days}"
+    ckey = f"dow_heatmap:{hall_name}:{days}:{date.today()}"
     cached = _cache_get(ckey)
     if cached:
         return cached
@@ -3463,7 +3463,7 @@ def get_event_day_pattern(
     日付パターン分析。「5のつく日」「月末」「毎週特定曜日」など
     どのパターンがBB確率上昇と相関するかを統計的に分析。
     """
-    ckey = f"event_day:{hall_name}:{days}"
+    ckey = f"event_day:{hall_name}:{days}:{date.today()}"
     cached = _cache_get(ckey)
     if cached is not None:
         return cached  # type: ignore
@@ -3568,7 +3568,7 @@ def get_zone_analysis(
     台番号をzone_size単位でグループ化して高設定率を比較。
     特定の「島」または「ゾーン」に高設定が集中するパターンを検知。
     """
-    ckey = f"zone:{hall_name}:{days}:{zone_size}"
+    ckey = f"zone:{hall_name}:{days}:{zone_size}:{date.today()}"
     cached = _cache_get(ckey)
     if cached is not None:
         return cached  # type: ignore
@@ -4029,7 +4029,7 @@ def get_machine_cross_hall(
     同一機種を複数ホールで横断比較。
     どの店が最もその機種に高設定を入れているかを返す。
     """
-    ckey = f"cross_hall:{machine_name}:{days}"
+    ckey = f"cross_hall:{machine_name}:{days}:{date.today()}"
     cached = _cache_get(ckey)
     if cached:
         return cached

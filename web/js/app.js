@@ -1741,6 +1741,10 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       </div>` : ''}
       <div style="font-size:.68rem;color:var(--text3);margin-bottom:4px;font-weight:600;text-transform:uppercase">直近履歴</div>
       ${histRows}
+      <div style="margin-top:12px">
+        <div style="font-size:.68rem;color:var(--text3);margin-bottom:4px;font-weight:600;text-transform:uppercase">メモ</div>
+        <textarea id="seat-memo-ta" placeholder="台のメモ（自動保存）" style="width:100%;box-sizing:border-box;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.78rem;padding:7px 9px;resize:vertical;min-height:54px;font-family:inherit;outline:none">${esc(localStorage.getItem('pachi_seat_memo_' + hall + '_' + machineName + '_' + seatNumber) || '')}</textarea>
+      </div>
       ${bbRank && bbRank.length > 1 ? (() => {
         const thisSeat = bbRank.find(r => r.seat_number === seatNumber);
         const rank = bbRank.findIndex(r => r.seat_number === seatNumber) + 1;
@@ -1844,6 +1848,16 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
             }} : {}),
           }
         }
+      });
+    }
+    // 台メモ自動保存
+    const memoKey = `pachi_seat_memo_${hall}_${machineName}_${seatNumber}`;
+    const memoTa = document.getElementById('seat-memo-ta');
+    if (memoTa) {
+      let _memoT = null;
+      memoTa.addEventListener('input', () => {
+        clearTimeout(_memoT);
+        _memoT = setTimeout(() => localStorage.setItem(memoKey, memoTa.value), 600);
       });
     }
   } catch(e) {
@@ -3906,22 +3920,26 @@ async function loadDowHeatmap(hall) {
       if (z <= -0.5) return 'rgba(239,68,68,.22)';
       return 'var(--bg2)';
     };
-    const zText = z => z == null ? '--' : (z >= 0 ? `+${z}` : `${z}`);
+    const zText = z => z == null ? '–' : (z >= 0 ? `+${z.toFixed(1)}` : `${z.toFixed(1)}`);
 
     const header = `<tr><th style="font-size:.6rem;padding:4px 6px;text-align:left;color:var(--text3);white-space:nowrap;position:sticky;left:0;background:var(--bg)">機種</th>` +
       labels.map((l, i) =>
-        `<th style="font-size:.65rem;padding:4px 5px;text-align:center;min-width:32px;${i === jpTodayDow ? 'color:var(--primary-h);font-weight:800' : 'color:var(--text3)'}">${l}</th>`
+        `<th style="font-size:.65rem;padding:4px 5px;text-align:center;min-width:36px;${i === jpTodayDow ? 'color:var(--primary-h);font-weight:800;border-bottom:2px solid var(--primary)' : 'color:var(--text3)'}">${l}</th>`
       ).join('') + '</tr>';
 
     const rows = d.machines.map(m => {
-      const cells = m.cells.map((c, i) =>
-        `<td title="${c.bb != null ? 'BB:'+c.bb+'%' : ''}" style="text-align:center;padding:3px 2px;background:${zColor(c.z)};font-size:.62rem;${i === jpTodayDow ? 'font-weight:800;outline:1px solid var(--primary-h)' : ''}">${zText(c.z)}</td>`
-      ).join('');
+      const cells = m.cells.map((c, i) => {
+        const tipText = c.bb != null ? `BB:1/${Math.round(1/c.bb*100)}` : '';
+        const highlight = i === jpTodayDow ? 'font-weight:800;outline:2px solid var(--primary-h);outline-offset:-1px;border-radius:2px' : '';
+        return `<td title="${tipText}" style="text-align:center;padding:4px 2px;background:${zColor(c.z)};font-size:.63rem;line-height:1.1;${highlight}">
+          <div>${zText(c.z)}</div>${tipText ? `<div style="font-size:.5rem;color:rgba(255,255,255,.5);margin-top:1px">${tipText}</div>` : ''}
+        </td>`;
+      }).join('');
       return `<tr><td style="font-size:.65rem;padding:4px 6px;white-space:nowrap;color:var(--text1);position:sticky;left:0;background:var(--bg)">${esc(m.machine)}</td>${cells}</tr>`;
     }).join('');
 
     body.innerHTML = `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="border-collapse:collapse;min-width:100%"><thead>${header}</thead><tbody>${rows}</tbody></table></div>
-      <div style="font-size:.6rem;color:var(--text3);margin-top:4px">σ値: 各機種のBB率を曜日間で標準化 / 今日の曜日を強調表示</div>`;
+      <div style="font-size:.6rem;color:var(--text3);margin-top:4px">σ値: 各機種のBB確率を曜日間で標準化 / 今日の曜日(枠線)を強調</div>`;
     card.style.display = 'block';
   } catch(e) {
     card.style.display = 'none';

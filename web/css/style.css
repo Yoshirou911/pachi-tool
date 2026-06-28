@@ -311,6 +311,9 @@ body::before {
 .btn-xs { padding: 3px 8px; font-size: .68rem; }
 .active-tail { background: rgba(124,127,245,.2) !important; color: var(--primary-h) !important; border-color: rgba(124,127,245,.4) !important; }
 .active-period { background: rgba(124,127,245,.15) !important; color: var(--primary-h) !important; border-color: rgba(124,127,245,.4) !important; font-weight: 700 !important; }
+.compare-row { transition: background .12s; border-radius: 0; }
+.compare-row:hover { background: rgba(124,127,245,.05); border-radius: 6px; }
+.compare-row:active { background: rgba(124,127,245,.1); transform: scale(.99); border-radius: 6px; }
 
 /* ===== Result card ===== */
 .result-card { padding: 0; overflow: hidden; }
@@ -753,6 +756,7 @@ details[open] > summary::after { transform: rotate(90deg); }
   border-radius: 0;
 }
 .drill-bar-item:hover { background: rgba(124,127,245,.06); border-radius: 6px; }
+.drill-bar-item:active { background: rgba(124,127,245,.12); border-radius: 6px; transform: scale(.99); }
 .drill-bar-item:last-child { border-bottom: none; }
 .drill-bar-rank {
   font-size: .62rem; color: var(--text3); font-weight: 700;

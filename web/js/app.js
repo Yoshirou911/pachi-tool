@@ -4500,7 +4500,7 @@ async function loadHallCompare() {
       const rankNumStyle = i === 0 ? 'font-size:.78rem;font-weight:900;color:#fbbf24;width:18px;text-align:center;flex-shrink:0' :
                            'font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0';
       const copyText = `${i+1}位 ${r.hall_name} ${r.avg_diff >= 0 ? '+' : ''}${r.avg_diff}枚 (${r.days_data}日 勝率${r.win_rate}%)`;
-      return `<div style="display:flex;align-items:center;gap:8px;cursor:pointer;${rankStyle}"
+      return `<div class="compare-row" style="display:flex;align-items:center;gap:8px;cursor:pointer;${rankStyle}"
         data-copy-rank="${esc(copyText)}"
         onclick="switchToHall(decodeURIComponent('${encH}'))">
         <span style="${rankNumStyle}">${i+1}</span>

@@ -240,8 +240,10 @@ const estResetBtn = document.getElementById('est-reset-btn');
 async function loadMachineSelect() {
   try {
     state.machines = await api.getMachines();
-    estMachine.innerHTML = '<option value="">-- 機種を選択 --</option>' +
-      state.machines.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+    const dl = document.getElementById('est-machine-datalist');
+    if (dl) {
+      dl.innerHTML = state.machines.map(m => `<option value="${esc(m)}">`).join('');
+    }
   } catch (e) {
     showToast('機種一覧の取得に失敗: ' + e.message, 'error');
   }
@@ -281,7 +283,15 @@ async function loadMachineSnapshot(machineName) {
   }
 }
 
-estMachine?.addEventListener('change', () => loadMachineSnapshot(estMachine.value));
+const _onMachineChange = () => {
+  const v = estMachine.value.trim();
+  if (state.machines && state.machines.includes(v)) {
+    loadMachineSnapshot(v);
+    estMachine.dispatchEvent(Object.assign(new Event('_machine_valid'), { detail: v }));
+  }
+};
+estMachine?.addEventListener('change', _onMachineChange);
+estMachine?.addEventListener('input', _onMachineChange);
 
 // 台番入力 → 末尾傾向ヒント + 台別過去成績
 document.getElementById('est-seat-number')?.addEventListener('input', async function() {
@@ -342,7 +352,8 @@ document.getElementById('est-seat-number')?.addEventListener('input', async func
 });
 
 estMachine.addEventListener('change', async () => {
-  const name = estMachine.value;
+  const name = estMachine.value.trim();
+  if (name && state.machines && !state.machines.includes(name)) return; // 無効な入力は無視
   state.currentMachine = name;
   state.estimateHistory = [];
   state.minSetting = null;  // 確定演出リセット
@@ -1769,14 +1780,14 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
             background:${isCur?'rgba(124,127,245,.15)':'transparent'};margin-bottom:2px">
             <span style="font-size:.68rem;color:${isCur?'var(--primary-h)':'var(--text3)'};width:40px;font-weight:${isCur?'700':'400'}">${r.seat_number}番台</span>
             <span style="font-size:.68rem;color:var(--text3)">BB ${r.avg_bb.toFixed(1)}回</span>
-            <span style="font-size:.68rem;font-weight:700;color:${zCol}">${r.z_score > 0 ? '+' : ''}${r.z_score}σ</span>
+            <span style="font-size:.68rem;font-weight:700;color:${zCol}">${r.z_score > 0 ? '+' : ''}${(+r.z_score).toFixed(1)}σ</span>
             ${isCur ? '<span style="font-size:.6rem;background:var(--primary-h);color:#fff;border-radius:3px;padding:0 4px">この台</span>' : ''}
           </div>`;
         }).join('');
         return `<div style="margin-top:12px">
           <div style="font-size:.68rem;color:var(--text3);margin-bottom:6px;font-weight:600;text-transform:uppercase">
             同機種BB確率ランキング
-            ${thisSeat ? `<span style="color:${rankColor};margin-left:6px">この台: ${rank}位 (${thisSeat.z_score > 0 ? '+' : ''}${thisSeat.z_score}σ)</span>` : ''}
+            ${thisSeat ? `<span style="color:${rankColor};margin-left:6px">この台: ${rank}位 (${(+thisSeat.z_score).toFixed(1)}σ)</span>` : ''}
           </div>
           ${rows}
         </div>`;

@@ -83,9 +83,9 @@
         <div class="card">
           <div class="form-row" style="position:relative">
             <label class="form-label">機種</label>
-            <select id="est-machine" class="form-select">
-              <option value="">-- 機種を選択 --</option>
-            </select>
+            <input type="text" id="est-machine" class="form-input" list="est-machine-datalist"
+              placeholder="機種名を入力 or 選択…" autocomplete="off" style="cursor:pointer">
+            <datalist id="est-machine-datalist"></datalist>
           </div>
           <!-- 機種スナップショット -->
           <div id="machine-snapshot" style="display:none;margin-bottom:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;font-size:.75rem"></div>

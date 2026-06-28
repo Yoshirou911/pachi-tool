@@ -2529,10 +2529,12 @@ async function loadTopMachines(hall) {
       const barColor = diff >= 100 ? 'var(--success)' : diff >= 0 ? 'var(--warning)' : 'var(--danger)';
       const diffStr = (diff > 0 ? '+' : '') + Math.round(diff).toLocaleString();
       const rankLabel = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
-      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+      const encHm = encodeURIComponent(hall), encMm = encodeURIComponent(r.machine_name);
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer"
+        onclick="renderMachineTrendChart(decodeURIComponent('${encHm}'),decodeURIComponent('${encMm}'))">
         <span style="width:22px;text-align:right;font-size:${i<3?'.82':'.72'}rem;color:var(--text3)">${rankLabel}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.machine_name)}</div>
+          <div style="font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--primary);text-decoration:underline dotted">${esc(r.machine_name)}</div>
           <div style="height:5px;background:var(--bg3);border-radius:3px;margin-top:2px;overflow:hidden">
             <div style="width:${pct}%;height:5px;background:${barColor};border-radius:3px;box-shadow:0 0 6px ${barColor}55;transition:width .4s"></div>
           </div>

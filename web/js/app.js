@@ -4951,6 +4951,7 @@ document.getElementById('hall-ai-btn').addEventListener('click', async () => {
 // ============================================================
 
 async function loadScrapeManager() {
+  loadCacheStats();
   // DBデータ統計サマリー
   try {
     const st = await apiFetch('/api/stats').catch(() => null);
@@ -5057,6 +5058,28 @@ async function loadScrapeManager() {
     console.error('scrape manager load error:', e);
   }
 }
+
+async function loadCacheStats() {
+  const el = document.getElementById('cache-stats-text');
+  if (!el) return;
+  try {
+    const d = await apiFetch('/api/cache/stats').catch(() => null);
+    if (!d) { el.textContent = 'キャッシュ統計取得失敗'; return; }
+    el.textContent = `キャッシュ: ${d.count}件 / TTL${d.ttl_seconds}s / ${d.memory_kb_estimate}KB推定`;
+  } catch(e) {
+    el.textContent = 'キャッシュ: -';
+  }
+}
+
+window.clearApiCache = async function() {
+  try {
+    const r = await fetch('/api/cache/clear', { method: 'POST' }).then(r => r.json()).catch(() => null);
+    showToast(r ? `キャッシュをクリアしました (${r.cleared}件)` : 'クリア失敗', r ? 'success' : 'error');
+    loadCacheStats();
+  } catch(e) {
+    showToast('クリア失敗: ' + e.message, 'error');
+  }
+};
 
 // Cookie保存ボタン
 document.getElementById('save-cookie-btn')?.addEventListener('click', async () => {

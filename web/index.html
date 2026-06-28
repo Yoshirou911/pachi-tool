@@ -770,6 +770,11 @@
         <div id="htab-admin" class="htab-pane">
           <!-- データ統計サマリー -->
           <div id="db-stats-card" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px"></div>
+          <!-- キャッシュ統計 -->
+          <div id="cache-stats-bar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:.65rem;color:var(--text3)">
+            <span id="cache-stats-text">キャッシュ: 読み込み中...</span>
+            <button onclick="clearApiCache()" class="btn btn-ghost" style="font-size:.62rem;padding:2px 8px">キャッシュクリア</button>
+          </div>
 
           <div class="card card-col closed" id="scrape-manager-card">
             <div style="display:flex;align-items:center;justify-content:space-between">

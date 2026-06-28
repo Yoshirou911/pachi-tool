@@ -978,6 +978,15 @@ def _get_reports_conn() -> Optional[sqlite3.Connection]:
         return None
     conn = sqlite3.connect(HALL_REPORTS_DB)
     conn.row_factory = sqlite3.Row
+    # 初回接続時にインデックスを作成（既存なら無視）
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_hdm_hall_date ON hall_day_machine(hall_name, report_date);
+        CREATE INDEX IF NOT EXISTS idx_hdm_hall_machine ON hall_day_machine(hall_name, machine_name);
+        CREATE INDEX IF NOT EXISTS idx_hds_hall_date ON hall_day_seat(hall_name, report_date);
+        CREATE INDEX IF NOT EXISTS idx_hds_hall_machine ON hall_day_seat(hall_name, machine_name, seat_number);
+        CREATE INDEX IF NOT EXISTS idx_hds_bb_prob ON hall_day_seat(bb_prob) WHERE bb_prob IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_he_hall_date ON hall_event(hall_name, event_date);
+    """)
     return conn
 
 

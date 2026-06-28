@@ -1961,6 +1961,7 @@ if (sesImportInput) {
 async function loadHallPage() {
   const hall = getSelectedHall();
   if (!hall) return;
+  _addRecentHall(hall);
   try {
     // セッション統計を取得
     const [daitoData, hallStats] = await Promise.allSettled([
@@ -2294,6 +2295,35 @@ function getSelectedHall() {
     return document.getElementById('hall-custom-input').value.trim() || '';
   }
   return v;
+}
+
+function _getRecentHalls() {
+  try { return JSON.parse(localStorage.getItem('pachi_recent_halls') || '[]'); } catch { return []; }
+}
+function _addRecentHall(hall) {
+  if (!hall) return;
+  const halls = _getRecentHalls().filter(h => h !== hall);
+  halls.unshift(hall);
+  localStorage.setItem('pachi_recent_halls', JSON.stringify(halls.slice(0, 5)));
+  _renderRecentHallsBar();
+}
+function _renderRecentHallsBar() {
+  const bar = document.getElementById('recent-halls-bar');
+  if (!bar) return;
+  const halls = _getRecentHalls();
+  if (!halls.length) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = halls.map(h => {
+    const enc = encodeURIComponent(h);
+    const label = esc(h.length > 10 ? h.slice(0, 9) + '…' : h);
+    return `<button class="btn btn-ghost" style="font-size:.62rem;padding:2px 8px;white-space:nowrap;max-width:110px;overflow:hidden;text-overflow:ellipsis"
+      title="${esc(h)}"
+      onclick="(function(){var s=document.getElementById('hall-select');s.value=decodeURIComponent('${enc}');s.dispatchEvent(new Event('change'));})();return false">${label}</button>`;
+  }).join('') + `<button class="btn btn-ghost" style="font-size:.58rem;padding:2px 6px;color:var(--text3)" onclick="_clearRecentHalls()" title="履歴削除">✕</button>`;
+}
+function _clearRecentHalls() {
+  localStorage.removeItem('pachi_recent_halls');
+  _renderRecentHallsBar();
 }
 
 // ---------------------------------------------------------------------------
@@ -3354,6 +3384,7 @@ async function init() {
   await checkConnection();
   await loadMachineSelect();
   await populateSessionFilters();
+  _renderRecentHallsBar();
   loadTodayHotCard();
   loadWeeklyHighlight();
 
@@ -4341,7 +4372,7 @@ async function loadTodayPickCard() {
           <div style="font-size:.7rem;color:${zCol};font-weight:700">${h.z_score != null ? h.z_score.toFixed(1) + 'σ' : ''}</div>
           <div style="font-size:.58rem;color:var(--text3)">${h.label || ''}</div>
         </div>
-        <button onclick="event.stopPropagation();switchToHall('${esc(h.hall_name)}')" class="btn btn-ghost" style="font-size:.62rem;padding:2px 7px;flex-shrink:0">→</button>
+        <button onclick="event.stopPropagation();switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}'))" class="btn btn-ghost" style="font-size:.62rem;padding:2px 7px;flex-shrink:0">→</button>
       </div>`;
     }).join('');
   } catch(e) {
@@ -4372,7 +4403,18 @@ async function loadHallCompare() {
     }
     const maxAbs = Math.max(...rows.map(r => Math.abs(r.avg_diff)), 1);
     const sign = v => v >= 0 ? `+${v}` : `${v}`;
-    body.innerHTML = rows.map((r, i) => {
+    // データ鮮度インジケータ
+    const latestDates = rows.map(r => r.latest_date).filter(Boolean).sort();
+    const newestDate = latestDates[latestDates.length - 1];
+    const oldestActive = latestDates[0];
+    let freshnessHtml = '';
+    if (newestDate) {
+      const diffDays = Math.round((Date.now() - new Date(newestDate).getTime()) / 86400000);
+      const col = diffDays === 0 ? 'var(--success)' : diffDays <= 1 ? 'var(--warning)' : 'var(--danger)';
+      const label = diffDays === 0 ? '本日更新済み' : `${diffDays}日前が最新`;
+      freshnessHtml = `<div style="font-size:.62rem;color:${col};text-align:right;margin-bottom:6px;padding:0 2px">● ${label} (${rows.length}店舗)</div>`;
+    }
+    body.innerHTML = freshnessHtml + rows.map((r, i) => {
       const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       const pct = Math.round(Math.abs(r.avg_diff) / maxAbs * 100);
       const encH = encodeURIComponent(r.hall_name);

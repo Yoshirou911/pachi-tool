@@ -4528,6 +4528,27 @@ async function loadHallCompare() {
         </div>
       </div>`;
     }).join('');
+
+    // ルールベースのインサイト
+    const insightLines = [];
+    const topHall = rows[0];
+    const eventCandidates = rows.filter(r => r.today_event_z != null && r.today_event_z >= 0.5);
+    const surgeHalls = rows.filter(r => r.surge_seat_count > 0);
+    const risingHalls = rows.filter(r => r.bb_trend_7d != null && r.bb_trend_7d > 2);
+    if (eventCandidates.length > 0)
+      insightLines.push(`📅 今日イベント候補: ${eventCandidates.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
+    if (surgeHalls.length > 0)
+      insightLines.push(`🔺 BB急上昇台あり: ${surgeHalls.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
+    if (risingHalls.length > 0)
+      insightLines.push(`↑ BB上昇トレンド: ${risingHalls.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
+    if (topHall && topHall.avg_diff > 0)
+      insightLines.push(`🏆 直近${_compareDays}日トップ: ${topHall.hall_name} (${topHall.avg_diff >= 0 ? '+' : ''}${topHall.avg_diff}枚)`);
+    if (insightLines.length > 0) {
+      body.innerHTML += `<div style="margin-top:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+        <div style="font-size:.6rem;color:var(--text3);margin-bottom:4px;font-weight:600">今日のポイント</div>
+        ${insightLines.map(l => `<div style="font-size:.72rem;color:var(--text2);padding:1px 0">${l}</div>`).join('')}
+      </div>`;
+    }
   } catch(e) {
     body.innerHTML = `<div style="color:var(--danger);font-size:.8rem;padding:12px">エラー: ${e.message}</div>`;
   }

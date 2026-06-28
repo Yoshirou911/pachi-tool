@@ -3467,20 +3467,23 @@ function renderPinnedSeatsCard() {
   const pins = getPinnedSeats();
   if (pins.length === 0) { card.style.display = 'none'; return; }
   const hall = getSelectedHall();
-  const rows = pins.filter(p => !hall || p.hall === hall).map(p =>
-    `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
-       <div>
+  const rows = pins.filter(p => !hall || p.hall === hall).map(p => {
+    const memo = localStorage.getItem(`pachi_seat_memo_${p.hall}_${p.machine}_${p.seat}`) || '';
+    const memoSnip = memo ? `<div style="font-size:.58rem;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;margin-top:2px">📝 ${esc(memo.slice(0, 30))}</div>` : '';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+       <div style="flex:1;min-width:0;margin-right:6px">
          <div style="font-size:.82rem;font-weight:700">${esc(p.machine)} <span style="color:var(--primary-h)">${p.seat}番台</span></div>
          <div style="font-size:.62rem;color:var(--text3)">${esc(p.hall)}</div>
+         ${memoSnip}
        </div>
-       <div style="display:flex;gap:6px">
+       <div style="display:flex;gap:6px;flex-shrink:0">
          <button onclick="showSeatDetailModal(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})"
            style="background:var(--bg2);border:none;border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">詳細</button>
          <button onclick="togglePinSeat(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})"
            style="background:none;border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text3)">解除</button>
        </div>
-     </div>`
-  ).join('');
+     </div>`;
+  }).join('');
   if (!rows) { card.style.display = 'none'; return; }
   document.getElementById('pinned-seats-body').innerHTML = rows;
   card.style.display = 'block';

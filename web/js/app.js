@@ -77,8 +77,12 @@ function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${tabId}`));
   window.scrollTo(0, 0);
+  localStorage.setItem('pachi_last_tab', tabId);
   if (tabId === 'session') loadSessions();
-  if (tabId === 'hall') switchHallTab('compare');
+  if (tabId === 'hall') {
+    const last = localStorage.getItem('pachi_last_hall_tab') || 'compare';
+    switchHallTab(last);
+  }
   if (tabId === 'map') loadMapPage();
   if (tabId === 'ai') loadAiPage();
   if (tabId === 'machines') loadMachinesPage();
@@ -89,6 +93,7 @@ function switchHallTab(htabId) {
   document.querySelectorAll('.htab-pane').forEach(p => {
     p.classList.toggle('active', p.id === `htab-${htabId}`);
   });
+  localStorage.setItem('pachi_last_hall_tab', htabId);
   if (htabId === 'compare') loadHallCompare();
   if (htabId === 'detail') loadHallPage();
   if (htabId === 'admin') loadScrapeManager();
@@ -4520,7 +4525,11 @@ async function loadMachineSeatRankingInline(hall, machineName, rowEl) {
   }
 }
 
-init();
+init().then(() => {
+  // 最後に見たタブを復元（デフォルトは estimate）
+  const lastTab = localStorage.getItem('pachi_last_tab');
+  if (lastTab && lastTab !== 'estimate') switchTab(lastTab);
+});
 
 // ---------------------------------------------------------------------------
 // マップページ

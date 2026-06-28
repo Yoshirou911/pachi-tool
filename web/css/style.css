@@ -529,6 +529,14 @@ body::before {
 .modal-footer { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
 .modal-footer .btn { flex: 1; }
 
+/* ===== Animated bar (used in today-targets stability bar) ===== */
+@keyframes bar-grow {
+  from { width: 0 !important; }
+}
+.anim-bar {
+  animation: bar-grow .7s cubic-bezier(.4,0,.2,1) both;
+}
+
 /* ===== Hall grade banner ===== */
 #hall-grade-banner > div {
   animation: grade-in .3s cubic-bezier(.22,.61,.36,1);

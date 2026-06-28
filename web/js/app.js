@@ -797,7 +797,7 @@ function renderEstimateResult(r) {
         return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
           <div style="font-size:.72rem;color:var(--text2);width:120px;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(name)}</div>
           <div style="flex:1;height:4px;background:var(--bg3);border-radius:2px">
-            <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
+            <div class="anim-bar" style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>
           <div style="font-size:.68rem;color:${col};width:32px;text-align:right;flex-shrink:0">${pow.toFixed(1)}</div>
         </div>`;
@@ -2538,7 +2538,7 @@ async function loadTopMachines(hall) {
         <div style="flex:1;min-width:0">
           <div style="font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--primary);text-decoration:underline dotted">${esc(r.machine_name)}</div>
           <div style="height:5px;background:var(--bg3);border-radius:3px;margin-top:2px;overflow:hidden">
-            <div style="width:${pct}%;height:5px;background:${barColor};border-radius:3px;box-shadow:0 0 6px ${barColor}55;transition:width .4s"></div>
+            <div class="anim-bar" style="width:${pct}%;height:5px;background:${barColor};border-radius:3px;box-shadow:0 0 6px ${barColor}55"></div>
           </div>
         </div>
         <span style="font-size:.78rem;font-weight:700;color:${barColor};white-space:nowrap">${diffStr}</span>
@@ -3745,7 +3745,7 @@ async function loadTodayDowMachines(hall) {
         <div style="flex:1;min-width:0">
           <div style="font-size:.88rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.machine_name)}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:4px">
-            <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
+            <div class="anim-bar" style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>
           <div style="font-size:.62rem;color:var(--text3);margin-top:2px">${r.count}日 ${r.unit_cnt}台 勝${r.win_rate}% → タップで台別</div>
         </div>
@@ -4197,7 +4197,7 @@ async function loadTodayTargets(hall) {
           <div style="display:flex;align-items:center;gap:6px">
             <span style="font-size:.62rem;color:var(--text3);flex-shrink:0">安定性</span>
             <div style="flex:1;height:4px;background:var(--bg3);border-radius:2px">
-              <div style="width:${stabW}%;height:100%;background:${stabCol};border-radius:2px;transition:width .6s"></div>
+              <div class="anim-bar" style="width:${stabW}%;height:100%;background:${stabCol};border-radius:2px"></div>
             </div>
             <span style="font-size:.62rem;color:var(--text3)">${stabW}%</span>
           </div>
@@ -4652,7 +4652,7 @@ async function loadHallCompare() {
         <div style="flex:1;min-width:0">
           <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${srcBadge}${todayBadge}${trendHtml}${surgeHtml}${eventHtml}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
-            <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
+            <div class="anim-bar" style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>
           <div style="font-size:.58rem;color:var(--text3);margin-top:2px">${r.days_data}日 ${r.machine_count}機種 ${r.record_count}件 勝率${r.win_rate}% <span style="color:${zCol}">${bbLine}</span></div>
         </div>

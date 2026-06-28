@@ -2467,10 +2467,16 @@ async function loadHallTrend(hall) {
     if (summaryEl) {
       const sign = data.trend >= 0 ? '+' : '';
       const trendColor = data.trend >= 0 ? 'var(--success)' : 'var(--danger)';
+      const trendIcon = data.trend > 100 ? '↑↑' : data.trend > 0 ? '↑' : data.trend < -100 ? '↓↓' : '↓';
+      const posCount = (data.values || []).filter(v => v > 0).length;
+      const winRate = data.days_data ? Math.round(posCount / data.days_data * 100) : 0;
       summaryEl.innerHTML = `
-        平均 <strong style="color:var(--text1)">${data.avg >= 0 ? '+' : ''}${data.avg}枚</strong>
-        トレンド <strong style="color:${trendColor}">${sign}${data.trend}枚</strong>
-        <span style="color:var(--text3)">(${data.days_data}日)</span>`;
+        <span style="color:var(--text3)">平均</span> <strong style="color:var(--text1)">${data.avg >= 0 ? '+' : ''}${data.avg}枚</strong>
+        <span style="margin:0 4px;color:var(--text3)">·</span>
+        <span style="color:${trendColor};font-weight:700">${trendIcon}${sign}${data.trend}</span>
+        <span style="margin:0 4px;color:var(--text3)">·</span>
+        <span style="color:${winRate>=50?'var(--success)':'var(--danger)'}">${winRate}%勝</span>
+        <span style="color:var(--text3);font-size:.6rem;margin-left:2px">(${data.days_data}日)</span>`;
     }
     const ctx = document.getElementById('hall-trend-chart')?.getContext('2d');
     if (!ctx) return;
@@ -4590,7 +4596,7 @@ window.switchToHall = function(hallName) {
     ci.value = hallName;
   }
   switchTab('hall');
-  switchHallTab('detail');
+  switchHallTab('detail'); // calls loadHallPage() internally
 };
 
 // ============================================================

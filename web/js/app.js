@@ -2132,7 +2132,7 @@ async function loadSlumpSeats(hall) {
                 style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:2px;color:${isPinnedSeat(hall,r.machine_name,r.seat_number)?'var(--warning)':'var(--text3)'}">
                 ${isPinnedSeat(hall, r.machine_name, r.seat_number) ? '★' : '☆'}
               </button>
-              <div style="font-size:1.1rem;font-weight:900;color:${slumpCol}">-${z}σ</div>
+              <div style="font-size:1.1rem;font-weight:900;color:${slumpCol}">-${z.toFixed(1)}σ</div>
             </div>
           </div>
           <div style="height:3px;background:var(--bg2);border-radius:2px">
@@ -4231,7 +4231,7 @@ async function loadBBSurgeSeats(hall) {
                 style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:2px;color:${isPinnedSeat(hall,r.machine_name,r.seat_number)?'var(--warning)':'var(--text3)'}">
                 ${isPinnedSeat(hall, r.machine_name, r.seat_number) ? '★' : '☆'}
               </button>
-              <div style="font-size:1.1rem;font-weight:900;color:${surgeCol};text-shadow:${glowStr}">+${z}σ</div>
+              <div style="font-size:1.1rem;font-weight:900;color:${surgeCol};text-shadow:${glowStr}">+${z.toFixed(1)}σ</div>
             </div>
           </div>
           <div style="height:3px;background:var(--bg2);border-radius:2px">

@@ -306,19 +306,31 @@ class SessionUpdate(BaseModel):
 @app.get("/api/machines", tags=["machines"])
 def list_machines() -> list[str]:
     """保存済み機種の一覧を返す。"""
-    return sorted(
+    ckey = f"machines_list:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
+    result = sorted(
         p.stem for p in MACHINES_DIR.glob("*.json")
         if p.stem and p.stem != ""
     )
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/machines/{machine_name}", tags=["machines"])
 def get_machine(machine_name: str) -> dict:
     """機種データ（確率テーブル・機械割）を返す。"""
+    ckey = f"machine_data:{machine_name}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     path = MACHINES_DIR / f"{machine_name}.json"
     if not path.exists():
         raise HTTPException(404, f"機種が見つかりません: {machine_name}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    result = json.loads(path.read_text(encoding="utf-8"))
+    _cache_set(ckey, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -620,7 +632,13 @@ def delete_session_endpoint(session_id: int) -> dict:
 
 @app.get("/api/halls", tags=["sessions"])
 def get_halls() -> list[str]:
-    return list_halls()
+    ckey = f"halls_list:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
+    result = list_halls()
+    _cache_set(ckey, result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -677,7 +695,13 @@ def get_day_rating(
 
 @app.get("/api/hall/machine_ranking", tags=["hall"])
 def get_machine_ranking(hall_name: str = Query(...)) -> list[dict]:
-    return machine_ranking(hall_name)
+    ckey = f"machine_ranking:{hall_name}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
+    result = machine_ranking(hall_name)
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/weekday_machine_stats", tags=["hall"])
@@ -686,6 +710,10 @@ def get_weekday_machine_stats(
     days: int = Query(90),
 ) -> list[dict]:
     """曜日×機種のクロス集計（どの曜日にどの機種が強いか）"""
+    ckey = f"weekday_machine_stats:{hall_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -707,11 +735,13 @@ def get_weekday_machine_stats(
     ).fetchall()
     conn.close()
     dow_map = {"0":"日","1":"月","2":"火","3":"水","4":"木","5":"金","6":"土"}
-    return [
+    result = [
         {"weekday": dow_map.get(r[0], r[0]), "machine_name": r[1],
          "count": r[2], "avg_diff": r[3] or 0, "win_rate": r[4] or 0}
         for r in rows
     ]
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/today_machine_ranking", tags=["hall"])

@@ -1962,6 +1962,7 @@ async function loadHallPage() {
   const hall = getSelectedHall();
   if (!hall) return;
   _addRecentHall(hall);
+  _loadHallMemo(hall);
   try {
     // セッション統計を取得
     const [daitoData, hallStats] = await Promise.allSettled([
@@ -2296,6 +2297,31 @@ function getSelectedHall() {
   }
   return v;
 }
+
+// ===== ホールメモ (LocalStorage) =====
+function _loadHallMemo(hall) {
+  const card = document.getElementById('hall-memo-card');
+  const ta = document.getElementById('hall-memo-text');
+  if (!card || !ta) return;
+  card.style.display = 'block';
+  ta.value = localStorage.getItem(`pachi_memo_${hall}`) || '';
+  ta.dataset.hall = hall;
+}
+
+(function() {
+  let _memoTimer = null;
+  document.addEventListener('input', e => {
+    if (e.target.id !== 'hall-memo-text') return;
+    const hall = e.target.dataset.hall;
+    if (!hall) return;
+    clearTimeout(_memoTimer);
+    _memoTimer = setTimeout(() => {
+      localStorage.setItem(`pachi_memo_${hall}`, e.target.value);
+      const saved = document.getElementById('hall-memo-saved');
+      if (saved) { saved.style.opacity = '1'; setTimeout(() => { saved.style.opacity = '0'; }, 1500); }
+    }, 600);
+  });
+})();
 
 function _getRecentHalls() {
   try { return JSON.parse(localStorage.getItem('pachi_recent_halls') || '[]'); } catch { return []; }

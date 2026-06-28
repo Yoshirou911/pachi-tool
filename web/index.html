@@ -604,6 +604,17 @@
             <div id="slump-seats-body"></div>
           </div>
 
+          <!-- ホールメモ（LocalStorage） -->
+          <div class="card" id="hall-memo-card" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+              <div class="card-title" style="margin-bottom:0">📝 メモ</div>
+              <span id="hall-memo-saved" style="font-size:.6rem;color:var(--success);opacity:0;transition:opacity .4s">保存済み</span>
+            </div>
+            <textarea id="hall-memo-text" class="form-input"
+              placeholder="このホールについての気づきやメモ..."
+              style="min-height:70px;resize:vertical;font-size:.8rem;line-height:1.6"></textarea>
+          </div>
+
           <!-- イベント日パターン -->
           <div class="card" id="event-day-card" style="display:none">
             <div class="card-title">イベント日パターン <span style="font-size:.65rem;color:var(--text3);font-weight:400">（BB確率上昇が高い日）</span></div>

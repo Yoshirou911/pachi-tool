@@ -2809,6 +2809,10 @@ def get_today_targets(
     days: int = Query(30),
 ) -> dict:
     """今日の狙い台TOP3 — 曜日傾向・安定性・直近トレンドを複合スコアで統合"""
+    ckey = f"today_targets:{hall_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     import datetime, math as _math
     today = datetime.date.today()
     weekday = today.weekday()  # 0=月 ... 6=日
@@ -2970,13 +2974,15 @@ def get_today_targets(
 
     best_machine = machine_rows[0][0] if machine_rows else None
 
-    return {
+    result = {
         "seats": seats,
         "best_tail": best_tail,
         "best_machine": best_machine,
         "today_weekday": today_name,
         "data_days": days,
     }
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/machine_setting_tendency", tags=["hall"])
@@ -2988,6 +2994,10 @@ def get_machine_setting_tendency(
     機種ごとの設定傾向を推定して返す。
     hall/prior.py の _estimate_prior_from_anaslo を全機種に適用。
     """
+    ckey = f"machine_setting_tendency:{hall_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -3083,6 +3093,7 @@ def get_machine_setting_tendency(
 
     # 推定設定（高いほど高設定店の証拠）でソート
     result.sort(key=lambda x: -(x["est_setting"] or 0))
+    _cache_set(ckey, result)
     return result
 
 

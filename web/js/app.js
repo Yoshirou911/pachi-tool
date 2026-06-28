@@ -2127,7 +2127,11 @@ async function loadSlumpSeats(hall) {
                 ${pctChange ? `<span style="color:${slumpCol}"> (${pctChange}%)</span>` : ''}
               </div>
             </div>
-            <div style="text-align:right;flex-shrink:0">
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+              <button onclick="event.stopPropagation();togglePinSeat(decodeURIComponent('${encHall}'),decodeURIComponent('${encM}'),${r.seat_number})"
+                style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:2px;color:${isPinnedSeat(hall,r.machine_name,r.seat_number)?'var(--warning)':'var(--text3)'}">
+                ${isPinnedSeat(hall, r.machine_name, r.seat_number) ? '★' : '☆'}
+              </button>
               <div style="font-size:1.1rem;font-weight:900;color:${slumpCol}">-${z}σ</div>
             </div>
           </div>
@@ -4212,7 +4216,11 @@ async function loadBBSurgeSeats(hall) {
                 ${pctChange ? `<span style="color:${surgeCol}"> (+${pctChange}%)</span>` : ''}
               </div>
             </div>
-            <div style="text-align:right;flex-shrink:0">
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+              <button onclick="event.stopPropagation();togglePinSeat(decodeURIComponent('${encHall}'),decodeURIComponent('${encM}'),${r.seat_number})"
+                style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:2px;color:${isPinnedSeat(hall,r.machine_name,r.seat_number)?'var(--warning)':'var(--text3)'}">
+                ${isPinnedSeat(hall, r.machine_name, r.seat_number) ? '★' : '☆'}
+              </button>
               <div style="font-size:1.1rem;font-weight:900;color:${surgeCol};text-shadow:${glowStr}">+${z}σ</div>
             </div>
           </div>

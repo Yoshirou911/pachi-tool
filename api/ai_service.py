@@ -636,28 +636,45 @@ def _all_halls_summary() -> str:
 
 
 def _all_halls_top_machines() -> str:
-    """全店舗横断で最も出ている機種TOP5"""
+    """店舗ごとの機種別成績（各店TOP4）+ 全横断ランキング"""
     try:
         conn = sqlite3.connect(HALL_REPORTS_DB)
+        # 全組み合わせを取得して Python 側でフィルタ
         rows = conn.execute("""
             SELECT hall_name, machine_name,
                    COUNT(*) as cnt,
                    ROUND(AVG(diff_coins)) as avg_diff,
                    ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
             FROM hall_day_seat
-            WHERE machine_name != '_NODATA_' AND bb_prob IS NOT NULL
+            WHERE machine_name != '_NODATA_'
               AND report_date >= date('now', '-30 days')
             GROUP BY hall_name, machine_name
-            HAVING cnt >= 3
-            ORDER BY avg_diff DESC
-            LIMIT 8
+            HAVING cnt >= 2
+            ORDER BY hall_name, avg_diff DESC
         """).fetchall()
         conn.close()
         if not rows:
             return ""
-        lines = ["【全店舗横断 機種×店舗 好調ランキング（直近30日）】"]
-        for i, r in enumerate(rows, 1):
+
+        # 店舗ごとにTOP4をまとめる
+        from collections import defaultdict
+        hall_machines: dict[str, list] = defaultdict(list)
+        for r in rows:
+            hall_machines[r[0]].append(r)
+
+        lines = ["【店舗別 機種ランキング（直近30日 各店TOP4）】"]
+        lines.append("（「ジャグラーはどの店？」などの質問に使う機種×店舗データ）")
+        for hall, machines in hall_machines.items():
+            lines.append(f"\n▼ {hall}")
+            for m in machines[:4]:
+                lines.append(f"  {m[1]}: 平均{m[3]:+}枚 / 勝率{m[4]}% ({m[2]}日)")
+
+        # 横断TOP10（全体でも上位を別掲）
+        all_sorted = sorted(rows, key=lambda x: -(x[3] or -9999))[:10]
+        lines.append("\n【全店舗横断 好調機種×店舗 TOP10】")
+        for i, r in enumerate(all_sorted, 1):
             lines.append(f"{i}. {r[0]} × {r[1]}: 平均{r[3]:+}枚 / 勝率{r[4]}% ({r[2]}日)")
+
         return "\n".join(lines)
     except Exception:
         return ""

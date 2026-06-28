@@ -1593,11 +1593,35 @@ def get_stats() -> dict:
 
 @app.get("/api/scrape/halls", tags=["scrape"])
 def list_scrape_halls() -> list[dict]:
-    """スクレイプ対象ホール一覧を返す"""
+    """スクレイプ対象ホール一覧を返す（最終スクレイプ日・データ件数付き）"""
     from scraper.anaslo import get_hall_configs
     halls = get_hall_configs(enabled_only=False)
-    # DBが空ならデフォルトを返す（初回起動直後など）
-    return halls if halls else _DEFAULT_HALLS
+    base = halls if halls else _DEFAULT_HALLS
+    # DBから各ホールの最終スクレイプ日を補完
+    conn = _get_reports_conn()
+    if conn:
+        try:
+            seat_stats = {
+                r[0]: {"last_date": r[1], "record_count": r[2]}
+                for r in conn.execute(
+                    "SELECT hall_name, MAX(report_date), COUNT(*) FROM hall_day_seat GROUP BY hall_name"
+                ).fetchall()
+            }
+            machine_stats = {
+                r[0]: {"last_date": r[1], "record_count": r[2]}
+                for r in conn.execute(
+                    "SELECT hall_name, MAX(report_date), COUNT(*) FROM hall_day_machine GROUP BY hall_name"
+                ).fetchall()
+            }
+            for h in base:
+                name = h["hall_name"]
+                s = seat_stats.get(name) or machine_stats.get(name) or {}
+                h["last_scraped_date"] = s.get("last_date")
+                h["db_record_count"] = s.get("record_count", 0)
+        except Exception:
+            pass
+        conn.close()
+    return base
 
 
 @app.post("/api/scrape/halls", tags=["scrape"])

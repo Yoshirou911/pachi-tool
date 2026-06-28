@@ -2597,8 +2597,16 @@ async function loadAnasloSeatReport(hall, date) {
           const barCol = diff >= 0 ? 'rgba(16,185,129,.5)' : 'rgba(244,63,94,.4)';
           const rowBg = diff > 3000 ? 'rgba(251,191,36,.05)' : diff > 0 ? '' : diff < -2000 ? 'rgba(244,63,94,.04)' : '';
           const rankIcon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
-          const bbRb = (r.bb_prob != null || r.rb_prob != null)
-            ? `${r.bb_prob != null ? r.bb_prob.toFixed(1) : '-'}/${r.rb_prob != null ? r.rb_prob.toFixed(1) : '-'}回` : '-';
+          let bbRb = '-';
+          if (r.bb_prob != null || r.rb_prob != null) {
+            const bbStr = r.bb_prob != null
+              ? (r.games && r.bb_prob > 0 ? `1/${Math.round(r.games / r.bb_prob)}` : `${r.bb_prob.toFixed(1)}回`)
+              : '-';
+            const rbStr = r.rb_prob != null
+              ? (r.games && r.rb_prob > 0 ? `1/${Math.round(r.games / r.rb_prob)}` : `${r.rb_prob.toFixed(1)}回`)
+              : '-';
+            bbRb = `BB${bbStr} RB${rbStr}`;
+          }
           return `<tr style="border-bottom:1px solid var(--border);background:${rowBg}">
             <td style="padding:5px 6px;text-align:center;font-weight:600;color:var(--text2)">${rankIcon ? `${rankIcon}<br><span style="font-size:.58rem;color:var(--text3)">${r.seat_number}</span>` : r.seat_number}</td>
             <td style="padding:5px 6px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem">${esc(r.machine_name)}</td>
@@ -5476,17 +5484,25 @@ async function loadScrapeHalls() {
   try {
     const halls = await apiFetch('/api/scrape/halls');
     if (!halls || halls.length === 0) { el.innerHTML = '<span style="color:var(--text3);font-size:.65rem">登録なし</span>'; return; }
+    const today = new Date().toISOString().slice(0, 10);
     el.innerHTML = halls.map(h => {
       const enCol = h.enabled ? 'var(--success)' : 'var(--text3)';
       const enLabel = h.enabled ? '有効' : '無効';
       const enc = encodeURIComponent(h.hall_name);
-      return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid var(--bg3)">
-        <span style="flex:1;font-size:.7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.hall_name)}</span>
-        <span style="font-size:.6rem;color:var(--text3)">${h.prefecture}</span>
+      const lastDate = h.last_scraped_date || '';
+      const diffDays = lastDate ? Math.round((Date.now() - new Date(lastDate).getTime()) / 86400000) : null;
+      const dateCol = diffDays === null ? 'var(--text3)' : diffDays === 0 ? 'var(--success)' : diffDays <= 2 ? 'var(--text3)' : 'var(--danger)';
+      const dateLabel = diffDays === null ? '未取得' : diffDays === 0 ? '今日' : `${diffDays}日前`;
+      const recStr = h.db_record_count ? `${h.db_record_count}件` : '';
+      return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--bg3)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.hall_name)}</div>
+          <div style="font-size:.58rem;color:${dateCol}">${dateLabel}${recStr ? ` · ${recStr}` : ''}</div>
+        </div>
         <button onclick="toggleScrapeHall('${enc}',${!h.enabled})"
-          style="font-size:.58rem;padding:1px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:${enCol};cursor:pointer">${enLabel}</button>
+          style="font-size:.58rem;padding:1px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:${enCol};cursor:pointer;flex-shrink:0">${enLabel}</button>
         <button onclick="removeScrapeHall('${enc}')"
-          style="font-size:.58rem;padding:1px 5px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--danger);cursor:pointer">削除</button>
+          style="font-size:.58rem;padding:1px 5px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--danger);cursor:pointer;flex-shrink:0">削除</button>
       </div>`;
     }).join('');
   } catch(e) {

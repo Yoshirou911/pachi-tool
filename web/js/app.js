@@ -1342,10 +1342,9 @@ async function populateSessionFilters() {
         hallDatalist.appendChild(o2);
       }
       if (hallTrendSel) {
-        // 既存の選択肢と重複しない場合のみ追加
         if (![...hallTrendSel.options].some(o => o.value === h)) {
           const o3 = document.createElement('option');
-          o3.value = h; o3.textContent = h;
+          o3.value = h; o3.textContent = (_isFavHall(h) ? '★ ' : '') + h;
           hallTrendSel.appendChild(o3);
         }
       }
@@ -4644,6 +4643,18 @@ async function loadTodayPickCard() {
   }
 }
 
+function _getFavHalls() {
+  try { return JSON.parse(localStorage.getItem('pachi_fav_halls') || '[]'); } catch(e) { return []; }
+}
+function _isFavHall(hall) { return _getFavHalls().includes(hall); }
+function _toggleFavHall(hall) {
+  let favs = _getFavHalls();
+  if (favs.includes(hall)) { favs = favs.filter(h => h !== hall); }
+  else { favs.unshift(hall); }
+  localStorage.setItem('pachi_fav_halls', JSON.stringify(favs));
+  loadHallCompare();
+}
+
 async function loadHallCompare() {
   const card = document.getElementById('hall-compare-card');
   const body = document.getElementById('hall-compare-body');
@@ -4663,6 +4674,17 @@ async function loadHallCompare() {
         <button onclick="switchHallTab('admin')" class="btn btn-ghost btn-sm" style="margin-top:4px">管理タブへ</button>
       </div>`;
       return;
+    }
+    // お気に入りホールを先頭に固定
+    const favs = _getFavHalls();
+    if (favs.length > 0) {
+      rows.sort((a, b) => {
+        const af = favs.indexOf(a.hall_name), bf = favs.indexOf(b.hall_name);
+        if (af !== -1 && bf === -1) return -1;
+        if (bf !== -1 && af === -1) return 1;
+        if (af !== -1 && bf !== -1) return af - bf;
+        return 0;
+      });
     }
     const maxAbs = Math.max(...rows.map(r => Math.abs(r.avg_diff)), 1);
     const sign = v => v >= 0 ? `+${v}` : `${v}`;
@@ -4713,10 +4735,13 @@ async function loadHallCompare() {
                                  'border-bottom:1px solid var(--border);padding:7px 0';
       const rankNumStyle = i === 0 ? 'font-size:.78rem;font-weight:900;color:#fbbf24;width:18px;text-align:center;flex-shrink:0' :
                            'font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0';
+      const isPinned = _isFavHall(r.hall_name);
       const copyText = `${i+1}位 ${r.hall_name} ${r.avg_diff >= 0 ? '+' : ''}${r.avg_diff}枚 (${r.days_data}日 勝率${r.win_rate}%)`;
       return `<div class="compare-row" style="display:flex;align-items:center;gap:8px;cursor:pointer;${rankStyle}"
         data-copy-rank="${esc(copyText)}"
         onclick="switchToHall(decodeURIComponent('${encH}'))">
+        <button onclick="event.stopPropagation();_toggleFavHall(decodeURIComponent('${encH}'))" title="お気に入り"
+          style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:0;flex-shrink:0;line-height:1;opacity:${isPinned ? '1' : '0.3'}">${isPinned ? '★' : '☆'}</button>
         <span style="${rankNumStyle}">${i+1}</span>
         <div style="flex:1;min-width:0">
           <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${srcBadge}${todayBadge}${trendHtml}${surgeHtml}${eventHtml}</div>

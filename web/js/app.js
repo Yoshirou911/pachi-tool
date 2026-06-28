@@ -788,7 +788,7 @@ function renderEstimateResult(r) {
   const highPct = (r.high_setting_prob * 100).toFixed(0);
   highEl.textContent = highPct + '%';
   highEl.style.color = r.high_setting_prob > 0.5 ? 'var(--success)' : r.high_setting_prob > 0.3 ? 'var(--warning)' : 'var(--danger)';
-  evEl.textContent = r.ev_pct.toFixed(1) + '%';
+  evEl.textContent = r.ev_pct != null ? r.ev_pct.toFixed(1) + '%' : '--';
   evEl.style.color = r.ev >= 1.0 ? 'var(--success)' : r.ev >= 0.98 ? 'var(--warning)' : 'var(--danger)';
 
   // 要素識別力ランキング（折りたたみ）

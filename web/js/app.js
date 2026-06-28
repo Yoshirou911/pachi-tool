@@ -2654,7 +2654,9 @@ async function loadAnasloSeatReport(hall, date) {
               : '-';
             bbRb = `BB${bbStr} RB${rbStr}`;
           }
-          return `<tr style="border-bottom:1px solid var(--border);background:${rowBg}">
+          const encH2 = encodeURIComponent(hall), encM2 = encodeURIComponent(r.machine_name);
+          return `<tr style="border-bottom:1px solid var(--border);background:${rowBg};cursor:pointer"
+            onclick="showSeatDetailModal(decodeURIComponent('${encH2}'),decodeURIComponent('${encM2}'),${r.seat_number})">
             <td style="padding:5px 6px;text-align:center;font-weight:600;color:var(--text2)">${rankIcon ? `${rankIcon}<br><span style="font-size:.58rem;color:var(--text3)">${r.seat_number}</span>` : r.seat_number}</td>
             <td style="padding:5px 6px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.72rem">${esc(r.machine_name)}</td>
             <td style="padding:5px 6px;text-align:right">

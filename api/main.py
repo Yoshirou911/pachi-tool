@@ -1062,6 +1062,10 @@ def get_top_machines(
     limit: int = Query(20, le=100),
 ) -> list[dict]:
     """過去N日の平均差枚ランキングを返す（累積平均）。"""
+    ckey = f"top_machines:{hall_name}:{days}:{limit}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if conn is None:
         return []
@@ -1082,7 +1086,9 @@ def get_top_machines(
         (hall_name, f"-{days}", limit)
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/trend_summary", tags=["hall"])
@@ -2472,6 +2478,10 @@ def get_tail_bb_analysis(
     差枚より精度が高い（差枚はゲーム数に依存するが、BB確率は設定に直接対応）。
     同ホール内の末尾間でBB確率をz-score比較し、設定配分傾向を推定する。
     """
+    ckey = f"tail_bb_analysis:{hall_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -2523,6 +2533,7 @@ def get_tail_bb_analysis(
         })
 
     result.sort(key=lambda x: -x["z_score"])
+    _cache_set(ckey, result)
     return result
 
 

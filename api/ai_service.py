@@ -522,28 +522,239 @@ def _call(client, messages: list, max_tokens: int = 800) -> str:
 
 
 # ---------------------------------------------------------------------------
+# データ在庫サマリー（「何のデータが不足しているか」に答えるため）
+# ---------------------------------------------------------------------------
+
+def _data_availability_summary() -> str:
+    """DB内のデータ量を具体的にまとめてAIに渡す（「何が不足している？」への回答用）"""
+    lines = ["【現在のデータ在庫状況】"]
+    try:
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        # 店舗別データ量
+        hall_rows = conn.execute("""
+            SELECT hall_name,
+                   COUNT(*) as records,
+                   COUNT(DISTINCT report_date) as days,
+                   MIN(report_date) as oldest,
+                   MAX(report_date) as newest,
+                   COUNT(DISTINCT machine_name) as machines,
+                   ROUND(AVG(diff_coins)) as avg_diff
+            FROM hall_day_seat
+            WHERE machine_name != '_NODATA_'
+            GROUP BY hall_name
+            ORDER BY records DESC
+        """).fetchall()
+
+        if hall_rows:
+            lines.append(f"スクレイプ済み店舗: {len(hall_rows)}店")
+            for r in hall_rows:
+                lines.append(
+                    f"  {r[0]}: {r[2]}日分 / {r[5]}機種 / {r[1]}レコード "
+                    f"（{r[3]}〜{r[4]}）平均{r[6]:+}枚"
+                )
+        else:
+            lines.append("スクレイプデータ: なし（一度もスクレイプされていません）")
+
+        # 最終スクレイプ日時
+        log_row = conn.execute("""
+            SELECT MAX(started_at), COUNT(*), SUM(CASE WHEN status='cf_blocked' THEN 1 ELSE 0 END)
+            FROM scrape_log
+        """).fetchone()
+        if log_row and log_row[0]:
+            lines.append(f"最終スクレイプ: {log_row[0]} / 全{log_row[1]}回実行 / CF失敗{log_row[2]}回")
+
+        conn.close()
+    except Exception as e:
+        lines.append(f"hall_reports.db読み取りエラー: {e}")
+
+    try:
+        conn2 = sqlite3.connect(SESSIONS_DB)
+        ses_row = conn2.execute("""
+            SELECT COUNT(*),
+                   COUNT(DISTINCT machine_name),
+                   SUM(games_total),
+                   MIN(date), MAX(date),
+                   ROUND(AVG((returns or 0)-(investment or 0)))
+            FROM sessions
+        """).fetchone()
+        conn2.close()
+        if ses_row and ses_row[0]:
+            lines.append(
+                f"実戦セッション: {ses_row[0]}件 / {ses_row[1]}機種 / "
+                f"累計{ses_row[2] or 0:,}G（{ses_row[3]}〜{ses_row[4]}）"
+                f" 平均収支{ses_row[5]:+}枚"
+            )
+        else:
+            lines.append("実戦セッション: 0件（まだ実戦データを記録していません）")
+    except Exception as e:
+        lines.append(f"sessions.db読み取りエラー: {e}")
+
+    lines.append("\n【不足しているデータの種類（例示）】")
+    lines.append("・ 実戦セッション: 台で打った記録（G数・ボーナス回数・収支）— 推定精度の向上に使用")
+    lines.append("・ スクレイプデータ: 店舗の台別・機種別データ — 狙い目選定の基礎")
+    lines.append("・ イベント情報: ホールの特定日データ — いつ打ちに行くべきかの判断に使用")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 全店舗横断サマリー
+# ---------------------------------------------------------------------------
+
+def _all_halls_summary() -> str:
+    """全店舗の比較サマリー（どの店が熱いか・スコアランキング）"""
+    try:
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        rows = conn.execute("""
+            SELECT hall_name,
+                   COUNT(*) as cnt,
+                   COUNT(DISTINCT report_date) as days,
+                   ROUND(AVG(diff_coins)) as avg_diff,
+                   ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate,
+                   ROUND(AVG(bb_prob)*10000, 2) as avg_bb_per10k,
+                   MAX(report_date) as latest
+            FROM hall_day_seat
+            WHERE machine_name != '_NODATA_'
+              AND report_date >= date('now', '-60 days')
+            GROUP BY hall_name
+            HAVING days >= 3
+            ORDER BY avg_diff DESC
+        """).fetchall()
+        conn.close()
+        if not rows:
+            return "全店舗データなし（スクレイプ未実施）"
+        lines = ["【全店舗比較ランキング（直近60日）】"]
+        lines.append("店舗名 | 集計日数 | 平均差枚 | 勝率 | 最終データ")
+        for i, r in enumerate(rows, 1):
+            lines.append(
+                f"{i}. {r[0]}: {r[2]}日分 / 平均{r[3]:+}枚 / 勝率{r[4]}% "
+                f"/ BB={r[5]}/1万G / {r[6]}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return f"全店舗サマリーエラー: {e}"
+
+
+def _all_halls_top_machines() -> str:
+    """全店舗横断で最も出ている機種TOP5"""
+    try:
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        rows = conn.execute("""
+            SELECT hall_name, machine_name,
+                   COUNT(*) as cnt,
+                   ROUND(AVG(diff_coins)) as avg_diff,
+                   ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
+            FROM hall_day_seat
+            WHERE machine_name != '_NODATA_' AND bb_prob IS NOT NULL
+              AND report_date >= date('now', '-30 days')
+            GROUP BY hall_name, machine_name
+            HAVING cnt >= 3
+            ORDER BY avg_diff DESC
+            LIMIT 8
+        """).fetchall()
+        conn.close()
+        if not rows:
+            return ""
+        lines = ["【全店舗横断 機種×店舗 好調ランキング（直近30日）】"]
+        for i, r in enumerate(rows, 1):
+            lines.append(f"{i}. {r[0]} × {r[1]}: 平均{r[3]:+}枚 / 勝率{r[4]}% ({r[2]}日)")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _all_halls_event_hint() -> str:
+    """全店舗で今日イベント候補かどうか（BB統計から）"""
+    import datetime as _dt
+    lines = []
+    try:
+        conn = sqlite3.connect(HALL_REPORTS_DB)
+        halls = [r[0] for r in conn.execute(
+            "SELECT DISTINCT hall_name FROM hall_day_seat WHERE machine_name != '_NODATA_'"
+        ).fetchall()]
+        conn.close()
+    except Exception:
+        return ""
+
+    today = _dt.date.today()
+    today_tail = today.day % 10
+    today_dow_jp = ["月","火","水","木","金","土","日"][today.weekday()]
+    hot_halls = []
+
+    for hall in halls:
+        try:
+            conn = sqlite3.connect(HALL_REPORTS_DB)
+            rows = conn.execute(
+                """SELECT report_date, AVG(bb_prob) as avg_bb
+                   FROM hall_day_seat WHERE hall_name=? AND bb_prob IS NOT NULL
+                     AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                     AND report_date >= date('now', '-180 days')
+                   GROUP BY report_date HAVING COUNT(*) >= 3""",
+                (hall,)
+            ).fetchall()
+            conn.close()
+            if len(rows) < 8:
+                continue
+            import statistics as _s
+            all_bb = [float(r[1]) for r in rows]
+            gm, gs = _s.mean(all_bb), (_s.stdev(all_bb) if len(all_bb) > 1 else 0.001)
+            tail_bbs = [float(r[1]) for r in rows if _dt.date.fromisoformat(r[0]).day % 10 == today_tail]
+            if len(tail_bbs) >= 2:
+                z = (sum(tail_bbs)/len(tail_bbs) - gm) / max(gs, 1e-8)
+                if z >= 0.5:
+                    hot_halls.append((hall, z, f"末尾{today_tail}({z:+.1f}σ)"))
+        except Exception:
+            continue
+
+    if not hot_halls:
+        lines.append(f"今日({today.month}/{today.day} {today_dow_jp}曜): 全店舗で特有のイベントシグナルなし")
+    else:
+        lines.append(f"今日({today.month}/{today.day} {today_dow_jp}曜)イベント候補店舗:")
+        hot_halls.sort(key=lambda x: -x[1])
+        for hall, z, reason in hot_halls[:4]:
+            lines.append(f"  {hall}: {reason}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # A. チャット
 # ---------------------------------------------------------------------------
+
+_ALL_HALLS_KEY = "全店舗"
 
 def chat(message: str, hall_name: str, history: list[dict]) -> str:
     client = _get_client()
     if not client:
         return "GROQ_API_KEY が設定されていません。"
 
-    context = "\n\n".join(filter(None, [
-        _hall_summary(hall_name),
-        _tail_summary(hall_name),
-        _weekday_summary(hall_name),
-        _today_targets_summary(hall_name),
-        _session_summary(),
-    ]))
+    is_all = not hall_name or hall_name == _ALL_HALLS_KEY
+
+    if is_all:
+        context = "\n\n".join(filter(None, [
+            _data_availability_summary(),
+            _all_halls_summary(),
+            _all_halls_top_machines(),
+            _all_halls_event_hint(),
+            _session_summary(),
+        ]))
+    else:
+        context = "\n\n".join(filter(None, [
+            _data_availability_summary(),
+            _hall_summary(hall_name),
+            _tail_summary(hall_name),
+            _weekday_summary(hall_name),
+            _today_targets_summary(hall_name),
+            _session_summary(),
+        ]))
 
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     for h in history[-6:]:
         messages.append({"role": h["role"], "content": h["content"]})
+
+    scope = "全店舗横断" if is_all else hall_name
     messages.append({
         "role": "user",
-        "content": f"【参考データ】\n{context}\n\n【質問】\n{message}"
+        "content": f"【分析対象: {scope}】\n【参考データ】\n{context}\n\n【質問】\n{message}"
     })
 
     return _call(client, messages, max_tokens=800)
@@ -558,21 +769,46 @@ def generate_report(hall_name: str) -> str:
     if not client:
         return "GROQ_API_KEY が設定されていません。"
 
-    context = "\n\n".join(filter(None, [
-        _event_day_hint(hall_name),
-        _hall_summary(hall_name, days=30),
-        _tail_summary(hall_name),
-        _zone_summary(hall_name),
-        _weekday_summary(hall_name),
-        _today_dow_best(hall_name),
-        _machine_setting_tendency(hall_name),
-        _today_targets_summary(hall_name),
-        _bb_surge_summary(hall_name),
-        _top_streak_seats(hall_name),
-        _session_summary(10),
-    ]))
+    is_all = not hall_name or hall_name == _ALL_HALLS_KEY
 
-    prompt = f"""以下のデータを元に「{hall_name}の今日の攻略レポート」を作成してください。
+    if is_all:
+        context = "\n\n".join(filter(None, [
+            _data_availability_summary(),
+            _all_halls_event_hint(),
+            _all_halls_summary(),
+            _all_halls_top_machines(),
+            _session_summary(10),
+        ]))
+        prompt = f"""以下のデータを元に「今日の全店舗比較 攻略レポート」を作成してください。
+
+{context}
+
+レポートに含める内容:
+0. 今日のイベント候補店舗（データあれば必ず言及）
+1. 総合ランキング上位の店舗（平均差枚・勝率から推奨店TOP3）
+2. 全店舗横断で最も出ている機種（どの店でどの機種が熱いか）
+3. データが少ない・スクレイプできていない店舗の指摘
+4. 今日の立ち回りアドバイス（「どの店に行くべきか」「何を打つべきか」）
+5. 総括ひとこと
+
+・具体的な数字（差枚・勝率・σ）を根拠として示す
+・データ不足の店舗は「データ不足：スクレイプを実施してください」と明記"""
+    else:
+        context = "\n\n".join(filter(None, [
+            _data_availability_summary(),
+            _event_day_hint(hall_name),
+            _hall_summary(hall_name, days=30),
+            _tail_summary(hall_name),
+            _zone_summary(hall_name),
+            _weekday_summary(hall_name),
+            _today_dow_best(hall_name),
+            _machine_setting_tendency(hall_name),
+            _today_targets_summary(hall_name),
+            _bb_surge_summary(hall_name),
+            _top_streak_seats(hall_name),
+            _session_summary(10),
+        ]))
+        prompt = f"""以下のデータを元に「{hall_name}の今日の攻略レポート」を作成してください。
 
 {context}
 

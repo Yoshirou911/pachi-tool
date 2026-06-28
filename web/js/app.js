@@ -4934,19 +4934,65 @@ async function loadAiPage() {
     }
   } catch {}
 
-  // ホール選択を同期
+  // ホール選択を同期（全店舗オプションは残す）
   const hallSel = document.getElementById('hall-select');
   const aiHallSel = document.getElementById('ai-hall-select');
   if (hallSel && aiHallSel) {
-    aiHallSel.innerHTML = hallSel.innerHTML;
-    aiHallSel.value = hallSel.value;
+    // 既存のホールオプションを追加（全店舗は固定で先頭）
+    const existing = Array.from(hallSel.options).map(o => o.value).filter(Boolean);
+    // 全店舗は必ず先頭
+    aiHallSel.innerHTML = '<option value="全店舗">全店舗比較</option>';
+    existing.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      aiHallSel.appendChild(opt);
+    });
+    // 現在の hall-select の値を反映（全店舗がデフォルト）
+    const cur = hallSel.value;
+    if (cur && existing.includes(cur)) aiHallSel.value = cur;
+    else aiHallSel.value = '全店舗';
   }
+  _updateAiScopeUI();
 }
 
 function getAiHall() {
   const sel = document.getElementById('ai-hall-select');
-  return sel ? sel.value : 'ベガスベガス大東店';
+  const v = sel ? sel.value : '全店舗';
+  return v === '全店舗' ? '全店舗' : v;
 }
+
+function _updateAiScopeUI() {
+  const hall = getAiHall();
+  const isAll = hall === '全店舗';
+  const scopeBadge = document.getElementById('ai-scope-badge');
+  const reportTitle = document.getElementById('ai-report-title');
+  const reportSubtitle = document.getElementById('ai-report-subtitle');
+  const chatInput = document.getElementById('ai-chat-input');
+  const quickAll = document.getElementById('ai-quick-all');
+  const quickHall = document.getElementById('ai-quick-hall');
+
+  if (isAll) {
+    if (scopeBadge) scopeBadge.textContent = '全店舗のデータを横断分析します';
+    if (reportTitle) reportTitle.textContent = '今日の攻略レポート（全店舗比較）';
+    if (reportSubtitle) reportSubtitle.textContent = '全店舗比較・イベント候補・おすすめ店舗';
+    if (chatInput) chatInput.placeholder = '例: 今日どの店に行くべき？';
+    if (quickAll) quickAll.style.display = 'flex';
+    if (quickHall) quickHall.style.display = 'none';
+  } else {
+    if (scopeBadge) scopeBadge.textContent = `${hall} のデータを分析します`;
+    if (reportTitle) reportTitle.textContent = '今日の攻略レポート';
+    if (reportSubtitle) reportSubtitle.textContent = '曜日傾向・台番・末尾データを総合分析';
+    if (chatInput) chatInput.placeholder = '例: どの台番が一番強い？';
+    if (quickAll) quickAll.style.display = 'none';
+    if (quickHall) quickHall.style.display = 'flex';
+  }
+}
+
+// ホール選択が変わったらUIを更新
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('ai-hall-select')?.addEventListener('change', _updateAiScopeUI);
+});
 
 // B. 自動レポート生成
 document.addEventListener('DOMContentLoaded', () => {

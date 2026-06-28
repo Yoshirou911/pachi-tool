@@ -1056,16 +1056,20 @@
             <span id="ai-status-badge" style="font-size:.68rem;padding:3px 10px;border-radius:99px;background:var(--bg3);color:var(--text2)">確認中...</span>
           </div>
           <select id="ai-hall-select" class="form-select" style="font-size:.82rem">
+            <option value="全店舗">全店舗比較</option>
             <option>ベガスベガス大東店</option>
           </select>
+          <div id="ai-scope-badge" style="margin-top:8px;font-size:.72rem;color:var(--text3);padding:4px 8px;background:var(--bg3);border-radius:6px;display:inline-block">
+            全店舗のデータを横断分析します
+          </div>
         </div>
 
         <!-- B. 自動レポート -->
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div>
-              <div class="card-title" style="margin-bottom:2px">今日の攻略レポート</div>
-              <div style="font-size:.72rem;color:var(--text3)">曜日傾向・台番・末尾データを総合分析</div>
+              <div class="card-title" style="margin-bottom:2px" id="ai-report-title">今日の攻略レポート</div>
+              <div style="font-size:.72rem;color:var(--text3)" id="ai-report-subtitle">全店舗比較・イベント候補・おすすめ店舗</div>
             </div>
             <button id="ai-report-btn" class="btn btn-primary btn-sm">生成</button>
           </div>
@@ -1080,15 +1084,23 @@
           <div class="grad-line"></div>
           <div style="display:flex;gap:8px;margin-bottom:10px">
             <input type="text" id="ai-chat-input" class="form-input"
-                   placeholder="例: どの台番が一番強い？"
+                   placeholder="例: 今日どの店に行くべき？"
                    style="flex:1;font-size:.85rem">
             <button id="ai-chat-send" class="btn btn-primary btn-sm" style="white-space:nowrap;padding:0 18px">送信</button>
           </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <!-- 全店舗モードのクイックボタン -->
+          <div id="ai-quick-all" style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今日どの店に行くべきか教えて">今日どの店が熱い？</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="全店舗の中で直近最も高設定が出ている店と機種を教えて">高設定が出てる店</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今どのデータが不足してる？何をスクレイプすればいい？">何が足りてない？</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分の実戦データから改善すべき点は？">実戦の課題</button>
+          </div>
+          <!-- 単店舗モードのクイックボタン -->
+          <div id="ai-quick-hall" style="display:none;gap:6px;flex-wrap:wrap">
             <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="狙い目の台番ベスト3を教えて">狙い目ベスト3</button>
             <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分の実戦で改善すべき点は？">実戦の課題</button>
             <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="末尾の傾向から今日の立ち回りを提案して">末尾傾向</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今月の収支傾向と改善策は？">今月の傾向</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今どのデータが不足してる？">何が足りてない？</button>
           </div>
         </div>
 

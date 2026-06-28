@@ -5124,14 +5124,21 @@ async function loadScrapeManager() {
       } else {
         const renderLogs = (logs) => logs.map(l => {
           const stCol = l.status === 'done' ? 'var(--success)' : l.status === 'running' ? 'var(--warning)' : 'var(--danger)';
-          const stIcon = l.status === 'done' ? '✓' : l.status === 'running' ? '⟳' : '✗';
+          const stIcon = l.status === 'done' ? '✓' : l.status === 'running' ? '⟳' : (l.status === 'cf_blocked' ? '⛔' : '✗');
           const time = l.started_at ? l.started_at.slice(5, 16).replace('T', ' ') : '';
           const rowsBadge = l.rows_saved > 0
             ? `<span style="background:rgba(52,211,153,.15);color:var(--success);font-size:.6rem;padding:1px 5px;border-radius:4px">${l.rows_saved}件</span>`
             : `<span style="color:var(--text3);font-size:.62rem">0件</span>`;
-          return `<div style="display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">
-            <span style="color:${stCol};font-size:.78rem;width:14px;text-align:center">${stIcon}</span>
-            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.75rem">${esc(l.hall_name)}</span>
+          const errTip = l.error_msg ? ` title="${esc(l.error_msg)}"` : '';
+          const errDetail = l.error_msg && l.status !== 'done' && l.status !== 'running'
+            ? `<div style="font-size:.58rem;color:var(--danger);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;margin-top:1px">${esc(l.error_msg.slice(0, 60))}</div>`
+            : '';
+          return `<div${errTip} style="display:flex;gap:6px;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+            <span style="color:${stCol};font-size:.78rem;width:14px;text-align:center;flex-shrink:0">${stIcon}</span>
+            <div style="flex:1;min-width:0">
+              <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.75rem">${esc(l.hall_name)}</div>
+              ${errDetail}
+            </div>
             ${rowsBadge}
             <span style="color:var(--text3);flex-shrink:0;font-size:.62rem">${time}</span>
           </div>`;

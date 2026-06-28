@@ -2009,6 +2009,40 @@ async function loadHallPage() {
   loadEventDayPattern(hall);
   loadTodayDowMachines(hall);
   loadMachineSettingTendency(hall);
+  loadSlumpSeats(hall);
+}
+
+async function loadSlumpSeats(hall) {
+  const card = document.getElementById('slump-seats-card');
+  const body = document.getElementById('slump-seats-body');
+  if (!card) return;
+  try {
+    const rows = await apiFetch(`/api/hall/slump_seats?hall_name=${encodeURIComponent(hall)}&days=5&min_slump=0.5`);
+    if (!rows || !rows.length) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    body.innerHTML = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">直近5日のBB確率が平均より急落（低設定継続 or 変更待ち候補）</p>
+      ${rows.slice(0, 8).map(r => {
+        const slumpCol = r.slump_z > 1.5 ? 'var(--danger)' : r.slump_z > 1.0 ? 'var(--warning)' : 'var(--text3)';
+        const encHall = encodeURIComponent(hall);
+        const encM = encodeURIComponent(r.machine_name);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+          onclick="showSeatDetailModal(decodeURIComponent('${encHall}'),decodeURIComponent('${encM}'),${r.seat_number})">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:.82rem">${esc(r.machine_name)} <span style="color:var(--text3);font-weight:400">${r.seat_number}番</span></div>
+            <div style="font-size:.68rem;color:var(--text3);margin-top:2px">
+              BB平均 <span style="color:var(--text2)">${r.baseline_bb.toFixed(1)}回/日</span>
+              → 直近 <span style="color:var(--danger);font-weight:700">${r.recent_bb.toFixed(1)}回/日</span>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:1rem;font-weight:900;color:${slumpCol}">-${r.slump_z}σ</div>
+            <div style="font-size:.62rem;color:var(--text3)">急落中</div>
+          </div>
+        </div>`;
+      }).join('')}`;
+  } catch(e) {
+    if (card) card.style.display = 'none';
+  }
 }
 
 function renderMySessionStats(stats) {

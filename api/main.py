@@ -2365,7 +2365,7 @@ def get_seat_report(
                FROM hall_day_seat
                WHERE hall_name=? AND report_date=? AND bb_prob IS NOT NULL
                  AND machine_name NOT LIKE '末尾%' AND machine_name != '全データ一覧'
-               GROUP BY seat_number
+                 AND seat_number IS NOT NULL AND seat_number > 0
                ORDER BY diff_coins DESC LIMIT ?""",
             (hall_name, date, limit)
         ).fetchall()
@@ -2377,8 +2377,8 @@ def get_seat_report(
             "machine_name": r[1],
             "diff_coins": r[2],
             "games": r[3],
-            "bb_count": r[4],
-            "rb_count": r[5],
+            "bb_prob": r[4],
+            "rb_prob": r[5],
             "ev_pct": r[6],
         }
         for r in rows
@@ -3816,6 +3816,72 @@ def get_bb_surge_seats(
 
     results.sort(key=lambda x: -x["surge_z"])
     return results[:20]
+
+
+@app.get("/api/hall/slump_seats", tags=["hall"])
+def get_slump_seats(
+    hall_name: str = Query(...),
+    days: int = Query(5),
+    min_slump: float = Query(0.5),
+    limit: int = Query(10, le=30),
+) -> list[dict]:
+    """
+    直近N日間のBB確率が60日平均より有意に低い台を検出。
+    スランプ台 = 低設定継続 or そろそろ設定変更待ちシグナル。
+    """
+    import datetime as _dt
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    prev_date = (date.today() - _dt.timedelta(days=days)).isoformat()
+    recent = conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND report_date >= ?
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+           GROUP BY machine_name, seat_number HAVING cnt >= 2""",
+        (hall_name, prev_date)
+    ).fetchall()
+    baseline = conn.execute(
+        """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
+           FROM hall_day_seat
+           WHERE hall_name=? AND bb_prob IS NOT NULL
+             AND report_date < ?
+             AND report_date >= date(?, '-60 days')
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+           GROUP BY machine_name, seat_number HAVING COUNT(*) >= 5""",
+        (hall_name, prev_date, prev_date)
+    ).fetchall()
+    import statistics as _s
+    m_bbs: dict[str, list[float]] = {}
+    for r in baseline:
+        m_bbs.setdefault(r[0], []).append(float(r[2]))
+    machine_std: dict[str, float] = {
+        m: max(_s.stdev(v) if len(v) > 1 else 0.0, (sum(v)/len(v)) * 0.20, 0.5)
+        for m, v in m_bbs.items()
+    }
+    baseline_map = {(r[0], r[1]): float(r[2]) for r in baseline}
+    conn.close()
+    results = []
+    for r in recent:
+        mname, seat, rec_bb = r[0], r[1], float(r[2])
+        base_bb = baseline_map.get((mname, seat))
+        if base_bb is None:
+            continue
+        std = machine_std.get(mname, 0.001)
+        slump_z = (base_bb - rec_bb) / std
+        if slump_z >= min_slump:
+            results.append({
+                "machine_name": mname,
+                "seat_number": seat,
+                "recent_bb": round(rec_bb, 2),
+                "baseline_bb": round(base_bb, 2),
+                "slump_z": round(slump_z, 2),
+                "recent_days": days,
+            })
+    results.sort(key=lambda x: -x["slump_z"])
+    return results[:limit]
 
 
 # ---------------------------------------------------------------------------

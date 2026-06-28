@@ -4247,7 +4247,7 @@ async function loadTodayTargets(hall) {
       return;
     }
     card.style.display = 'block';
-    title.textContent = `今日(${data.today_weekday}曜日)の狙い台`;
+    title.innerHTML = `今日(${data.today_weekday}曜日)の狙い台 <button onclick="event.stopPropagation();_copyTodayTargets()" title="テキストコピー" style="background:none;border:none;cursor:pointer;font-size:.7rem;color:var(--text3);padding:0 4px;vertical-align:middle">📋</button>`;
     let html = '';
     if (data.seats.length) {
       html += `<div style="font-size:.68rem;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">複合スコア順（曜日傾向・BB確率・安定性・トレンド統合）</div>`;
@@ -4272,7 +4272,8 @@ async function loadTodayTargets(hall) {
           : '';
         const encHall2 = encodeURIComponent(getSelectedHall());
         const encMach2 = encodeURIComponent(s.machine_name);
-        html += `<div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer"
+        const copyStr = `${medals[i]} ${s.machine_name} ${s.seat_number}番 平均${s.avg_diff >= 0 ? '+' : ''}${s.avg_diff}枚 勝率${s.win_rate}%`;
+        html += `<div data-seat-copy="${esc(copyStr)}" style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer"
           onclick="showSeatDetailModal(decodeURIComponent('${encHall2}'),decodeURIComponent('${encMach2}'),${s.seat_number})">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
             <span style="font-size:.65rem;font-weight:900;color:${medalCols[i]};background:rgba(255,255,255,.04);padding:2px 7px;border-radius:4px;flex-shrink:0">${medals[i]}</span>
@@ -4311,6 +4312,15 @@ async function loadTodayTargets(hall) {
     card.style.display = 'none';
   }
 }
+
+window._copyTodayTargets = function() {
+  const body = document.getElementById('today-targets-body');
+  if (!body) return;
+  const lines = [];
+  body.querySelectorAll('[data-seat-copy]').forEach(el => lines.push(el.dataset.seatCopy));
+  if (!lines.length) { showToast('コピーできるデータなし', 'error'); return; }
+  navigator.clipboard.writeText(lines.join('\n')).then(() => showToast('狙い台をコピーしました'));
+};
 
 // 機種別差枚トレンド折れ線グラフ（店傾向ページ）
 async function renderMachineTrendChart(hall, machineName) {

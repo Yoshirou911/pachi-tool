@@ -3842,7 +3842,7 @@ async function loadDowHeatmap(hall) {
       return `<tr><td style="font-size:.65rem;padding:4px 6px;white-space:nowrap;color:var(--text1);position:sticky;left:0;background:var(--bg)">${esc(m.machine)}</td>${cells}</tr>`;
     }).join('');
 
-    body.innerHTML = `<table style="border-collapse:collapse;width:100%"><thead>${header}</thead><tbody>${rows}</tbody></table>
+    body.innerHTML = `<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table style="border-collapse:collapse;min-width:100%"><thead>${header}</thead><tbody>${rows}</tbody></table></div>
       <div style="font-size:.6rem;color:var(--text3);margin-top:4px">σ値: 各機種のBB率を曜日間で標準化 / 今日の曜日を強調表示</div>`;
     card.style.display = 'block';
   } catch(e) {

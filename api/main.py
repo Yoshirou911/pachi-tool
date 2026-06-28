@@ -723,6 +723,10 @@ def get_today_machine_ranking(
     本日の曜日に絞った機種別成績ランキング。
     過去の同曜日データのみで集計し、「今日どの機種が強いか」を提示する。
     """
+    ckey = f"today_machine_ranking:{hall_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     import datetime
     today_dow = datetime.date.today().weekday()  # 0=月 … 6=日
     sqlite_dow = str((today_dow + 1) % 7)        # SQLite は 0=日 … 6=土
@@ -753,7 +757,7 @@ def get_today_machine_ranking(
     conn.close()
 
     dow_ja = ["月","火","水","木","金","土","日"]
-    return [
+    result = [
         {
             "machine_name": r[0],
             "count": r[1],
@@ -765,6 +769,8 @@ def get_today_machine_ranking(
         }
         for r in rows
     ]
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/stats", tags=["hall"])
@@ -2599,6 +2605,10 @@ def get_seat_detail(
     days: int = Query(90),
 ) -> dict:
     """特定台番の詳細: 日別履歴・曜日別実績・直近トレンド"""
+    ckey = f"seat_detail:{hall_name}:{machine_name}:{seat_number}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return {}
@@ -2711,7 +2721,7 @@ def get_seat_detail(
     # ゾロ目台番かどうか（11, 22, 33...）
     is_zoro = seat_number > 0 and seat_number % 11 == 0
 
-    return {
+    result = {
         "machine_name": machine_name,
         "seat_number": seat_number,
         "total_days": len(hist_list),
@@ -2729,6 +2739,8 @@ def get_seat_detail(
         "history": hist_list[:60],
         "weekday_stats": weekday_stats,
     }
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/machine_seat_ranking", tags=["hall"])
@@ -2738,6 +2750,10 @@ def get_machine_seat_ranking(
     days: int = Query(30),
 ) -> list[dict]:
     """特定機種の全台番ランキング（複合スコア + BB z-score付き）"""
+    ckey = f"machine_seat_ranking:{hall_name}:{machine_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     import datetime, math as _math
     today = datetime.date.today()
     sql_dow = str((today.weekday() + 1) % 7)
@@ -2800,6 +2816,7 @@ def get_machine_seat_ranking(
             "score": round(score, 1),
         })
     result.sort(key=lambda x: -x["score"])
+    _cache_set(ckey, result)
     return result
 
 

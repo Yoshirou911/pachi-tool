@@ -2597,6 +2597,27 @@ def get_seat_bb_ranking(
     return result
 
 
+@app.get("/api/hall/seat_by_number", tags=["hall"])
+def get_seat_by_number(
+    hall_name: str = Query(...),
+    seat_number: int = Query(...),
+) -> list[dict]:
+    """台番号から機種名を逆引きする（同台番に複数機種の場合あり）"""
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        """SELECT machine_name, COUNT(*) as record_count
+           FROM hall_day_seat
+           WHERE hall_name=? AND seat_number=?
+             AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+           GROUP BY machine_name ORDER BY record_count DESC LIMIT 10""",
+        (hall_name, seat_number)
+    ).fetchall()
+    conn.close()
+    return [{"machine_name": r[0], "record_count": r[1]} for r in rows]
+
+
 @app.get("/api/hall/seat_detail", tags=["hall"])
 def get_seat_detail(
     hall_name: str = Query(...),

@@ -730,6 +730,15 @@
                 <button id="anaslo-tab-seat" class="btn btn-primary" style="font-size:.75rem;padding:3px 10px">台番ランキング</button>
                 <button id="anaslo-tab-tail" class="btn btn-ghost" style="font-size:.75rem;padding:3px 10px">末尾分析</button>
               </div>
+              <!-- 台番クイックジャンプ -->
+              <div id="quick-seat-jump" style="display:flex;gap:6px;margin-bottom:8px;align-items:center">
+                <input type="number" id="quick-seat-num" min="1" max="999" placeholder="台番"
+                  class="form-input" style="flex:1;font-size:.88rem;padding:7px 10px;max-width:100px"
+                  oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                <input type="text" id="quick-machine-name" placeholder="機種名（省略可）"
+                  class="form-input" style="flex:2;font-size:.82rem;padding:7px 10px">
+                <button onclick="quickJumpToSeat()" class="btn btn-primary" style="font-size:.8rem;padding:7px 12px;flex-shrink:0">検索</button>
+              </div>
               <div id="anaslo-seat-section">
                 <div id="anaslo-date-row" style="display:none;margin-bottom:8px">
                   <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">

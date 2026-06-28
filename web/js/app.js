@@ -3352,6 +3352,46 @@ function togglePinSeat(hall, machine, seat) {
   renderPinnedSeatsCard();
 }
 
+async function quickJumpToSeat() {
+  const seatNum = parseInt(document.getElementById('quick-seat-num')?.value);
+  const machineName = document.getElementById('quick-machine-name')?.value?.trim();
+  const hall = getSelectedHall();
+  if (!hall || !seatNum) { showToast('台番を入力してください', 'error'); return; }
+
+  if (machineName) {
+    showSeatDetailModal(hall, machineName, seatNum);
+    return;
+  }
+  // 機種名なし → APIで台番から機種名を検索
+  try {
+    const rows = await apiFetch(`/api/hall/seat_by_number?hall_name=${encodeURIComponent(hall)}&seat_number=${seatNum}`);
+    if (!rows || !rows.length) {
+      showToast(`${seatNum}番台のデータが見つかりません`, 'error');
+      return;
+    }
+    if (rows.length === 1) {
+      showSeatDetailModal(hall, rows[0].machine_name, seatNum);
+    } else {
+      // 複数機種ヒット → 選択ダイアログ
+      const overlay = document.getElementById('modal-overlay');
+      const title = document.getElementById('modal-title');
+      const body = document.getElementById('modal-body');
+      title.textContent = `${seatNum}番台の機種を選択`;
+      body.innerHTML = rows.map(r => {
+        const encH = encodeURIComponent(hall), encM = encodeURIComponent(r.machine_name);
+        return `<div style="padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer"
+          onclick="closeModal();showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${seatNum})">
+          <div style="font-size:.9rem;font-weight:700">${esc(r.machine_name)}</div>
+          <div style="font-size:.68rem;color:var(--text3)">${r.record_count}日分のデータ</div>
+        </div>`;
+      }).join('');
+      overlay.style.display = 'flex';
+    }
+  } catch(e) {
+    showToast('検索エラー: ' + e.message, 'error');
+  }
+}
+
 function renderPinnedSeatsCard() {
   let card = document.getElementById('pinned-seats-card');
   if (!card) return;
@@ -5687,6 +5727,11 @@ document.getElementById('scrape-run-btn')?.addEventListener('click', async () =>
 const _origLoadHallPage = typeof loadHallPage === 'function' ? loadHallPage : null;
 document.addEventListener('DOMContentLoaded', () => {
   loadScrapeManager();
+  // クイックジャンプ: Enterキーで検索
+  const quickSeatInput = document.getElementById('quick-seat-num');
+  const quickMachineInput = document.getElementById('quick-machine-name');
+  if (quickSeatInput) quickSeatInput.addEventListener('keydown', e => { if (e.key === 'Enter') quickJumpToSeat(); });
+  if (quickMachineInput) quickMachineInput.addEventListener('keydown', e => { if (e.key === 'Enter') quickJumpToSeat(); });
 });
 
 async function loadScrapeHalls() {

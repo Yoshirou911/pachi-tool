@@ -4390,6 +4390,14 @@ async function loadHallCompare() {
       const eventHtml = r.today_event_z != null && r.today_event_z >= 0.5
         ? `<span style="color:var(--primary-h);font-size:.58rem;margin-left:4px">📅イベント候補 z=${r.today_event_z.toFixed(1)}σ</span>`
         : '';
+      // 今日のおすすめスコア: 順位上位 + イベント候補 + BB上昇
+      const todayScore = (i < 5 ? (5 - i) : 0)
+        + (r.today_event_z != null && r.today_event_z >= 0.5 ? Math.round(r.today_event_z * 2) : 0)
+        + (r.bb_trend_7d != null && r.bb_trend_7d > 2 ? 2 : 0)
+        + (r.surge_seat_count > 0 ? 1 : 0);
+      const todayBadge = todayScore >= 6
+        ? `<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.2));border:1px solid rgba(251,191,36,.4);color:#fbbf24;font-size:.58rem;padding:1px 6px;border-radius:4px;font-weight:700;margin-left:4px">★今日</span>`
+        : '';
       const srcBadge = r.data_source === 'minrepo'
         ? `<span style="font-size:.52rem;color:var(--text3);margin-left:3px">みんレポ</span>`
         : '';
@@ -4406,7 +4414,7 @@ async function loadHallCompare() {
         onclick="switchToHall(decodeURIComponent('${encH}'))">
         <span style="${rankNumStyle}">${i+1}</span>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${srcBadge}${trendHtml}${surgeHtml}${eventHtml}</div>
+          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.hall_name)}${srcBadge}${todayBadge}${trendHtml}${surgeHtml}${eventHtml}</div>
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
             <div style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>

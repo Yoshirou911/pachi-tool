@@ -5111,11 +5111,11 @@ async function loadScrapeManager() {
     // 実行ログ
     const logEl = document.getElementById('scrape-log-table');
     if (logEl && status && status.recent_logs) {
-      const logs = status.recent_logs.slice(0, 15);
-      if (logs.length === 0) {
+      const allLogs = status.recent_logs;
+      if (allLogs.length === 0) {
         logEl.innerHTML = '<span style="color:var(--text3)">実行ログなし</span>';
       } else {
-        logEl.innerHTML = logs.map(l => {
+        const renderLogs = (logs) => logs.map(l => {
           const stCol = l.status === 'done' ? 'var(--success)' : l.status === 'running' ? 'var(--warning)' : 'var(--danger)';
           const stIcon = l.status === 'done' ? '✓' : l.status === 'running' ? '⟳' : '✗';
           const time = l.started_at ? l.started_at.slice(5, 16).replace('T', ' ') : '';
@@ -5129,6 +5129,11 @@ async function loadScrapeManager() {
             <span style="color:var(--text3);flex-shrink:0;font-size:.62rem">${time}</span>
           </div>`;
         }).join('');
+        const shown = allLogs.slice(0, 15);
+        const moreBtn = allLogs.length > 15
+          ? `<button onclick="this.previousSibling.innerHTML += ${JSON.stringify(renderLogs(allLogs.slice(15)))};this.remove()" class="btn btn-ghost" style="font-size:.62rem;padding:3px 10px;margin-top:4px;width:100%">もっと見る (${allLogs.length - 15}件)</button>`
+          : '';
+        logEl.innerHTML = `<div>${renderLogs(shown)}</div>${moreBtn}`;
       }
     }
 

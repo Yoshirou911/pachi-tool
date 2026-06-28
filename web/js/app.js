@@ -1135,6 +1135,8 @@ document.getElementById('est-confirm-clear')?.addEventListener('click', () => {
 
 // リセット
 estResetBtn.addEventListener('click', () => {
+  const hasData = estGames.value || Array.from(estCountsList.querySelectorAll('.count-input')).some(i => +i.value > 0);
+  if (hasData && !confirm('カウントをリセットしますか？')) return;
   estCountsList.querySelectorAll('.count-input').forEach(i => i.value = '0');
   estGames.value = '';
   estResult.style.display = 'none';
@@ -2848,7 +2850,7 @@ async function loadZoneAnalysis(hall) {
         <div style="flex:1;height:8px;background:var(--bg2);border-radius:4px;position:relative">
           <div class="anim-bar" style="width:${barPct}%;height:100%;background:${barCol};border-radius:4px;opacity:.7"></div>
         </div>
-        <div style="width:38px;text-align:right;font-size:.68rem;font-weight:700;color:${zCol};flex-shrink:0">${z>0?'+':''}${z}σ</div>
+        <div style="width:38px;text-align:right;font-size:.68rem;font-weight:700;color:${zCol};flex-shrink:0">${z>0?'+':''}${(+z).toFixed(1)}σ</div>
         <div style="width:28px;text-align:right;font-size:.6rem;color:var(--text3);flex-shrink:0">${r.avg_bb.toFixed(1)}</div>
       </div>`;
     }).join('');

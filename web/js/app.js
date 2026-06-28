@@ -2078,23 +2078,34 @@ async function loadSlumpSeats(hall) {
     const rows = await apiFetch(`/api/hall/slump_seats?hall_name=${encodeURIComponent(hall)}&days=5&min_slump=0.5`);
     if (!rows || !rows.length) { card.style.display = 'none'; return; }
     card.style.display = 'block';
+    const maxSZ = Math.max(...rows.map(r => r.slump_z), 1);
     body.innerHTML = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">直近5日のBB確率が平均より急落（低設定継続 or 変更待ち候補）</p>
       ${rows.slice(0, 8).map(r => {
-        const slumpCol = r.slump_z > 1.5 ? 'var(--danger)' : r.slump_z > 1.0 ? 'var(--warning)' : 'var(--text3)';
+        const z = r.slump_z;
+        const slumpCol = z > 2.0 ? '#f43f5e' : z > 1.5 ? 'var(--danger)' : z > 1.0 ? 'var(--warning)' : 'var(--text3)';
+        const barPct = Math.min(Math.round(z / maxSZ * 100), 100);
         const encHall = encodeURIComponent(hall);
         const encM = encodeURIComponent(r.machine_name);
-        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+        const pctChange = r.baseline_bb > 0 ? (-(r.baseline_bb - r.recent_bb) / r.baseline_bb * 100).toFixed(0) : null;
+        return `<div style="padding:8px 10px;border-radius:8px;margin-bottom:5px;cursor:pointer;
+            border:1px solid ${z > 1.0 ? slumpCol + '44' : 'var(--border)'};
+            background:${z > 1.5 ? 'rgba(244,63,94,.05)' : 'var(--bg3)'}"
           onclick="showSeatDetailModal(decodeURIComponent('${encHall}'),decodeURIComponent('${encM}'),${r.seat_number})">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:.82rem">${esc(r.machine_name)} <span style="color:var(--text3);font-weight:400">${r.seat_number}番</span></div>
-            <div style="font-size:.68rem;color:var(--text3);margin-top:2px">
-              BB平均 <span style="color:var(--text2)">${r.baseline_bb.toFixed(1)}回/日</span>
-              → 直近 <span style="color:var(--danger);font-weight:700">${r.recent_bb.toFixed(1)}回/日</span>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:.82rem">${esc(r.machine_name)} <span style="color:var(--text3);font-weight:400;font-size:.76rem">${r.seat_number}番台</span></div>
+              <div style="font-size:.65rem;color:var(--text3);margin-top:2px">
+                過去平均 <span style="color:var(--text2)">${r.baseline_bb.toFixed(1)}回/日</span>
+                → 直近5日 <span style="color:${slumpCol};font-weight:700">${r.recent_bb.toFixed(1)}回/日</span>
+                ${pctChange ? `<span style="color:${slumpCol}"> (${pctChange}%)</span>` : ''}
+              </div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-size:1.1rem;font-weight:900;color:${slumpCol}">-${z}σ</div>
             </div>
           </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:1rem;font-weight:900;color:${slumpCol}">-${r.slump_z}σ</div>
-            <div style="font-size:.62rem;color:var(--text3)">急落中</div>
+          <div style="height:3px;background:var(--bg2);border-radius:2px">
+            <div class="anim-bar" style="width:${barPct}%;height:100%;background:${slumpCol};border-radius:2px"></div>
           </div>
         </div>`;
       }).join('')}`;
@@ -4148,23 +4159,36 @@ async function loadBBSurgeSeats(hall) {
     const rows = await apiFetch(`/api/hall/bb_surge_seats?hall_name=${encodeURIComponent(hall)}&days=3&min_surge=0.5`);
     if (!rows || !rows.length) { card.style.display = 'none'; return; }
     card.style.display = 'block';
+    const maxZ = Math.max(...rows.map(r => r.surge_z), 1);
     const html = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">直近3日のBB確率が過去60日平均より急上昇（設定変更シグナル）</p>
       ${rows.slice(0, 8).map(r => {
-        const surgeCol = r.surge_z > 1.5 ? 'var(--warning)' : r.surge_z > 1.0 ? 'var(--success)' : 'var(--primary-h)';
+        const z = r.surge_z;
+        const surgeCol = z > 2.0 ? '#fbbf24' : z > 1.5 ? 'var(--warning)' : z > 1.0 ? 'var(--success)' : 'var(--primary-h)';
+        const glowStr = z > 1.5 ? `0 0 12px ${z > 2.0 ? 'rgba(251,191,36,.4)' : 'rgba(16,185,129,.3)'}` : 'none';
+        const barPct = Math.min(Math.round(z / maxZ * 100), 100);
         const encHall = encodeURIComponent(hall);
         const encM = encodeURIComponent(r.machine_name);
-        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);cursor:pointer"
+        const pctChange = r.baseline_bb > 0 ? ((r.recent_bb - r.baseline_bb) / r.baseline_bb * 100).toFixed(0) : null;
+        return `<div style="padding:8px 10px;border-radius:8px;margin-bottom:5px;cursor:pointer;
+            border:1px solid ${z > 1.5 ? surgeCol + '44' : 'var(--border)'};
+            background:${z > 1.5 ? `rgba(16,185,129,.06)` : 'var(--bg3)'};
+            box-shadow:${glowStr}"
           onclick="showSeatDetailModal(decodeURIComponent('${encHall}'),decodeURIComponent('${encM}'),${r.seat_number})">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:700;font-size:.82rem">${esc(r.machine_name)} <span style="color:var(--text3);font-weight:400">${r.seat_number}番</span></div>
-            <div style="font-size:.68rem;color:var(--text3);margin-top:2px">
-              BB平均 <span style="color:var(--text2)">${r.baseline_bb.toFixed(1)}回/日</span>
-              → 直近 <span style="color:var(--success);font-weight:700">${r.recent_bb.toFixed(1)}回/日</span>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:.82rem">${esc(r.machine_name)} <span style="color:var(--text3);font-weight:400;font-size:.76rem">${r.seat_number}番台</span></div>
+              <div style="font-size:.65rem;color:var(--text3);margin-top:2px">
+                過去平均 <span style="color:var(--text2)">${r.baseline_bb.toFixed(1)}回/日</span>
+                → 直近3日 <span style="color:${surgeCol};font-weight:700">${r.recent_bb.toFixed(1)}回/日</span>
+                ${pctChange ? `<span style="color:${surgeCol}"> (+${pctChange}%)</span>` : ''}
+              </div>
+            </div>
+            <div style="text-align:right;flex-shrink:0">
+              <div style="font-size:1.1rem;font-weight:900;color:${surgeCol};text-shadow:${glowStr}">+${z}σ</div>
             </div>
           </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:1rem;font-weight:900;color:${surgeCol}">+${r.surge_z}σ</div>
-            <div style="font-size:.62rem;color:var(--text3)">急上昇</div>
+          <div style="height:3px;background:var(--bg2);border-radius:2px">
+            <div class="anim-bar" style="width:${barPct}%;height:100%;background:${surgeCol};border-radius:2px"></div>
           </div>
         </div>`;
       }).join('')}`;

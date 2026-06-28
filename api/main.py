@@ -2396,6 +2396,10 @@ def get_anaslo_status(hall_name: str = Query(...)) -> dict:
 
 @app.get("/api/hall/seat_dates", tags=["hall"])
 def get_seat_dates(hall_name: str = Query(...)) -> list[str]:
+    ckey = f"seat_dates:{hall_name}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -2404,7 +2408,9 @@ def get_seat_dates(hall_name: str = Query(...)) -> list[str]:
         (hall_name,)
     ).fetchall()
     conn.close()
-    return [r[0] for r in rows]
+    result = [r[0] for r in rows]
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/seat_report", tags=["hall"])
@@ -2415,6 +2421,10 @@ def get_seat_report(
     limit: int = Query(100),
 ) -> list[dict]:
     """指定日の台番別データ（差枚降順）"""
+    ckey = f"seat_report:{hall_name}:{date}:{machine_name}:{limit}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -2440,7 +2450,7 @@ def get_seat_report(
         ).fetchall()
 
     conn.close()
-    return [
+    result = [
         {
             "seat_number": r[0],
             "machine_name": r[1],
@@ -2452,6 +2462,8 @@ def get_seat_report(
         }
         for r in rows
     ]
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/tail_analysis", tags=["hall"])

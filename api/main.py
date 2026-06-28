@@ -2067,6 +2067,10 @@ def get_hot_days(
     みんレポデータから統計的に「熱い日」を自動検出する。
     各ホールの日次avg_diff_coinsを分析し、z-score > 1.0 の日を熱い日として返す。
     """
+    ckey = f"hot_days:{hall_name}:{months}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     import math
     from datetime import date, timedelta
     conn = _get_reports_conn()
@@ -2130,7 +2134,9 @@ def get_hot_days(
                 })
 
     hot_days.sort(key=lambda x: (x["date"], -x["z_score"]))
-    return {"hot_days": hot_days, "hall_stats": hall_stats}
+    result = {"hot_days": hot_days, "hall_stats": hall_stats}
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/compare", tags=["hall"])

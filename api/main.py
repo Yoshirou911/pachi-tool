@@ -999,6 +999,10 @@ def _get_reports_conn() -> Optional[sqlite3.Connection]:
 @app.get("/api/hall/report_dates", tags=["hall"])
 def get_report_dates(hall_name: str = Query(...)) -> list[str]:
     """スクレイプ済みレポートの日付一覧を返す（新しい順）。"""
+    ckey = f"report_dates:{hall_name}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if conn is None:
         return []
@@ -1007,7 +1011,9 @@ def get_report_dates(hall_name: str = Query(...)) -> list[str]:
         (hall_name,)
     ).fetchall()
     conn.close()
-    return [r["report_date"] for r in rows]
+    result = [r["report_date"] for r in rows]
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/report", tags=["hall"])
@@ -1711,6 +1717,10 @@ def get_event_calendar(
     hall_name: Optional[str] = Query(None),
 ) -> dict:
     """月次カレンダー用イベントデータ。日付→イベントリストのマップを返す。"""
+    ckey = f"event_calendar:{month}:{hall_name}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     try:
         conn = _get_event_conn()
         q = "SELECT id, hall_name, event_date, event_type, event_title, source, source_url FROM hall_event WHERE event_date LIKE ?"
@@ -1733,7 +1743,9 @@ def get_event_calendar(
                 "source": r["source"],
                 "source_url": r["source_url"],
             })
-        return {"month": month, "events": by_date}
+        result = {"month": month, "events": by_date}
+        _cache_set(ckey, result)
+        return result
     except Exception as e:
         return {"month": month, "events": {}, "error": str(e)}
 
@@ -1744,6 +1756,10 @@ def get_event_day(
     hall_name: Optional[str] = Query(None),
 ) -> dict:
     """特定日のイベント＋みんレポ実績データを返す"""
+    ckey = f"event_day_v2:{date_str}:{hall_name}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     try:
         conn = _get_event_conn()
         q = "SELECT id, hall_name, event_type, event_title, source, source_url FROM hall_event WHERE event_date=?"
@@ -1770,7 +1786,9 @@ def get_event_day(
                 pass
             rconn.close()
 
-        return {"date": date_str, "events": events, "results": results}
+        result = {"date": date_str, "events": events, "results": results}
+        _cache_set(ckey, result)
+        return result
     except Exception as e:
         return {"date": date_str, "events": [], "results": [], "error": str(e)}
 
@@ -2023,6 +2041,10 @@ def delete_event(event_id: int) -> dict:
 @app.get("/api/hall/month_heatmap", tags=["hall"])
 def get_month_heatmap(month: str = Query(..., description="YYYY-MM")) -> dict:
     """月次ヒートマップ: 日付→ホール別平均差枚を返す（カレンダー熱量表示用）"""
+    ckey = f"month_heatmap:{month}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return {"month": month, "days": {}}
@@ -2054,7 +2076,9 @@ def get_month_heatmap(month: str = Query(..., description="YYYY-MM")) -> dict:
         data["avg_diff"] = round(sum(diffs) / len(diffs)) if diffs else 0
         data["hall_count"] = len(data["halls"])
 
-    return {"month": month, "days": by_day}
+    result = {"month": month, "days": by_day}
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/day_machines", tags=["hall"])
@@ -2063,6 +2087,10 @@ def get_day_machines(
     hall_name: str = Query(...),
 ) -> list[dict]:
     """特定日×特定ホールの台別データ（L3ドリルダウン用）"""
+    ckey = f"day_machines:{hall_name}:{date_str}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -2074,8 +2102,10 @@ def get_day_machines(
             ORDER BY avg_diff_coins DESC
         """, (date_str, hall_name)).fetchall()
         conn.close()
-        return [{"machine_name": r[0], "avg_diff": int(r[1] or 0),
-                 "unit_count": r[2], "avg_games": r[3], "win_rate_pct": r[4]} for r in rows]
+        result = [{"machine_name": r[0], "avg_diff": int(r[1] or 0),
+                   "unit_count": r[2], "avg_games": r[3], "win_rate_pct": r[4]} for r in rows]
+        _cache_set(ckey, result)
+        return result
     except Exception:
         try: conn.close()
         except Exception: pass
@@ -2644,6 +2674,10 @@ def get_seat_by_number(
     seat_number: int = Query(...),
 ) -> list[dict]:
     """台番号から機種名を逆引きする（同台番に複数機種の場合あり）"""
+    ckey = f"seat_by_number:{hall_name}:{seat_number}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -2656,7 +2690,9 @@ def get_seat_by_number(
         (hall_name, seat_number)
     ).fetchall()
     conn.close()
-    return [{"machine_name": r[0], "record_count": r[1]} for r in rows]
+    result = [{"machine_name": r[0], "record_count": r[1]} for r in rows]
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/seat_detail", tags=["hall"])

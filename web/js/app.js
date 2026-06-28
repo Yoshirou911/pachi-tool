@@ -711,7 +711,7 @@ function renderEstimateResult(r) {
     confLabel.style.color = confColor;
   }
 
-  expectedEl.textContent = r.expected_setting.toFixed(2);
+  expectedEl.textContent = r.expected_setting != null ? r.expected_setting.toFixed(2) : '--';
 
   // 90%信用区間をサブテキストで表示
   let ciEl = document.getElementById('res-credible-interval');
@@ -721,7 +721,7 @@ function renderEstimateResult(r) {
     ciEl.style.cssText = 'font-size:.7rem;color:var(--text3);margin-top:2px';
     expectedEl.parentNode.appendChild(ciEl);
   }
-  if (r.credible_interval) {
+  if (r.credible_interval && r.credible_interval[0] != null && r.credible_interval[1] != null) {
     ciEl.textContent = `90%信用区間: 設定${r.credible_interval[0].toFixed(0)}〜${r.credible_interval[1].toFixed(0)}`;
   }
 

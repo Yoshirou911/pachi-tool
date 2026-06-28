@@ -2472,6 +2472,10 @@ def get_tail_analysis(
     days: int = Query(30),
 ) -> list[dict]:
     """末尾別の平均差枚分析"""
+    ckey = f"tail_analysis:{hall_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if not conn:
         return []
@@ -2486,10 +2490,12 @@ def get_tail_analysis(
         (hall_name, days)
     ).fetchall()
     conn.close()
-    return [
+    result = [
         {"tail": r[0], "count": r[1], "avg_diff": round(r[2] or 0), "win_rate": round(r[3] or 0, 1)}
         for r in rows
     ]
+    _cache_set(ckey, result)
+    return result
 
 
 @app.get("/api/hall/tail_bb_analysis", tags=["hall"])

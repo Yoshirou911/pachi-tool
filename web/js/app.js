@@ -3593,6 +3593,13 @@ async function init() {
     }
   } catch { /* ignore */ }
 
+  // 月フィルターのデフォルトを今月に設定
+  const monthFilterEl = document.getElementById('ses-month-filter');
+  if (monthFilterEl && !monthFilterEl.value) {
+    const now = new Date();
+    monthFilterEl.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  }
+
   // API死活監視（30秒ごと）
   setInterval(checkConnection, 30000);
 }

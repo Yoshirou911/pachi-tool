@@ -519,6 +519,16 @@
             </div>
             <div id="hall-compare-body"></div>
           </div>
+
+          <!-- 機種横断ホール比較 -->
+          <div class="card">
+            <div class="card-title">🎰 機種別 ホール横断比較</div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="text" id="cross-machine-input" class="form-input" placeholder="機種名（例: バジリスク）" style="flex:1;font-size:.82rem">
+              <button class="btn btn-primary btn-sm" onclick="loadCrossHallCompare()">比較</button>
+            </div>
+            <div id="cross-hall-body" style="margin-top:10px"></div>
+          </div>
         </div>
 
         <!-- ===== 詳細タブ ===== -->
@@ -677,7 +687,7 @@
               <div class="card-title" style="margin-bottom:0">📉 直近トレンド</div>
               <div id="hall-trend-summary" style="font-size:.72rem;color:var(--text3)"></div>
             </div>
-            <canvas id="hall-trend-chart" height="80"></canvas>
+            <div style="position:relative;height:100px"><canvas id="hall-trend-chart"></canvas></div>
           </div>
 
           <!-- 過去30日ランキング -->

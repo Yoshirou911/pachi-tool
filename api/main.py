@@ -3917,6 +3917,59 @@ def get_slump_seats(
     return results[:limit]
 
 
+@app.get("/api/machine/cross_hall", tags=["hall"])
+def get_machine_cross_hall(
+    machine_name: str = Query(..., description="機種名（部分一致OK）"),
+    days: int = Query(30, le=90),
+    limit: int = Query(15, le=30),
+) -> list[dict]:
+    """
+    同一機種を複数ホールで横断比較。
+    どの店が最もその機種に高設定を入れているかを返す。
+    """
+    ckey = f"cross_hall:{machine_name}:{days}"
+    cached = _cache_get(ckey)
+    if cached:
+        return cached
+    conn = _get_reports_conn()
+    if not conn:
+        return []
+    rows = conn.execute(
+        """SELECT hall_name,
+                  COUNT(DISTINCT report_date) as days_count,
+                  ROUND(AVG(avg_diff_coins)) as avg_diff,
+                  ROUND(AVG(win_rate_pct), 1) as win_rate,
+                  MAX(report_date) as latest_date,
+                  COUNT(*) as record_count
+           FROM hall_day_machine
+           WHERE machine_name LIKE ? AND avg_diff_coins IS NOT NULL
+             AND report_date >= date('now', '-' || ? || ' days')
+           GROUP BY hall_name
+           HAVING days_count >= 3
+           ORDER BY avg_diff DESC
+           LIMIT ?""",
+        (f"%{machine_name}%", days, limit)
+    ).fetchall()
+    conn.close()
+    if not rows:
+        return []
+    max_diff = max(abs(r[2] or 0) for r in rows) or 1
+    result = [
+        {
+            "hall_name": r[0],
+            "days_count": r[1],
+            "avg_diff": int(r[2] or 0),
+            "win_rate": float(r[3] or 0),
+            "latest_date": r[4] or "",
+            "record_count": r[5],
+            "bar_pct": round(abs(r[2] or 0) / max_diff * 100),
+        }
+        for r in rows
+    ]
+    _cache_set(ckey, result)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # AI エンドポイント
 # ---------------------------------------------------------------------------

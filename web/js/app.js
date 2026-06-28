@@ -4481,6 +4481,50 @@ async function loadHallCompare() {
   }
 }
 
+async function loadCrossHallCompare() {
+  const machine = document.getElementById('cross-machine-input')?.value?.trim();
+  const body = document.getElementById('cross-hall-body');
+  if (!machine || !body) return;
+  body.innerHTML = loadingHtml(2);
+  try {
+    const rows = await apiFetch(`/api/machine/cross_hall?machine_name=${encodeURIComponent(machine)}&days=30`);
+    if (!rows || rows.length === 0) {
+      body.innerHTML = `<div class="empty-hint"><span>🎰</span><span>「${esc(machine)}」のデータなし（30日以内）</span></div>`;
+      return;
+    }
+    const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    body.innerHTML = `<div style="font-size:.62rem;color:var(--text3);margin-bottom:6px">「${esc(machine)}」— 店舗別平均差枚 (過去30日)</div>`
+      + rows.map((r, i) => {
+        const col = r.avg_diff >= 100 ? 'var(--success)' : r.avg_diff >= 0 ? 'var(--warning)' : 'var(--danger)';
+        const icon = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
+        const enc = encodeURIComponent(r.hall_name);
+        return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;cursor:pointer;padding:3px 0" onclick="switchToHall(decodeURIComponent('${enc}'))">
+          <span style="font-size:${i<3?'.82':'.7'}rem;width:20px;text-align:center;flex-shrink:0">${icon}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:.74rem;font-weight:${i<3?700:400};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.hall_name)}</div>
+            <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:2px">
+              <div style="width:${r.bar_pct}%;height:100%;background:${col};border-radius:2px"></div>
+            </div>
+          </div>
+          <div style="text-align:right;flex-shrink:0">
+            <div style="font-size:.78rem;font-weight:700;color:${col}">${sign(r.avg_diff)}枚</div>
+            <div style="font-size:.58rem;color:var(--text3)">${r.days_count}日</div>
+          </div>
+        </div>`;
+      }).join('');
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--danger);font-size:.75rem">取得失敗</div>`;
+  }
+}
+window.loadCrossHallCompare = loadCrossHallCompare;
+
+// Enterキーで機種横断比較
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement?.id === 'cross-machine-input') {
+    loadCrossHallCompare();
+  }
+});
+
 // 比較ランキングをテキストでコピー
 window.copyCompareRanking = function() {
   const body = document.getElementById('hall-compare-body');

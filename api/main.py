@@ -1040,6 +1040,10 @@ def get_machine_trend(
     days: int = Query(30, le=90),
 ) -> list[dict]:
     """特定機種の過去N日の差枚トレンドを返す。"""
+    ckey = f"machine_trend:{hall_name}:{machine_name}:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if conn is None:
         return []
@@ -1052,7 +1056,9 @@ def get_machine_trend(
         (hall_name, machine_name, days)
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    _cache_set(ckey, out)
+    return out
 
 
 @app.get("/api/hall/top_machines", tags=["hall"])
@@ -1140,7 +1146,7 @@ def get_hot_machines(
     limit: int = Query(20, le=50),
 ) -> list[dict]:
     """期間内の急上昇機種ランキング (直近3日 vs 前週平均)"""
-    ckey = f"hot_machines:{hall_name}:{days}:{limit}"
+    ckey = f"hot_machines:{hall_name}:{days}:{limit}:{date.today()}"
     cached = _cache_get(ckey)
     if cached is not None:
         return cached
@@ -1194,6 +1200,10 @@ def get_hot_machines(
 @app.get("/api/hall/weekly_summary", tags=["hall"])
 def get_hall_weekly_summary(days: int = Query(7, le=14)) -> dict:
     """全ホールの週次サマリー — ランキング変動・急上昇・最高/最低機種"""
+    ckey = f"weekly_summary:{days}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     conn = _get_reports_conn()
     if conn is None:
         return {"highlights": [], "top_halls": [], "worst_halls": [], "generated_at": ""}
@@ -1234,12 +1244,14 @@ def get_hall_weekly_summary(days: int = Query(7, le=14)) -> dict:
             })
 
         import datetime as _dtw
-        return {
+        result = {
             "top_halls": [{"hall_name": r["hall_name"], "avg_diff": int(r["avg_diff"]), "days": r["days_cnt"]} for r in top_rows],
             "highlights": highlights,
             "days": days,
             "generated_at": _dtw.datetime.now().strftime("%Y-%m-%d %H:%M"),
         }
+        _cache_set(ckey, result)
+        return result
     except Exception as e:
         return {"error": str(e), "highlights": [], "top_halls": [], "generated_at": ""}
     finally:
@@ -3626,7 +3638,7 @@ def get_machine_high_rate(
     各台日のBB確率を機種内でz-score化し、z>=1.0の割合を「高設定率」として返す。
     高設定率が高い機種 = このホールが力を入れている機種。
     """
-    ckey = f"machine_high_rate:{hall_name}:{days}"
+    ckey = f"machine_high_rate:{hall_name}:{days}:{date.today()}"
     cached = _cache_get(ckey)
     if cached is not None:
         return cached  # type: ignore

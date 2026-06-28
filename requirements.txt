@@ -5,10 +5,8 @@
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
-cloudscraper>=1.2.71
-
-# ブラウザ自動化（アナスロ用）
-playwright>=1.40.0
+curl-cffi>=0.7.0        # Cloudflare自動突破（Chrome TLSフィンガープリント模倣）
+cloudscraper>=1.2.71    # curl-cffi未対応環境用フォールバック
 
 # スケジューラー（サーバーサイド定期スクレイプ）
 apscheduler>=3.10.4

@@ -1,11 +1,12 @@
 """
-アナスロ (ana-slo.com) スクレーパー - cloudscraper版
+アナスロ (ana-slo.com) スクレーパー - curl_cffi版
 
 台番別データ（差枚・G数・BB確率・RB確率）を取得してSQLiteに保存する。
-cloudscraper で Cloudflare を回避。
+curl_cffi で Chrome の TLS フィンガープリントを模倣し、Cloudflare を自動突破。
+cf_clearance Cookie の手動更新は不要。
 
 必要パッケージ:
-    pip install cloudscraper beautifulsoup4 lxml
+    pip install curl-cffi beautifulsoup4 lxml
 
 使い方:
     # 大阪府の店舗一覧確認
@@ -24,8 +25,19 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-import cloudscraper
 from bs4 import BeautifulSoup
+
+# curl_cffi が利用可能なら使う（Cloudflare 自動突破）、なければ cloudscraper にフォールバック
+try:
+    from curl_cffi import requests as cf_requests
+    _USE_CURL_CFFI = True
+except ImportError:
+    try:
+        import cloudscraper as _cs_mod
+        _USE_CURL_CFFI = False
+    except ImportError:
+        _cs_mod = None
+        _USE_CURL_CFFI = False
 
 try:
     from config import HALL_REPORTS_DB as DB_PATH
@@ -52,49 +64,59 @@ HEADERS = {
 }
 
 
-def _make_scraper(cookie_str: str = ""):
-    scraper = cloudscraper.create_scraper(
+def _make_session(cookie_str: str = ""):
+    """
+    curl_cffi セッション（CF自動突破）を返す。
+    curl_cffi が未インストールなら cloudscraper にフォールバック。
+    cookie_str が指定された場合はそのCookieも追加注入する。
+    """
+    if _USE_CURL_CFFI:
+        # curl_cffi: Chrome120 の TLS フィンガープリントで CF を自動突破
+        session = cf_requests.Session(impersonate="chrome120")
+        session.headers.update(HEADERS)
+        # 追加Cookieがあれば注入（後方互換用）
+        if cookie_str:
+            for part in cookie_str.split(";"):
+                part = part.strip()
+                if "=" in part:
+                    k, v = part.split("=", 1)
+                    session.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
+            print("  [curl_cffi + Cookie注入済み]")
+        else:
+            print("  [curl_cffi: CF自動突破モード]")
+        return session
+
+    # フォールバック: cloudscraper
+    if _cs_mod is None:
+        raise RuntimeError("curl_cffi も cloudscraper もインストールされていません。pip install curl-cffi を実行してください。")
+    scraper = _cs_mod.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "mobile": False}
     )
-    # 1. 引数で渡されたCookieを優先
+    # DB保存のCookieを使用
+    if not cookie_str:
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute(
+                "SELECT value FROM scrape_settings WHERE key='cf_cookie_str'"
+            ).fetchone()
+            conn.close()
+            if row and row[0]:
+                cookie_str = row[0]
+                print("  [cloudscraper + DB保存Cookie使用]")
+        except Exception:
+            pass
     if cookie_str:
         for part in cookie_str.split(";"):
             part = part.strip()
             if "=" in part:
                 k, v = part.split("=", 1)
                 scraper.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
-        print(f"  [Cookie注入済み]")
-        return scraper
-    # 2. DB保存のCookieを使用（サーバーサイド自動実行用）
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        row = conn.execute(
-            "SELECT value FROM scrape_settings WHERE key='cf_cookie_str'"
-        ).fetchone()
-        conn.close()
-        if row and row[0]:
-            for part in row[0].split(";"):
-                part = part.strip()
-                if "=" in part:
-                    k, v = part.split("=", 1)
-                    scraper.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
-            print(f"  [DB保存Cookie使用]")
-            return scraper
-    except Exception:
-        pass
-    # 3. ローカル実行時のみ: ChromeのCookieを試みる
-    try:
-        import browser_cookie3
-        cj = browser_cookie3.chrome(domain_name=".ana-slo.com")
-        cookies = {c.name: c.value for c in cj}
-        if "cf_clearance" in cookies:
-            scraper.cookies.update(cookies)
-            print(f"  [Chrome Cookie使用: cf_clearance={cookies['cf_clearance'][:20]}...]")
-        else:
-            print("  [警告] ChromeのCookieがありません。/api/scrape/cookie でCookieを登録してください。")
-    except Exception as e:
-        print(f"  [Cookie取得スキップ: {e}]")
     return scraper
+
+
+# 後方互換エイリアス
+def _make_scraper(cookie_str: str = ""):
+    return _make_session(cookie_str)
 
 
 # ---------------------------------------------------------------------------
@@ -327,27 +349,41 @@ class CloudflareBlockedError(Exception):
     pass
 
 
-def _get(scraper, url: str) -> Optional[BeautifulSoup]:
-    try:
-        resp = scraper.get(url, headers=HEADERS, timeout=20)
-        # Cloudflare challenge/block検知
-        cf_blocked = (
-            resp.status_code in (403, 503) or
-            "cf-ray" in resp.headers and resp.status_code != 200 or
-            "cf-browser-verification" in resp.text or
-            "Just a moment" in resp.text and "cf_clearance" in resp.text
-        )
-        if cf_blocked:
-            raise CloudflareBlockedError(f"Cloudflare blocked (HTTP {resp.status_code})")
-        if resp.status_code != 200:
-            print(f"  HTTP {resp.status_code}: {url}")
+def _get(session, url: str, retry: int = 2) -> Optional[BeautifulSoup]:
+    """GETしてBeautifulSoupを返す。CF検知時は CloudflareBlockedError を raise。"""
+    for attempt in range(retry + 1):
+        try:
+            if _USE_CURL_CFFI:
+                resp = session.get(url, timeout=30)
+            else:
+                resp = session.get(url, headers=HEADERS, timeout=30)
+
+            # Cloudflare challenge/block 検知
+            cf_blocked = (
+                resp.status_code in (403, 503) or
+                ("Just a moment" in resp.text and "cf_clearance" in resp.text) or
+                "cf-browser-verification" in resp.text or
+                "Enable JavaScript and cookies to continue" in resp.text
+            )
+            if cf_blocked:
+                if _USE_CURL_CFFI and attempt < retry:
+                    print(f"  [CF検知 リトライ {attempt+1}/{retry}]")
+                    time.sleep(5)
+                    continue
+                raise CloudflareBlockedError(f"Cloudflare blocked (HTTP {resp.status_code})")
+            if resp.status_code != 200:
+                print(f"  HTTP {resp.status_code}: {url}")
+                return None
+            return BeautifulSoup(resp.text, "lxml")
+        except CloudflareBlockedError:
+            raise
+        except Exception as e:
+            if attempt < retry:
+                time.sleep(3)
+                continue
+            print(f"  取得エラー: {e}")
             return None
-        return BeautifulSoup(resp.text, "lxml")
-    except CloudflareBlockedError:
-        raise
-    except Exception as e:
-        print(f"  取得エラー: {e}")
-        return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +396,7 @@ def explore_halls(prefecture: str):
     print(f"\n--- {prefecture} の店舗一覧 ---")
     print(f"URL: {list_url}\n")
 
-    scraper = _make_scraper()
+    scraper = _make_session()
     soup = _get(scraper, list_url)
     if soup is None:
         print("ページ取得失敗")
@@ -511,10 +547,10 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
                unlimited: bool = False):
     """指定ホールの台番別データをスクレイプ。unlimited=TrueでMAX_PER_RUN制限を無効化（夜間バッチ用）。"""
     conn = init_db()
-    # cf_cookieが指定されていればcookie_strに変換
+    # cf_cookieが指定されていればcookie_strに変換（後方互換）
     if cf_cookie and not cookie_str:
         cookie_str = f"cf_clearance={cf_cookie}"
-    scraper = _make_scraper(cookie_str=cookie_str)
+    scraper = _make_session(cookie_str=cookie_str)
     store_url = f"{BASE_URL}/ホールデータ/{prefecture}/{hall_name}-データ一覧/"
 
     print(f"\n=== アナスロ スクレーパー ===")

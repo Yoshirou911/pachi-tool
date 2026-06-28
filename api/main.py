@@ -1445,16 +1445,24 @@ def get_cookie_status() -> dict:
         except Exception:
             pass
 
+        # curl_cffi が使えるか確認
+        try:
+            import curl_cffi  # noqa
+            curl_cffi_available = True
+        except ImportError:
+            curl_cffi_available = False
+
         return {
             "has_cookie": bool(ck),
             "has_cf_clearance": "cf_clearance" in ck if ck else False,
+            "curl_cffi_available": curl_cffi_available,
             "preview": ck[:60] + "..." if len(ck) > 60 else ck,
             "saved_at": saved_at,
             "age_hours": age_hours,
             "cf_blocked_halls": cf_blocked_halls,
         }
     except Exception as e:
-        return {"has_cookie": False, "has_cf_clearance": False, "error": str(e)}
+        return {"has_cookie": False, "has_cf_clearance": False, "curl_cffi_available": False, "error": str(e)}
 
 
 @app.post("/api/scrape/run", tags=["scrape"])

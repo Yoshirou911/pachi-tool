@@ -5094,13 +5094,21 @@ async function loadScrapeManager() {
         ? ` <span style="color:${ageWarnColor};font-size:.75rem">(${ageStr}に登録${age >= 6 ? ' — 期限切れの可能性' : ''})</span>`
         : '';
 
-      if (cookieSt.has_cf_clearance) {
+      if (cookieSt.curl_cffi_available) {
+        // curl_cffi があれば Cookie 不要で自動突破
+        const cfBlockedRecently = (cookieSt.cf_blocked_halls || []).length > 0;
+        if (cfBlockedRecently) {
+          badge.innerHTML = `<span style="color:var(--warning)">⚡ curl_cffi 自動突破モード（一部CF検知あり）</span>`;
+        } else {
+          badge.innerHTML = `<span style="color:var(--success)">⚡ curl_cffi 自動突破モード — Cookie不要</span>`;
+        }
+      } else if (cookieSt.has_cf_clearance) {
         const iconColor = age != null && age >= 24 ? 'var(--warning)' : 'var(--success)';
         badge.innerHTML = `<span style="color:${iconColor}">✓ cf_clearance登録済み</span>${ageHtml}`;
       } else if (cookieSt.has_cookie) {
         badge.innerHTML = `<span style="color:var(--warning)">⚠ Cookie登録済み（cf_clearanceなし）</span>${ageHtml}`;
       } else {
-        badge.innerHTML = '<span style="color:var(--danger)">✗ Cookie未登録</span>';
+        badge.innerHTML = '<span style="color:var(--danger)">✗ Cookie未登録 — curl-cffi をインストールするとCookie不要になります</span>';
       }
 
       // CFブロック警告バナー

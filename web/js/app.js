@@ -1976,6 +1976,8 @@ async function loadHallPage() {
   const isStale = () => gen !== _loadHallPageGen;
   _addRecentHall(hall);
   _loadHallMemo(hall);
+  const _gradeBanner = document.getElementById('hall-grade-banner');
+  if (_gradeBanner) _gradeBanner.style.display = 'none';
   try {
     // セッション統計を取得
     const [daitoData, hallStats] = await Promise.allSettled([
@@ -3924,9 +3926,58 @@ async function loadTodayBriefing(hall) {
         ${hrRows}
       </div>` : ''}`;
     card.style.display = 'block';
+    _renderHallGradeBanner(d);
   } catch(e) {
     card.style.display = 'none';
   }
+}
+
+function _renderHallGradeBanner(d) {
+  const el = document.getElementById('hall-grade-banner');
+  if (!el) return;
+  // スコア計算 (0-100)
+  let score = 50;
+  if (d.is_event_candidate) score += 20;
+  if (d.dow_rank === 1) score += 15;
+  else if (d.dow_rank === 2) score += 8;
+  else if (d.dow_rank >= 4) score -= 10;
+  const surgeCount = d.bb_surge_seats?.length || 0;
+  score += Math.min(surgeCount * 8, 20);
+  const streakCount = d.streak_seats?.length || 0;
+  score += Math.min(streakCount * 5, 15);
+  score = Math.max(0, Math.min(100, score));
+
+  const grade = score >= 80 ? 'S' : score >= 65 ? 'A' : score >= 50 ? 'B' : score >= 35 ? 'C' : 'D';
+  const gradeColors = { S: '#10b981', A: '#7c7ff5', B: '#f59e0b', C: '#6b7280', D: '#ef4444' };
+  const gradeLabels = { S: '最高', A: '良好', B: '普通', C: 'やや低め', D: '不良' };
+  const col = gradeColors[grade];
+  const label = gradeLabels[grade];
+  const reasons = [];
+  if (d.is_event_candidate) reasons.push('イベント候補');
+  if (d.dow_rank === 1) reasons.push(`${d.weekday}曜は特日傾向`);
+  if (surgeCount > 0) reasons.push(`BB急上昇${surgeCount}台`);
+  if (streakCount > 0) reasons.push(`連続好調${streakCount}台`);
+  const reasonStr = reasons.length ? reasons.slice(0, 3).join(' · ') : '通常日';
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;
+      background:linear-gradient(135deg,${col}18,${col}08);
+      border:1.5px solid ${col}44;border-radius:12px">
+      <div style="text-align:center;flex-shrink:0">
+        <div style="font-size:2rem;font-weight:900;color:${col};line-height:1">${grade}</div>
+        <div style="font-size:.58rem;color:${col};font-weight:700;opacity:.8">${label}</div>
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.75rem;font-weight:700;color:var(--text1);margin-bottom:2px">本日の推奨度 <span style="font-size:.7rem;font-weight:400;color:var(--text3)">(${score}/100)</span></div>
+        <div style="font-size:.68rem;color:var(--text2)">${reasonStr}</div>
+      </div>
+      <div style="flex-shrink:0">
+        <div style="width:36px;height:36px;border-radius:50%;border:3px solid ${col}44;background:${col}18;display:flex;align-items:center;justify-content:center">
+          <div style="width:${Math.round(score * 0.34)}px;height:${Math.round(score * 0.34)}px;border-radius:50%;background:${col};max-width:28px;max-height:28px"></div>
+        </div>
+      </div>
+    </div>`;
 }
 
 async function loadEventDayPattern(hall) {
@@ -3973,7 +4024,46 @@ async function loadEventDayPattern(hall) {
       </div>`;
     }).join('');
 
-    body.innerHTML = todayBanner + rows +
+    // 次のイベント候補日を計算（最大30日先まで）
+    let nextEventHtml = '';
+    if (todayHits.length === 0 && d.top_patterns.length > 0) {
+      const upcomingDates = [];
+      for (let delta = 1; delta <= 30; delta++) {
+        const d2 = new Date(now.getTime() + delta * 86400000);
+        const t2 = d2.getDate() % 10;
+        const dow2 = ['日','月','火','水','木','金','土'][d2.getDay()];
+        const isFive2 = [5,15,25].includes(d2.getDate());
+        const hits2 = d.top_patterns.filter(p => {
+          if (p.type === `末尾${t2}の日`) return true;
+          if (p.type === `${dow2}曜日`) return true;
+          if (p.type === '5・15・25日' && isFive2) return true;
+          return false;
+        });
+        if (hits2.length > 0) {
+          const bestZ = Math.max(...hits2.map(h => h.z));
+          upcomingDates.push({ delta, date: d2, hits: hits2, bestZ });
+          if (upcomingDates.length >= 2) break;
+        }
+      }
+      if (upcomingDates.length > 0) {
+        const next = upcomingDates[0];
+        const afterNext = upcomingDates[1];
+        const mm = next.date.getMonth() + 1, dd = next.date.getDate();
+        const dow3 = ['日','月','火','水','木','金','土'][next.date.getDay()];
+        const afterStr = afterNext
+          ? `<span style="color:var(--text3);font-size:.65rem;margin-left:8px">次→ ${afterNext.date.getMonth()+1}/${afterNext.date.getDate()}(${['日','月','火','水','木','金','土'][afterNext.date.getDay()]})+${afterNext.delta}日</span>`
+          : '';
+        nextEventHtml = `<div style="background:rgba(124,127,245,.08);border:1px solid rgba(124,127,245,.2);border-radius:8px;padding:7px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
+          <div style="font-size:1.4rem;font-weight:900;color:var(--primary-h);line-height:1">+${next.delta}</div>
+          <div>
+            <div style="font-size:.75rem;font-weight:600;color:var(--text1)">次候補: ${mm}/${dd}(${dow3}) · ${next.hits[0].type}</div>
+            <div style="display:flex;align-items:center;gap:4px">${afterStr}</div>
+          </div>
+        </div>`;
+      }
+    }
+
+    body.innerHTML = todayBanner + nextEventHtml + rows +
       `<div style="font-size:.65rem;color:var(--text3);margin-top:6px">過去${d.total_days}日・全台平均BB ${d.global_mean_bb?.toFixed(1)}回/日 | σはBB回数の機種内偏差</div>`;
     card.style.display = 'block';
   } catch (e) {

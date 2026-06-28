@@ -3817,6 +3817,10 @@ def get_bb_surge_seats(
     設定入れ替え（低→高）の強いシグナル。
     min_surge: 機種内z-scoreの最低上昇量（デフォルト0.5σ以上の急上昇）
     """
+    ckey = f"bb_surge_seats:{hall_name}:{days}:{min_surge}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     import datetime as _dt
     conn = _get_reports_conn()
     if not conn:
@@ -3877,7 +3881,9 @@ def get_bb_surge_seats(
             })
 
     results.sort(key=lambda x: -x["surge_z"])
-    return results[:20]
+    out = results[:20]
+    _cache_set(ckey, out)
+    return out
 
 
 @app.get("/api/hall/slump_seats", tags=["hall"])
@@ -3891,6 +3897,10 @@ def get_slump_seats(
     直近N日間のBB確率が60日平均より有意に低い台を検出。
     スランプ台 = 低設定継続 or そろそろ設定変更待ちシグナル。
     """
+    ckey = f"slump_seats:{hall_name}:{days}:{min_slump}:{date.today()}"
+    cached = _cache_get(ckey)
+    if cached is not None:
+        return cached
     import datetime as _dt
     conn = _get_reports_conn()
     if not conn:
@@ -3943,7 +3953,9 @@ def get_slump_seats(
                 "recent_days": days,
             })
     results.sort(key=lambda x: -x["slump_z"])
-    return results[:limit]
+    out = results[:limit]
+    _cache_set(ckey, out)
+    return out
 
 
 @app.get("/api/machine/cross_hall", tags=["hall"])

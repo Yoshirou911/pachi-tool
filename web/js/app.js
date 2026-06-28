@@ -1725,10 +1725,19 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
             ${isPinnedSeat(hall, machineName, seatNumber) ? '★ ピン中' : '☆ ピン'}
           </button>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.8rem;margin-bottom:6px">
-          <span style="color:var(--text3)">期間 <strong style="color:var(--text2)">${totalDays}日</strong></span>
-          <span style="color:var(--text3)">平均差枚 <strong style="color:${avgDiff>=0?'var(--success)':'var(--danger)'}">${sign(avgDiff)}枚</strong></span>
-          <span style="color:var(--text3)">勝率 <strong style="color:${winRate>=50?'var(--success)':'var(--danger)'}">${winRate}%</strong></span>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:6px">
+          <div style="background:var(--bg2);border-radius:6px;padding:6px;text-align:center">
+            <div style="font-size:.58rem;color:var(--text3)">期間</div>
+            <div style="font-size:.88rem;font-weight:800;color:var(--text1)">${totalDays}日</div>
+          </div>
+          <div style="background:var(--bg2);border-radius:6px;padding:6px;text-align:center">
+            <div style="font-size:.58rem;color:var(--text3)">平均差枚</div>
+            <div style="font-size:.88rem;font-weight:800;color:${avgDiff>=0?'var(--success)':'var(--danger)'}">${sign(avgDiff)}枚</div>
+          </div>
+          <div style="background:var(--bg2);border-radius:6px;padding:6px;text-align:center">
+            <div style="font-size:.58rem;color:var(--text3)">勝率</div>
+            <div style="font-size:.88rem;font-weight:800;color:${winRate>=50?'var(--success)':'var(--danger)'}">${winRate}%</div>
+          </div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">${streakBadge}${maxStreakBadge}${bbTrBadge}${bestDowBadge}</div>
         ${dateBlockHtml}

@@ -4193,6 +4193,236 @@ def api_ai_chat(req: ChatRequest):
     return {"reply": reply}
 
 
+@app.get("/api/hall/today_recommendation")
+def get_today_recommendation(days: int = 30):
+    """
+    今日行くべき店舗ランキング。
+    各店舗の統計（曜日傾向・末尾傾向・BB急上昇・連続好調・勝率）を
+    スコアリングして返す。AIキー不要。
+    """
+    import datetime as _dt
+    import statistics as _s
+    today = _dt.date.today()
+    today_dow = str((today.weekday() + 1) % 7)   # strftime %w (0=日)
+    today_tail = today.day % 10
+    dow_ja = ["月","火","水","木","金","土","日"][today.weekday()]
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+
+        # 全ホール一覧
+        halls = [r[0] for r in conn.execute(
+            "SELECT DISTINCT hall_name FROM hall_day_seat WHERE machine_name != '_NODATA_'"
+        ).fetchall()]
+
+        results = []
+        for hall in halls:
+            reasons = []
+            score = 0.0
+
+            # ── 1. 基礎スタッツ（過去N日） ──
+            base = conn.execute("""
+                SELECT COUNT(*) as cnt,
+                       ROUND(AVG(diff_coins)) as avg_diff,
+                       ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate,
+                       COUNT(DISTINCT report_date) as days
+                FROM hall_day_seat
+                WHERE hall_name=? AND machine_name != '_NODATA_'
+                  AND report_date >= date('now', ? || ' days')
+            """, (hall, f"-{days}")).fetchone()
+
+            if not base or not base[0]:
+                continue
+            cnt, avg_diff, win_rate, data_days = base
+            avg_diff = avg_diff or 0
+            win_rate = win_rate or 0
+
+            # スコア: 平均差枚と勝率を正規化（後で全ホール比較用に保存）
+            score += (avg_diff / 200.0)   # +200枚 = +1点
+            score += (win_rate - 50) / 10  # 勝率50%超過分
+
+            # ── 2. 本日曜日傾向 ──
+            dow_row = conn.execute("""
+                SELECT COUNT(*) as cnt,
+                       ROUND(AVG(diff_coins)) as avg_diff,
+                       ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as wr
+                FROM hall_day_seat
+                WHERE hall_name=? AND strftime('%w', report_date)=?
+                  AND machine_name != '_NODATA_'
+                  AND report_date >= date('now', '-120 days')
+            """, (hall, today_dow)).fetchone()
+
+            dow_bonus = 0.0
+            if dow_row and dow_row[0] >= 3:
+                dow_diff = dow_row[1] or 0
+                dow_wr = dow_row[2] or 0
+                if dow_diff > avg_diff + 100:
+                    dow_bonus = 1.5
+                    reasons.append(f"{dow_ja}曜日が特に強い（平均{int(dow_diff):+}枚 / 勝率{int(dow_wr)}%）")
+                elif dow_diff > avg_diff:
+                    dow_bonus = 0.5
+            score += dow_bonus
+
+            # ── 3. 末尾傾向 ──
+            all_date_rows = conn.execute("""
+                SELECT report_date, AVG(bb_prob) as avg_bb
+                FROM hall_day_seat
+                WHERE hall_name=? AND bb_prob IS NOT NULL
+                  AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                  AND report_date >= date('now', '-180 days')
+                GROUP BY report_date HAVING COUNT(*) >= 3
+            """, (hall,)).fetchall()
+
+            tail_bonus = 0.0
+            tail_hint = ""
+            if len(all_date_rows) >= 8:
+                try:
+                    all_bb = [float(r[1]) for r in all_date_rows]
+                    gm = _s.mean(all_bb)
+                    gs = _s.stdev(all_bb) if len(all_bb) > 1 else 0.001
+                    tail_bbs = [float(r[1]) for r in all_date_rows
+                                if _dt.date.fromisoformat(r[0]).day % 10 == today_tail]
+                    if len(tail_bbs) >= 2:
+                        z = (sum(tail_bbs)/len(tail_bbs) - gm) / max(gs, 1e-8)
+                        if z >= 1.0:
+                            tail_bonus = 2.0
+                            tail_hint = f"末尾{today_tail}が統計的に強い（+{z:.1f}σ）"
+                            reasons.append(tail_hint)
+                        elif z >= 0.5:
+                            tail_bonus = 0.8
+                            tail_hint = f"末尾{today_tail}がやや強い（+{z:.1f}σ）"
+                            reasons.append(tail_hint)
+                except Exception:
+                    pass
+            score += tail_bonus
+
+            # ── 4. BB急上昇台（設定入れ替えシグナル） ──
+            surge_count = 0
+            try:
+                prev3 = (_dt.date.today() - _dt.timedelta(days=3)).isoformat()
+                recent_bb = conn.execute("""
+                    SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
+                    FROM hall_day_seat
+                    WHERE hall_name=? AND bb_prob IS NOT NULL AND report_date >= ?
+                      AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                    GROUP BY machine_name, seat_number HAVING COUNT(*) >= 1
+                """, (hall, prev3)).fetchall()
+
+                base_bb = conn.execute("""
+                    SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
+                    FROM hall_day_seat
+                    WHERE hall_name=? AND bb_prob IS NOT NULL
+                      AND report_date < ? AND report_date >= date(?, '-60 days')
+                      AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
+                    GROUP BY machine_name, seat_number HAVING COUNT(*) >= 3
+                """, (hall, prev3, prev3)).fetchall()
+
+                bmap = {(r[0], r[1]): float(r[2]) for r in base_bb}
+                m_bbs: dict = {}
+                for r in base_bb:
+                    m_bbs.setdefault(r[0], []).append(float(r[2]))
+                m_std = {m: (_s.stdev(v) if len(v)>1 else 0.001) or 0.001 for m,v in m_bbs.items()}
+                for r in recent_bb:
+                    base_val = bmap.get((r[0], r[1]))
+                    if base_val is None:
+                        continue
+                    std = m_std.get(r[0], 0.001)
+                    z = (float(r[2]) - base_val) / std
+                    if z >= 1.2:
+                        surge_count += 1
+            except Exception:
+                pass
+
+            if surge_count >= 2:
+                score += 2.5
+                reasons.append(f"BB急上昇台が{surge_count}台（設定入れ替え疑い）")
+            elif surge_count == 1:
+                score += 1.0
+                reasons.append("BB急上昇台1台あり")
+
+            # ── 5. 連続好調台 ──
+            streak_seats = 0
+            try:
+                streak_rows = conn.execute("""
+                    SELECT machine_name, seat_number, report_date, diff_coins
+                    FROM hall_day_seat
+                    WHERE hall_name=? AND machine_name != '_NODATA_'
+                      AND report_date >= date('now', '-10 days')
+                    ORDER BY machine_name, seat_number, report_date DESC
+                """, (hall,)).fetchall()
+                from collections import defaultdict
+                seat_hist: dict = defaultdict(list)
+                for m, s, d, diff in streak_rows:
+                    seat_hist[(m, s)].append(diff or 0)
+                for diffs in seat_hist.values():
+                    st = 0
+                    for d in diffs:
+                        if d > 0: st += 1
+                        else: break
+                    if st >= 3:
+                        streak_seats += 1
+            except Exception:
+                pass
+
+            if streak_seats >= 3:
+                score += 2.0
+                reasons.append(f"3日以上連続好調台が{streak_seats}台")
+            elif streak_seats >= 1:
+                score += 0.8
+                reasons.append(f"連続好調台{streak_seats}台")
+
+            # ── 6. 最近のデータ鮮度 ──
+            freshness_row = conn.execute("""
+                SELECT MAX(report_date) FROM hall_day_seat WHERE hall_name=?
+            """, (hall,)).fetchone()
+            freshness = freshness_row[0] if freshness_row else None
+            stale = False
+            if freshness:
+                age = (today - _dt.date.fromisoformat(freshness)).days
+                if age >= 3:
+                    score -= 1.0
+                    stale = True
+
+            results.append({
+                "hall_name": hall,
+                "score": round(score, 2),
+                "avg_diff": int(avg_diff),
+                "win_rate": int(win_rate),
+                "data_days": data_days,
+                "surge_seats": surge_count,
+                "streak_seats": streak_seats,
+                "reasons": reasons,
+                "latest_date": freshness,
+                "stale": stale,
+                "dow_match": dow_ja,
+                "tail_match": today_tail,
+            })
+
+        conn.close()
+        results.sort(key=lambda x: -x["score"])
+
+        # ランク付け
+        for i, r in enumerate(results):
+            r["rank"] = i + 1
+            if i == 0 and r["score"] > 2:
+                r["badge"] = "今日の本命"
+            elif i == 1 and r["score"] > 1:
+                r["badge"] = "対抗"
+            elif r["stale"]:
+                r["badge"] = "データ古い"
+            else:
+                r["badge"] = ""
+
+        return {
+            "date": today.isoformat(),
+            "dow": dow_ja,
+            "tail": today_tail,
+            "halls": results,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/ai/report")
 def api_ai_report(hall_name: str = "ベガスベガス大東店"):
     if not AI_AVAILABLE:

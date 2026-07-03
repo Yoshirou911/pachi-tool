@@ -94,6 +94,7 @@ function switchHallTab(htabId) {
     p.classList.toggle('active', p.id === `htab-${htabId}`);
   });
   localStorage.setItem('pachi_last_hall_tab', htabId);
+  if (htabId === 'today') loadTodayRecommendation();
   if (htabId === 'compare') loadHallCompare();
   if (htabId === 'detail') loadHallPage();
   if (htabId === 'admin') loadScrapeManager();
@@ -4713,6 +4714,123 @@ function _toggleFavHall(hall) {
   localStorage.setItem('pachi_fav_halls', JSON.stringify(favs));
   loadHallCompare();
 }
+
+// ============================================================
+// 今日おすすめタブ
+// ============================================================
+let _todayRecLoaded = false;
+
+async function loadTodayRecommendation() {
+  const loading = document.getElementById('today-rec-loading');
+  const body = document.getElementById('today-rec-body');
+  if (!loading || !body) return;
+
+  // 初回だけロード（ページ滞在中はキャッシュ）
+  if (_todayRecLoaded && body.innerHTML) {
+    loading.style.display = 'none';
+    body.style.display = 'block';
+    return;
+  }
+
+  loading.style.display = 'block';
+  loading.textContent = 'データを分析中...';
+  body.style.display = 'none';
+
+  try {
+    const data = await apiFetch('/api/hall/today_recommendation?days=30');
+    const halls = data.halls || [];
+
+    loading.style.display = 'none';
+    body.style.display = 'block';
+
+    if (!halls.length) {
+      body.innerHTML = `<div class="card" style="text-align:center;padding:32px;color:var(--text3)">
+        データがありません。スクレイプを実行してください。
+      </div>`;
+      return;
+    }
+
+    const dow = data.dow || '';
+    const tail = data.tail ?? '';
+    const dateStr = data.date || '';
+
+    // ヘッダー
+    let html = `<div style="margin-bottom:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(34,211,238,.06));border:1px solid rgba(251,191,36,.25);border-radius:10px">
+      <div style="font-size:.65rem;font-weight:800;color:#fbbf24;letter-spacing:.08em;text-transform:uppercase">今日の分析条件</div>
+      <div style="font-size:.8rem;color:var(--text2);margin-top:4px">
+        ${dateStr} （${dow}曜日） &nbsp;|&nbsp; 末尾<strong>${tail}</strong>の日 &nbsp;|&nbsp; ${halls.length}店舗を比較
+      </div>
+    </div>`;
+
+    // 本命・対抗 ハイライト
+    const top = halls[0];
+    if (top && top.score > 1) {
+      const badgeColor = top.badge === '今日の本命' ? '#f59e0b' : '#6366f1';
+      html += `<div style="margin-bottom:10px;padding:14px;background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(99,102,241,.08));border:1.5px solid ${badgeColor}40;border-radius:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <span style="background:${badgeColor};color:#fff;font-size:.62rem;font-weight:800;padding:2px 8px;border-radius:99px">${top.badge || '1位'}</span>
+          <span style="font-size:.95rem;font-weight:800">${top.hall_name}</span>
+          <span style="margin-left:auto;font-size:.72rem;color:var(--text3)">スコア ${top.score}</span>
+        </div>
+        <div style="font-size:.78rem;color:var(--text2);line-height:1.8">
+          平均差枚 <strong style="color:${top.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)'}">${top.avg_diff >= 0 ? '+' : ''}${top.avg_diff}枚</strong>
+          &nbsp;/&nbsp; 勝率 <strong>${top.win_rate}%</strong>
+          &nbsp;/&nbsp; ${top.data_days}日分データ
+        </div>
+        ${top.reasons.length ? `<div style="margin-top:6px;font-size:.74rem;color:#fbbf24">${top.reasons.map(r => '⚡ ' + r).join('&nbsp;&nbsp;')}</div>` : ''}
+      </div>`;
+    }
+
+    // 全店舗リスト
+    html += `<div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:10px 14px 8px;border-bottom:1px solid var(--border)">
+        <span class="card-title" style="margin:0">店舗スコアランキング</span>
+        <span style="font-size:.68rem;color:var(--text3);margin-left:8px">高いほど今日おすすめ</span>
+      </div>`;
+
+    halls.forEach((h, i) => {
+      const rankColors = ['#f59e0b', '#94a3b8', '#cd7f32'];
+      const rankColor = rankColors[i] || 'var(--text3)';
+      const diffColor = h.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+      const diffSign = h.avg_diff >= 0 ? '+' : '';
+      const isStale = h.stale;
+
+      const tags = [];
+      if (h.surge_seats >= 2) tags.push(`<span style="background:rgba(239,68,68,.15);color:#f87171;font-size:.6rem;padding:1px 5px;border-radius:4px">BB急上昇${h.surge_seats}台</span>`);
+      else if (h.surge_seats === 1) tags.push(`<span style="background:rgba(239,68,68,.1);color:#fca5a5;font-size:.6rem;padding:1px 5px;border-radius:4px">BB急上昇1台</span>`);
+      if (h.streak_seats >= 2) tags.push(`<span style="background:rgba(34,197,94,.12);color:#4ade80;font-size:.6rem;padding:1px 5px;border-radius:4px">連続好調${h.streak_seats}台</span>`);
+      if (isStale) tags.push(`<span style="background:rgba(148,163,184,.12);color:var(--text3);font-size:.6rem;padding:1px 5px;border-radius:4px">データ古い</span>`);
+      if (h.reasons.some(r => r.includes('末尾'))) tags.push(`<span style="background:rgba(251,191,36,.15);color:#fbbf24;font-size:.6rem;padding:1px 5px;border-radius:4px">末尾${tail}強</span>`);
+      if (h.reasons.some(r => r.includes('曜日'))) tags.push(`<span style="background:rgba(139,92,246,.15);color:#a78bfa;font-size:.6rem;padding:1px 5px;border-radius:4px">${dow}曜強</span>`);
+
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);${isStale ? 'opacity:.6' : ''}">
+        <div style="width:22px;height:22px;border-radius:50%;background:${rankColor}20;color:${rankColor};font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i + 1}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h.hall_name}</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">${tags.join('')}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:.82rem;font-weight:700;color:${diffColor}">${diffSign}${h.avg_diff}枚</div>
+          <div style="font-size:.65rem;color:var(--text3)">勝率${h.win_rate}%</div>
+        </div>
+        <div style="font-size:.75rem;font-weight:700;color:var(--text2);background:var(--bg3);padding:3px 7px;border-radius:6px;flex-shrink:0">${h.score > 0 ? '+' : ''}${h.score}</div>
+      </div>`;
+    });
+
+    html += `</div>
+    <div style="font-size:.65rem;color:var(--text3);margin-top:8px;padding:0 4px">
+      ※ スコア = 平均差枚・勝率・曜日傾向・末尾傾向・BB急上昇・連続好調を加重合計。データが古い店は-1点。
+    </div>`;
+
+    body.innerHTML = html;
+    _todayRecLoaded = true;
+  } catch (e) {
+    loading.textContent = 'エラー: ' + e.message;
+    loading.style.display = 'block';
+    body.style.display = 'none';
+  }
+}
+
 
 async function loadHallCompare() {
   const card = document.getElementById('hall-compare-card');

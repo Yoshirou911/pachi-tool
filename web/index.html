@@ -487,10 +487,20 @@
 
         <!-- サブタブ -->
         <div class="hall-sub-tabs">
+          <button class="hall-sub-btn" data-htab="today" style="position:relative">
+            今日おすすめ
+            <span style="position:absolute;top:-4px;right:-4px;background:var(--accent);color:#fff;font-size:.55rem;font-weight:800;padding:1px 4px;border-radius:99px;line-height:1.4">NEW</span>
+          </button>
           <button class="hall-sub-btn active" data-htab="compare">比較</button>
           <button class="hall-sub-btn" data-htab="detail">詳細</button>
           <button class="hall-sub-btn" data-htab="calendar">カレンダー</button>
           <button class="hall-sub-btn" data-htab="admin">管理</button>
+        </div>
+
+        <!-- ===== 今日おすすめタブ ===== -->
+        <div id="htab-today" class="htab-pane">
+          <div id="today-rec-loading" style="text-align:center;padding:40px 0;color:var(--text3);font-size:.85rem">データを分析中...</div>
+          <div id="today-rec-body" style="display:none"></div>
         </div>
 
         <!-- ===== 比較タブ ===== -->

@@ -1021,8 +1021,13 @@ def _get_reports_conn() -> Optional[sqlite3.Connection]:
         CREATE INDEX IF NOT EXISTS idx_hds_hall_date ON hall_day_seat(hall_name, report_date);
         CREATE INDEX IF NOT EXISTS idx_hds_hall_machine ON hall_day_seat(hall_name, machine_name, seat_number);
         CREATE INDEX IF NOT EXISTS idx_hds_bb_prob ON hall_day_seat(bb_prob) WHERE bb_prob IS NOT NULL;
-        CREATE INDEX IF NOT EXISTS idx_he_hall_date ON hall_event(hall_name, event_date);
     """)
+    # hall_event テーブルが存在する場合のみインデックスを作成
+    has_event_table = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='hall_event'"
+    ).fetchone()
+    if has_event_table:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_he_hall_date ON hall_event(hall_name, event_date)")
     return conn
 
 
@@ -2159,17 +2164,17 @@ def get_hot_days(
     みんレポデータから統計的に「熱い日」を自動検出する。
     各ホールの日次avg_diff_coinsを分析し、z-score > 1.0 の日を熱い日として返す。
     """
-    ckey = f"hot_days:{hall_name}:{months}:{date.today()}"
+    import math
+    from datetime import date as _date, timedelta
+    ckey = f"hot_days:{hall_name}:{months}:{_date.today()}"
     cached = _cache_get(ckey)
     if cached is not None:
         return cached
-    import math
-    from datetime import date, timedelta
     conn = _get_reports_conn()
     if not conn:
         return {"hot_days": [], "hall_stats": {}}
     try:
-        since = (date.today() - timedelta(days=months * 31)).isoformat()
+        since = (_date.today() - timedelta(days=months * 31)).isoformat()
         if hall_name:
             rows = conn.execute("""
                 SELECT report_date, hall_name,
@@ -4208,7 +4213,7 @@ def get_today_recommendation(days: int = 30):
     dow_ja = ["月","火","水","木","金","土","日"][today.weekday()]
 
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(HALL_REPORTS_DB)
 
         # 全ホール一覧
         halls = [r[0] for r in conn.execute(

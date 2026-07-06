@@ -81,6 +81,8 @@
 
         <!-- Machine & Hall selector -->
         <div class="card">
+          <div id="est-recent-machines-bar" style="display:none;gap:5px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+          </div>
           <div class="form-row" style="position:relative">
             <label class="form-label">機種</label>
             <input type="text" id="est-machine" class="form-input" list="est-machine-datalist"
@@ -367,6 +369,11 @@
               <span class="stat-value" id="sum-wr" style="font-size:1.6rem;font-weight:900">--%</span>
             </div>
           </div>
+          <div id="sum-extra" style="display:flex;border-top:1px solid var(--border);font-size:.72rem;color:var(--text3)">
+            <div style="flex:1;text-align:center;padding:7px 4px">平均G <strong id="sum-avg-games" style="color:var(--text2)">--</strong></div>
+            <div style="flex:1;text-align:center;padding:7px 4px;border-left:1px solid var(--border)">総投資 <strong id="sum-total-inv" style="color:var(--text2)">--</strong></div>
+            <div style="flex:1;text-align:center;padding:7px 4px;border-left:1px solid var(--border)">平均収支 <strong id="sum-avg-diff" style="color:var(--text2)">--</strong></div>
+          </div>
           <div id="sum-streak" style="text-align:center;padding:6px 0 10px;min-height:24px;font-size:.85rem;font-weight:700"></div>
         </div>
 
@@ -444,6 +451,13 @@
           </select>
           <input type="month" id="ses-month-filter" class="form-input form-select-sm"
                  style="flex:0 0 auto;width:130px;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
+          <select id="ses-sort-filter" class="form-select form-select-sm" title="並び順">
+            <option value="date_desc">新しい順</option>
+            <option value="date_asc">古い順</option>
+            <option value="diff_desc">収支↑</option>
+            <option value="diff_asc">収支↓</option>
+            <option value="games_desc">G数↑</option>
+          </select>
           <button id="ses-refresh-btn" class="btn btn-ghost btn-sm">更新</button>
           <button id="ses-export-btn" class="btn btn-ghost btn-sm" title="CSVエクスポート">📥</button>
           <label class="btn btn-ghost btn-sm" title="CSVインポート" style="cursor:pointer">
@@ -1051,9 +1065,14 @@
     <!-- ======================== 機種ページ ======================== -->
     <section id="page-machines" class="page">
       <div class="page-inner">
-        <div class="card">
+        <div class="card" style="display:flex;gap:8px;align-items:center">
           <input type="text" id="machine-search" class="form-input"
-                 placeholder="機種名で検索...">
+                 placeholder="機種名で検索..." style="flex:1">
+          <select id="machine-sort" class="form-select" style="flex:0 0 auto;width:auto;font-size:.78rem;padding:8px 8px">
+            <option value="name">名前順</option>
+            <option value="sessions">実戦多</option>
+            <option value="winrate">勝率↑</option>
+          </select>
         </div>
         <div id="machine-list"></div>
       </div>

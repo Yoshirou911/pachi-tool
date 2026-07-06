@@ -29,6 +29,7 @@ const api = {
   getSessions: (params = {}) => apiFetch('/api/sessions?' + new URLSearchParams(params)),
   getSession: (id) => apiFetch(`/api/sessions/${id}`),
   deleteSession: (id) => apiFetch(`/api/sessions/${id}`, { method: 'DELETE' }),
+  updateSession: (id, body) => apiFetch(`/api/sessions/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   getHalls: () => apiFetch('/api/halls'),
   getDaitoAnalysis: () => apiFetch('/api/hall/daito'),
   getMachineRanking: (hall) => apiFetch(`/api/hall/machine_ranking?hall_name=${encodeURIComponent(hall)}`),
@@ -245,6 +246,7 @@ async function loadMachineSelect() {
     if (dl) {
       dl.innerHTML = state.machines.map(m => `<option value="${esc(m)}">`).join('');
     }
+    _renderRecentMachines();
   } catch (e) {
     showToast('機種一覧の取得に失敗: ' + e.message, 'error');
   }
@@ -355,6 +357,7 @@ document.getElementById('est-seat-number')?.addEventListener('input', async func
 estMachine.addEventListener('change', async () => {
   const name = estMachine.value.trim();
   if (name && state.machines && !state.machines.includes(name)) return; // 無効な入力は無視
+  if (name) _trackRecentMachine(name);
   state.currentMachine = name;
   state.estimateHistory = [];
   state.minSetting = null;  // 確定演出リセット
@@ -388,6 +391,29 @@ estMachine.addEventListener('change', async () => {
     showToast('機種データ取得失敗: ' + e.message, 'error');
   }
 });
+
+function _trackRecentMachine(name) {
+  try {
+    let recents = JSON.parse(localStorage.getItem('pachi_recent_machines') || '[]');
+    recents = [name, ...recents.filter(m => m !== name)].slice(0, 5);
+    localStorage.setItem('pachi_recent_machines', JSON.stringify(recents));
+    _renderRecentMachines();
+  } catch {}
+}
+
+function _renderRecentMachines() {
+  let el = document.getElementById('est-recent-machines-bar');
+  if (!el) return;
+  try {
+    const recents = JSON.parse(localStorage.getItem('pachi_recent_machines') || '[]');
+    if (!recents.length) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    el.innerHTML = recents.map(m =>
+      `<button class="btn btn-ghost btn-sm" style="font-size:.65rem;padding:3px 8px;white-space:nowrap"
+        onclick="document.getElementById('est-machine').value=${JSON.stringify(m)};document.getElementById('est-machine').dispatchEvent(new Event('change'))">${esc(m)}</button>`
+    ).join('');
+  } catch { el.style.display = 'none'; }
+}
 
 function renderKwHint(profile) {
   let el = document.getElementById('est-kw-hint');
@@ -1272,7 +1298,14 @@ async function loadSessions() {
       params.date_to = `${monthFilter}-${lastDay}`;
     }
 
-    const sessions = await api.getSessions(params);
+    let sessions = await api.getSessions(params);
+    // ソート
+    const sortBy = document.getElementById('ses-sort-filter')?.value || 'date_desc';
+    if (sortBy === 'date_asc') sessions = [...sessions].sort((a, b) => a.date < b.date ? -1 : 1);
+    else if (sortBy === 'diff_desc') sessions = [...sessions].sort((a, b) => (b.diff_yen||0) - (a.diff_yen||0));
+    else if (sortBy === 'diff_asc') sessions = [...sessions].sort((a, b) => (a.diff_yen||0) - (b.diff_yen||0));
+    else if (sortBy === 'games_desc') sessions = [...sessions].sort((a, b) => (b.games_total||0) - (a.games_total||0));
+    else sessions = [...sessions].sort((a, b) => a.date < b.date ? 1 : -1); // date_desc default
     state.sessions = sessions;
     renderSessions(sessions);
     renderSessionSummary(sessions);
@@ -1341,6 +1374,7 @@ async function loadEstimationAccuracy(hallName) {
   }
 }
 document.getElementById('ses-month-filter')?.addEventListener('change', loadSessions);
+document.getElementById('ses-sort-filter')?.addEventListener('change', loadSessions);
 
 async function populateSessionFilters() {
   try {
@@ -1386,6 +1420,22 @@ function renderSessionSummary(sessions) {
   diffEl.textContent = fmt(diffYen);
   diffEl.className = 'stat-value ' + (diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow');
   document.getElementById('sum-wr').textContent = total ? Math.round(wins / total * 100) + '%' : '--%';
+
+  // 追加サマリー
+  const avgGEl = document.getElementById('sum-avg-games');
+  const totalInvEl = document.getElementById('sum-total-inv');
+  const avgDiffEl = document.getElementById('sum-avg-diff');
+  if (avgGEl && total > 0) {
+    const avgG = Math.round(sessions.reduce((s, r) => s + (r.games_total || 0), 0) / total);
+    avgGEl.textContent = avgG.toLocaleString();
+    const totalInv = sessions.reduce((s, r) => s + (r.investment || 0), 0);
+    totalInvEl.textContent = totalInv ? (totalInv / 10000).toFixed(1) + '万' : '--';
+    const avgD = Math.round(diffYen / total);
+    avgDiffEl.textContent = (avgD >= 0 ? '+' : '') + avgD.toLocaleString() + '円';
+    avgDiffEl.style.color = avgD >= 0 ? 'var(--success)' : 'var(--danger)';
+  } else if (avgGEl) {
+    avgGEl.textContent = '--'; totalInvEl.textContent = '--'; avgDiffEl.textContent = '--';
+  }
 
   // 連続記録（直近のW/L streak）
   const streakEl = document.getElementById('sum-streak');
@@ -1467,6 +1517,7 @@ function renderSessions(sessions) {
         <div class="session-stats" style="margin-top:6px">
           <span class="session-stat">G数: <span class="val">${(s.games_total || 0).toLocaleString()}</span></span>
           <span class="session-stat">収支: <span class="val ${diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow'}" style="font-weight:800">${fmt(diffYen)}</span></span>
+          ${s.investment ? `<span class="session-stat" style="color:var(--text3)">投資: <span class="val">${(s.investment/10000).toFixed(1)}万</span></span>` : ''}
         </div>
         ${posteriorBar}
       </div>
@@ -1502,7 +1553,6 @@ async function openSessionModal(id) {
       <div><span style="font-size:.75rem;color:var(--text3)">差枚</span><br><strong>${(s.diff_coins || 0).toLocaleString()}</strong></div>
       <div><span style="font-size:.75rem;color:var(--text3)">推測設定</span><br><strong>${expectedSetting}</strong></div>
     </div>
-    ${s.notes ? `<p style="font-size:.85rem;color:var(--text2);margin-bottom:12px">📝 ${esc(s.notes)}</p>` : ''}
     ${posterior ? renderMiniPosterior(posterior) : ''}
     ${Object.keys(s.element_counts || {}).length ? `
       <div style="margin-top:12px">
@@ -1514,6 +1564,11 @@ async function openSessionModal(id) {
         `).join('')}
       </div>
     ` : ''}
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:.72rem;color:var(--text3);margin-bottom:4px">📝 メモ</div>
+      <textarea id="modal-notes-input" rows="2" class="form-input" style="font-size:.82rem;resize:vertical;min-height:44px">${esc(s.notes || '')}</textarea>
+      <button id="modal-notes-save" class="btn btn-ghost btn-sm" style="font-size:.68rem;padding:3px 10px;margin-top:4px">保存</button>
+    </div>
   `;
 
   document.getElementById('modal-delete').onclick = async () => {
@@ -1523,6 +1578,15 @@ async function openSessionModal(id) {
     loadSessions();
     showToast('削除しました', 'success');
   };
+
+  document.getElementById('modal-notes-save')?.addEventListener('click', async () => {
+    const notes = document.getElementById('modal-notes-input')?.value || '';
+    try {
+      await api.updateSession(id, { notes });
+      showToast('メモを保存しました', 'success');
+      loadSessions();
+    } catch { showToast('保存失敗', 'error'); }
+  });
 
   document.getElementById('modal-edit').onclick = () => openSessionEdit(s);
 
@@ -2936,6 +3000,11 @@ async function loadMachinesPage() {
 function renderMachineList(profiles) {
   const container = document.getElementById('machine-list');
   const search = document.getElementById('machine-search');
+  const sortSel = document.getElementById('machine-sort');
+  if (sortSel && !sortSel._bound) {
+    sortSel._bound = true;
+    sortSel.addEventListener('change', () => renderMachineList(profiles));
+  }
 
   function categorize(name) {
     if (/ジャグラー/.test(name)) return 'ジャグラー系';
@@ -2948,13 +3017,33 @@ function renderMachineList(profiles) {
   }
 
   function render(filter = '') {
-    const filtered = filter
+    let filtered = filter
       ? profiles.filter(p => p.machine_name.includes(filter))
-      : profiles;
+      : [...profiles];
 
     if (!filtered.length) {
       container.innerHTML = '<p class="hint center">機種が見つかりません</p>';
       return;
+    }
+
+    // ソート
+    const sortBy = document.getElementById('machine-sort')?.value || 'name';
+    if (sortBy === 'sessions') {
+      const recentMachines = (() => { try { return JSON.parse(localStorage.getItem('pachi_recent_machines') || '[]'); } catch { return []; } })();
+      filtered.sort((a, b) => {
+        const ai = recentMachines.indexOf(a.machine_name);
+        const bi = recentMachines.indexOf(b.machine_name);
+        if (ai !== -1 && bi === -1) return -1;
+        if (bi !== -1 && ai === -1) return 1;
+        if (ai !== -1 && bi !== -1) return ai - bi;
+        return a.machine_name.localeCompare(b.machine_name, 'ja');
+      });
+    } else if (sortBy === 'winrate') {
+      filtered.sort((a, b) => {
+        const aw = a.machine_kw ? Math.max(...Object.values(a.machine_kw)) : 0;
+        const bw = b.machine_kw ? Math.max(...Object.values(b.machine_kw)) : 0;
+        return bw - aw;
+      });
     }
 
     // カテゴリ別グループ化
@@ -2966,8 +3055,8 @@ function renderMachineList(profiles) {
     });
     const catOrder = ['ジャグラー系', 'ハナハナ系', 'スマスロ系', 'バジリスク系', 'カバネリ系', '北斗系', 'その他'];
     const sortedGroups = catOrder.filter(c => groups[c]);
-    // フィルター時はグループ表示なし
-    const useGroups = !filter && sortedGroups.length > 1;
+    // フィルター時はグループ表示なし / ソート時もグループ表示なし
+    const useGroups = !filter && sortBy === 'name' && sortedGroups.length > 1;
 
     container.innerHTML = (useGroups ? sortedGroups : ['__all__']).map(cat => {
       const items = useGroups ? groups[cat] : filtered;
@@ -5006,8 +5095,8 @@ document.addEventListener('keydown', e => {
 // 推測結果をテキストでコピー
 window.copyEstimateResult = function() {
   const machine = document.getElementById('est-machine')?.value || '不明';
-  const hall = document.getElementById('hall-select')?.value || '';
-  const games = document.getElementById('games')?.value || '0';
+  const hall = document.getElementById('est-hall')?.value || '';
+  const games = document.getElementById('est-games')?.value || '0';
   const expected = document.getElementById('res-expected')?.textContent || '--';
   const highProb = document.getElementById('res-high-prob')?.textContent || '--%';
   const ev = document.getElementById('res-ev')?.textContent || '--%';

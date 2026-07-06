@@ -5003,6 +5003,46 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// 推測結果をテキストでコピー
+window.copyEstimateResult = function() {
+  const machine = document.getElementById('est-machine')?.value || '不明';
+  const hall = document.getElementById('hall-select')?.value || '';
+  const games = document.getElementById('games')?.value || '0';
+  const expected = document.getElementById('res-expected')?.textContent || '--';
+  const highProb = document.getElementById('res-high-prob')?.textContent || '--%';
+  const ev = document.getElementById('res-ev')?.textContent || '--%';
+  const ci = document.getElementById('res-credible-interval')?.textContent || '';
+  const advice = document.getElementById('res-advice-text')?.textContent || '';
+  const profit1k = document.getElementById('res-profit-1k')?.textContent || '';
+
+  const lines = [
+    `【設定推測結果】`,
+    `機種: ${machine}${hall ? ' @ ' + hall : ''}`,
+    `G数: ${games}G`,
+    `期待設定: ${expected} / 高設定率: ${highProb} / 期待値: ${ev}`,
+    ci ? `信用区間: ${ci}` : '',
+    profit1k ? `1000G収支目安: ${profit1k}` : '',
+    advice ? `判断: ${advice}` : '',
+  ].filter(Boolean).join('\n');
+
+  navigator.clipboard.writeText(lines)
+    .then(() => showToast('結果をコピーしました'))
+    .catch(() => showToast('コピー失敗', 'error'));
+};
+
+// 推測結果をWebShare APIでシェア（非対応なら clipboard fallback）
+window.shareEstimateResult = function() {
+  const machine = document.getElementById('est-machine')?.value || '不明';
+  const expected = document.getElementById('res-expected')?.textContent || '--';
+  const highProb = document.getElementById('res-high-prob')?.textContent || '--%';
+  const text = `【${machine}】期待設定${expected} / 高設定率${highProb} — PACHI TOOL`;
+  if (navigator.share) {
+    navigator.share({ title: 'PACHI TOOL 推測結果', text }).catch(() => {});
+  } else {
+    navigator.clipboard.writeText(text).then(() => showToast('テキストをコピーしました'));
+  }
+};
+
 // 比較ランキングをテキストでコピー
 window.copyCompareRanking = function() {
   const body = document.getElementById('hall-compare-body');

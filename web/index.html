@@ -185,7 +185,11 @@
 
         <!-- Results -->
         <div id="est-result" class="card result-card" style="display:none">
-          <div class="result-header" style="padding:20px 18px">
+          <div style="display:flex;justify-content:flex-end;padding:8px 12px 0;gap:6px">
+            <button onclick="copyEstimateResult()" class="btn btn-ghost" style="font-size:.65rem;padding:3px 10px" title="結果をコピー">📋 コピー</button>
+            <button onclick="shareEstimateResult()" class="btn btn-ghost" style="font-size:.65rem;padding:3px 10px" title="シェア">↑ シェア</button>
+          </div>
+          <div class="result-header" style="padding:12px 18px 20px">
             <div class="result-stat">
               <span class="stat-label">期待設定</span>
               <span id="res-expected" class="stat-value" style="font-size:2rem;font-weight:900;letter-spacing:-.04em">--</span>

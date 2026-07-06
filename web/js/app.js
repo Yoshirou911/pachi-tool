@@ -183,6 +183,8 @@ async function loadWeeklyHighlight() {
   }
 }
 
+let _todayHotCache = null; // { events: [], hotHalls: [] }
+
 async function loadTodayHotCard() {
   const card = document.getElementById('today-hot-card');
   const body = document.getElementById('today-hot-body');
@@ -196,6 +198,7 @@ async function loadTodayHotCard() {
     const todayEvents = evData.events || [];
     const todayHotHalls = (hotData.hot_days || []).filter(h => h.date === today);
     todayHotHalls.sort((a, b) => b.z_score - a.z_score);
+    _todayHotCache = { events: todayEvents, hotHalls: todayHotHalls };
 
     if (todayEvents.length === 0 && todayHotHalls.length === 0) {
       card.style.display = 'none';
@@ -221,6 +224,27 @@ async function loadTodayHotCard() {
   } catch(e) {
     card.style.display = 'none';
   }
+}
+
+function loadHallTodayIndicator(hall) {
+  const el = document.getElementById('est-hall-today-indicator');
+  if (!el) return;
+  if (!hall || !_todayHotCache) { el.style.display = 'none'; return; }
+  const { events, hotHalls } = _todayHotCache;
+  const hallEvents = events.filter(e => e.hall_name === hall);
+  const hallHot = hotHalls.find(h => h.hall_name === hall);
+  if (!hallEvents.length && !hallHot) { el.style.display = 'none'; return; }
+  const parts = [];
+  if (hallHot) {
+    const icon = hallHot.z_score >= 2.0 ? '🔥🔥' : '🔥';
+    parts.push(`${icon} <strong>${hallHot.label}</strong> (z=${hallHot.z_score.toFixed(1)}σ, 直近平均${hallHot.avg_diff >= 0 ? '+' : ''}${hallHot.avg_diff}枚)`);
+  }
+  if (hallEvents.length) {
+    parts.push(`📅 ${hallEvents.map(e => `<span class="ev-badge ev-badge-${e.event_type}" style="margin:0 2px;font-size:.6rem">${e.event_type}</span>`).join('')}`);
+  }
+  const isHot = !!hallHot;
+  el.style.cssText = `display:block;margin-top:5px;font-size:.7rem;padding:5px 10px;border-radius:6px;background:${isHot ? 'rgba(251,191,36,.1)' : 'rgba(124,127,245,.08)'};border:1px solid ${isHot ? 'rgba(251,191,36,.25)' : 'rgba(124,127,245,.2)'};color:${isHot ? '#fbbf24' : 'var(--primary-h)'}`;
+  el.innerHTML = parts.join(' &nbsp;|&nbsp; ');
 }
 
 // ---------------------------------------------------------------------------
@@ -585,7 +609,13 @@ estGames.addEventListener('input', () => { saveDraft(); autoEstimate(); });
 estHall.addEventListener('change', () => {
   state.currentHall = estHall.value;
   autoEstimate();
+  loadHallTodayIndicator(estHall.value);
   if (state.currentMachine) { loadPriorQuality(); saveDraft(); }
+});
+let _hallIndicatorTimer;
+estHall.addEventListener('input', () => {
+  clearTimeout(_hallIndicatorTimer);
+  _hallIndicatorTimer = setTimeout(() => loadHallTodayIndicator(estHall.value), 300);
 });
 estWeekday.addEventListener('change', autoEstimate);
 estDom.addEventListener('input', autoEstimate);
@@ -1601,6 +1631,19 @@ async function openSessionModal(id) {
     showToast('削除しました', 'success');
   };
 
+  document.getElementById('modal-copy').onclick = () => {
+    const highProb = posterior ? Object.entries(posterior).filter(([k]) => parseInt(k)>=4).reduce((a,[,p])=>a+p,0) : null;
+    const lines = [
+      `【${s.machine_name}】${s.date}`,
+      s.hall_name ? `@${s.hall_name}${s.seat_number ? ` ${s.seat_number}番台` : ''}` : '',
+      `G数: ${(s.games_total||0).toLocaleString()} / 収支: ${fmt(diffYen)}`,
+      s.diff_coins ? `差枚: ${s.diff_coins >= 0 ? '+' : ''}${s.diff_coins}枚` : '',
+      expectedSetting !== '--' ? `推測設定: ${expectedSetting} / 高設定確率: ${Math.round((highProb||0)*100)}%` : '',
+      s.notes ? `メモ: ${s.notes}` : '',
+    ].filter(Boolean).join('\n');
+    navigator.clipboard.writeText(lines).then(() => showToast('コピーしました', 'success'));
+  };
+
   document.getElementById('modal-notes-save')?.addEventListener('click', async () => {
     const notes = document.getElementById('modal-notes-input')?.value || '';
     try {
@@ -2445,7 +2488,7 @@ function renderTodayRecommend(data) {
 
   items.push({
     icon: '🏆',
-    text: `推奨機種: ${topMachines.join('、')}`,
+    text: `推奨機種: ${topMachines.map(m => esc(m)).join('、')}`,
     sub: '過去スコア上位3機種。設定が入りやすい傾向あり。',
   });
 
@@ -4843,14 +4886,16 @@ function _toggleFavHall(hall) {
 // 今日おすすめタブ
 // ============================================================
 let _todayRecLoaded = false;
+let _todayRecDate = '';
 
 async function loadTodayRecommendation() {
   const loading = document.getElementById('today-rec-loading');
   const body = document.getElementById('today-rec-body');
   if (!loading || !body) return;
 
-  // 初回だけロード（ページ滞在中はキャッシュ）
-  if (_todayRecLoaded && body.innerHTML) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  // 初回だけロード（同日はキャッシュ。日付が変わったら再ロード）
+  if (_todayRecLoaded && body.innerHTML && _todayRecDate === todayStr) {
     loading.style.display = 'none';
     body.style.display = 'block';
     return;
@@ -4890,10 +4935,10 @@ async function loadTodayRecommendation() {
     const top = halls[0];
     if (top && top.score > 1) {
       const badgeColor = top.badge === '今日の本命' ? '#f59e0b' : '#6366f1';
-      html += `<div style="margin-bottom:10px;padding:14px;background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(99,102,241,.08));border:1.5px solid ${badgeColor}40;border-radius:12px">
+      html += `<div style="margin-bottom:10px;padding:14px;background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(99,102,241,.08));border:1.5px solid ${badgeColor}40;border-radius:12px;cursor:pointer" onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${encodeURIComponent(top.hall_name)}')),150)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
           <span style="background:${badgeColor};color:#fff;font-size:.62rem;font-weight:800;padding:2px 8px;border-radius:99px">${top.badge || '1位'}</span>
-          <span style="font-size:.95rem;font-weight:800">${top.hall_name}</span>
+          <span style="font-size:.95rem;font-weight:800">${esc(top.hall_name)}</span>
           <span style="margin-left:auto;font-size:.72rem;color:var(--text3)">スコア ${top.score}</span>
         </div>
         <div style="font-size:.78rem;color:var(--text2);line-height:1.8">
@@ -4901,7 +4946,8 @@ async function loadTodayRecommendation() {
           &nbsp;/&nbsp; 勝率 <strong>${top.win_rate}%</strong>
           &nbsp;/&nbsp; ${top.data_days}日分データ
         </div>
-        ${top.reasons.length ? `<div style="margin-top:6px;font-size:.74rem;color:#fbbf24">${top.reasons.map(r => '⚡ ' + r).join('&nbsp;&nbsp;')}</div>` : ''}
+        ${top.reasons.length ? `<div style="margin-top:6px;font-size:.74rem;color:#fbbf24">${top.reasons.map(r => '⚡ ' + esc(r)).join('&nbsp;&nbsp;')}</div>` : ''}
+        <div style="margin-top:6px;font-size:.62rem;color:${badgeColor};opacity:.7">タップで詳細 →</div>
       </div>`;
     }
 
@@ -4927,10 +4973,10 @@ async function loadTodayRecommendation() {
       if (h.reasons.some(r => r.includes('末尾'))) tags.push(`<span style="background:rgba(251,191,36,.15);color:#fbbf24;font-size:.6rem;padding:1px 5px;border-radius:4px">末尾${tail}強</span>`);
       if (h.reasons.some(r => r.includes('曜日'))) tags.push(`<span style="background:rgba(139,92,246,.15);color:#a78bfa;font-size:.6rem;padding:1px 5px;border-radius:4px">${dow}曜強</span>`);
 
-      html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);${isStale ? 'opacity:.6' : ''}">
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;${isStale ? 'opacity:.6' : ''}" onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}')),150)">
         <div style="width:22px;height:22px;border-radius:50%;background:${rankColor}20;color:${rankColor};font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i + 1}</div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h.hall_name}</div>
+          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(h.hall_name)}</div>
           <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">${tags.join('')}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
@@ -4948,6 +4994,7 @@ async function loadTodayRecommendation() {
 
     body.innerHTML = html;
     _todayRecLoaded = true;
+    _todayRecDate = todayStr;
   } catch (e) {
     loading.textContent = 'エラー: ' + e.message;
     loading.style.display = 'block';
@@ -5065,13 +5112,13 @@ async function loadHallCompare() {
     const surgeHalls = rows.filter(r => r.surge_seat_count > 0);
     const risingHalls = rows.filter(r => r.bb_trend_7d != null && r.bb_trend_7d > 2);
     if (eventCandidates.length > 0)
-      insightLines.push(`📅 今日イベント候補: ${eventCandidates.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
+      insightLines.push(`📅 今日イベント候補: ${eventCandidates.slice(0,2).map(r=>esc(r.hall_name)).join(' / ')}`);
     if (surgeHalls.length > 0)
-      insightLines.push(`🔺 BB急上昇台あり: ${surgeHalls.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
+      insightLines.push(`🔺 BB急上昇台あり: ${surgeHalls.slice(0,2).map(r=>esc(r.hall_name)).join(' / ')}`);
     if (risingHalls.length > 0)
-      insightLines.push(`↑ BB上昇トレンド: ${risingHalls.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
+      insightLines.push(`↑ BB上昇トレンド: ${risingHalls.slice(0,2).map(r=>esc(r.hall_name)).join(' / ')}`);
     if (topHall && topHall.avg_diff > 0)
-      insightLines.push(`🏆 直近${_compareDays}日トップ: ${topHall.hall_name} (${topHall.avg_diff >= 0 ? '+' : ''}${topHall.avg_diff}枚)`);
+      insightLines.push(`🏆 直近${_compareDays}日トップ: ${esc(topHall.hall_name)} (${topHall.avg_diff >= 0 ? '+' : ''}${topHall.avg_diff}枚)`);
     if (insightLines.length > 0) {
       body.innerHTML += `<div style="margin-top:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
         <div style="font-size:.6rem;color:var(--text3);margin-bottom:4px;font-weight:600">今日のポイント</div>

@@ -1005,7 +1005,11 @@ async function fetchAiEstimateComment(r) {
       }),
     }).then(res => res.json());
     if (data.comment) {
-      el.innerHTML = `<span style="font-size:.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:4px">AIコメント</span>${esc(data.comment)}`;
+      const rendered = data.comment
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+      el.innerHTML = `<span style="font-size:.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:4px">AIコメント</span>${rendered}`;
     } else {
       el.style.display = 'none';
     }
@@ -1467,6 +1471,8 @@ function renderSessions(sessions) {
     </div>`;
     return;
   }
+  const bestDiff = Math.max(...sessions.map(s => s.diff_yen || 0));
+  const bestGames = Math.max(...sessions.map(s => s.games_total || 0));
   container.innerHTML = sessions.map(s => {
     const diffYen = s.diff_yen || 0;
     const expectedSetting = s.posterior ? calcExpectedSetting(s.posterior) : null;
@@ -1484,10 +1490,14 @@ function renderSessions(sessions) {
       }
     }
 
+    const isBestDiff = sessions.length >= 3 && diffYen > 0 && diffYen === bestDiff;
+    const isBestGames = sessions.length >= 3 && (s.games_total || 0) === bestGames && bestGames > 0;
     const tags = [
       s.is_event_day ? '<span class="tag tag-event">イベント</span>' : '',
       s.is_corner ? '<span class="tag tag-corner">角台</span>' : '',
       settingLabel,
+      isBestDiff ? '<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.15));color:#fbbf24;font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">🏆自己最高</span>' : '',
+      isBestGames && !isBestDiff ? '<span style="background:rgba(99,102,241,.15);color:#818cf8;font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">最長G</span>' : '',
     ].filter(Boolean).join('');
 
     // 設定分布バー（推測結果がある場合）
@@ -3193,8 +3203,11 @@ function renderMachineList(profiles) {
     });
   }
 
-  render();
-  search.addEventListener('input', () => render(search.value));
+  if (search && !search._bound) {
+    search._bound = true;
+    search.addEventListener('input', () => render(search.value));
+  }
+  render(search?.value || '');
 }
 
 // ---------------------------------------------------------------------------
@@ -5282,7 +5295,12 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, hall_name: getAiHall(), history: aiChatHistory }),
       }).then(r => r.json());
-      thinkingEl.textContent = data.reply;
+      thinkingEl.innerHTML = (data.reply || '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^###?\s+(.+)$/gm, '<strong style="display:block;margin-top:6px;color:var(--primary-h)">$1</strong>')
+        .replace(/^[-・•]\s+(.+)$/gm, '&bull; $1')
+        .replace(/\n/g, '<br>');
       aiChatHistory.push({ role: 'user', content: msg });
       aiChatHistory.push({ role: 'assistant', content: data.reply });
       if (aiChatHistory.length > 12) aiChatHistory = aiChatHistory.slice(-12);
@@ -5294,6 +5312,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('ai-chat-send')?.addEventListener('click', sendChat);
   document.getElementById('ai-chat-input')?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+  });
+  document.getElementById('ai-chat-clear')?.addEventListener('click', () => {
+    aiChatHistory = [];
+    const c = document.getElementById('ai-chat-messages');
+    if (c) c.innerHTML = '';
   });
 
   // クイックボタン
@@ -5309,8 +5332,17 @@ function appendChatMessage(role, text) {
   const container = document.getElementById('ai-chat-messages');
   const el = document.createElement('div');
   el.className = `chat-bubble ${role === 'user' ? 'user' : 'assistant'}`;
-  el.style.whiteSpace = 'pre-wrap';
-  el.textContent = text;
+  if (role === 'user') {
+    el.textContent = text;
+  } else {
+    // AIメッセージは簡易markdownレンダリング
+    el.innerHTML = (text || '')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^###?\s+(.+)$/gm, '<strong style="display:block;margin-top:6px;color:var(--primary-h)">$1</strong>')
+      .replace(/^[-・•]\s+(.+)$/gm, '&bull; $1')
+      .replace(/\n/g, '<br>');
+  }
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
   return el;
@@ -5330,11 +5362,25 @@ document.getElementById('hall-ai-btn').addEventListener('click', async () => {
   btn.textContent = '生成中...';
   out.style.display = 'block';
   out.textContent = '分析中...';
+  const copyBtn = document.getElementById('hall-ai-copy');
   try {
     const r = await apiFetch(`/api/ai/report?hall_name=${encodeURIComponent(hall)}`);
-    out.textContent = r.report || 'データが不足しています。スクレイプ後に再試行してください。';
+    const raw = r.report || 'データが不足しています。スクレイプ後に再試行してください。';
+    out.innerHTML = raw
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^###?\s+(.+)$/gm, '<strong style="display:block;margin-top:8px;color:var(--primary-h)">$1</strong>')
+      .replace(/^[-・•]\s+(.+)$/gm, '&bull; $1')
+      .replace(/\n/g, '<br>');
+    if (copyBtn) {
+      copyBtn.style.display = 'block';
+      copyBtn.onclick = () => {
+        navigator.clipboard.writeText(raw).then(() => showToast('コピーしました', 'success'));
+      };
+    }
   } catch(e) {
     out.textContent = 'AI分析失敗: ' + e.message;
+    if (copyBtn) copyBtn.style.display = 'none';
   } finally {
     btn.disabled = false;
     btn.textContent = '生成';

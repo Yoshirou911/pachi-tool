@@ -712,7 +712,8 @@
               </div>
               <button id="hall-ai-btn" class="btn btn-primary btn-sm">生成</button>
             </div>
-            <div id="hall-ai-output" style="display:none;font-size:.82rem;line-height:1.75;color:var(--text2);white-space:pre-wrap;border-top:1px solid var(--border);padding-top:10px;margin-top:10px"></div>
+            <div id="hall-ai-output" style="display:none;font-size:.82rem;line-height:1.75;color:var(--text2);border-top:1px solid var(--border);padding-top:10px;margin-top:10px"></div>
+            <button id="hall-ai-copy" style="display:none;margin-top:6px" class="btn btn-ghost btn-sm" style="font-size:.68rem">コピー</button>
           </div>
 
           <!-- みんレポ データ -->
@@ -1114,7 +1115,10 @@
 
         <!-- A. チャット -->
         <div class="card">
-          <div class="card-title">データに質問する</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div class="card-title" style="margin:0">データに質問する</div>
+            <button id="ai-chat-clear" class="btn btn-ghost btn-sm" style="font-size:.68rem;padding:3px 10px;opacity:.7">クリア</button>
+          </div>
           <div id="ai-chat-messages"
                style="min-height:100px;max-height:320px;overflow-y:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:6px;padding:2px"></div>
           <div class="grad-line"></div>

@@ -2119,6 +2119,11 @@ async function loadHallPage() {
   const isStale = () => gen !== _loadHallPageGen;
   _addRecentHall(hall);
   _loadHallMemo(hall);
+  // ホール切替時に前の AI 結果をリセット
+  const _aiOut = document.getElementById('hall-ai-output');
+  const _aiCopy = document.getElementById('hall-ai-copy');
+  if (_aiOut) { _aiOut.style.display = 'none'; _aiOut.innerHTML = ''; }
+  if (_aiCopy) _aiCopy.style.display = 'none';
   const _gradeBanner = document.getElementById('hall-grade-banner');
   if (_gradeBanner) _gradeBanner.style.display = 'none';
   try {
@@ -3419,19 +3424,23 @@ function renderMonthlyStats(sessions) {
   }
 
   const months = Object.keys(byMonth).sort().reverse();
+  const maxAbsDiff = Math.max(...months.map(m => Math.abs(byMonth[m].diff)), 1);
   el.innerHTML = months.map(m => {
     const d = byMonth[m];
     const wr = Math.round(d.wins / d.count * 100);
+    const pct = Math.round(Math.abs(d.diff) / maxAbsDiff * 100);
+    const barColor = d.diff >= 0 ? 'var(--success)' : 'var(--danger)';
     return `
-      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
-        <div style="width:60px;font-size:.85rem;font-weight:700;color:var(--text2)">${m}</div>
-        <div style="flex:1">
-          <div style="display:flex;gap:12px;flex-wrap:wrap">
-            <span style="font-size:.82rem;color:var(--text2)">${d.count}回</span>
-            <span style="font-size:.82rem;font-weight:700" class="${d.diff>=0?'diff-pos':'diff-neg'}">${fmt(d.diff)}</span>
-            <span style="font-size:.82rem;color:var(--text3)">勝率${wr}%</span>
-            <span style="font-size:.82rem;color:var(--text3)">${(d.games/1000).toFixed(1)}kG</span>
+      <div style="padding:9px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+          <div style="width:58px;font-size:.82rem;font-weight:700;color:var(--text2);flex-shrink:0">${m}</div>
+          <div style="flex:1;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <span style="font-size:.82rem;font-weight:800" class="${d.diff>=0?'diff-pos':'diff-neg'}">${fmt(d.diff)}</span>
+            <span style="font-size:.75rem;color:var(--text3)">${d.count}回 勝率${wr}% ${(d.games/1000).toFixed(1)}kG</span>
           </div>
+        </div>
+        <div style="height:4px;background:var(--bg3);border-radius:2px;margin-left:68px">
+          <div style="width:${pct}%;height:100%;background:${barColor};border-radius:2px;transition:width .3s"></div>
         </div>
       </div>
     `;

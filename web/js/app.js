@@ -585,7 +585,7 @@ estGames.addEventListener('input', () => { saveDraft(); autoEstimate(); });
 estHall.addEventListener('change', () => {
   state.currentHall = estHall.value;
   autoEstimate();
-  if (state.currentMachine) loadPriorQuality();
+  if (state.currentMachine) { loadPriorQuality(); saveDraft(); }
 });
 estWeekday.addEventListener('change', autoEstimate);
 estDom.addEventListener('input', autoEstimate);
@@ -1261,7 +1261,14 @@ document.getElementById('save-confirm-btn').addEventListener('click', async () =
 function saveDraft() {
   if (!state.currentMachine) return;
   const counts = getCountValues();
-  const draft = { machine: state.currentMachine, games: estGames.value, counts };
+  const draft = {
+    machine: state.currentMachine,
+    hall: estHall?.value || '',
+    games: estGames.value,
+    started_from: document.getElementById('est-started-from')?.value || '',
+    seat: document.getElementById('est-seat')?.value || '',
+    counts,
+  };
   localStorage.setItem('pachi_draft', JSON.stringify(draft));
 }
 
@@ -1272,6 +1279,11 @@ function restoreDraft(machine) {
     const draft = JSON.parse(raw);
     if (draft.machine !== machine) return;
     estGames.value = draft.games || '';
+    if (draft.hall && estHall) estHall.value = draft.hall;
+    const sfEl = document.getElementById('est-started-from');
+    if (sfEl && draft.started_from) sfEl.value = draft.started_from;
+    const seatEl = document.getElementById('est-seat');
+    if (seatEl && draft.seat) seatEl.value = draft.seat;
     Object.entries(draft.counts || {}).forEach(([el, cnt]) => {
       const input = estCountsList.querySelector(`[data-el="${el}"]`);
       if (input) input.value = cnt;
@@ -3711,6 +3723,7 @@ async function init() {
     const raw = localStorage.getItem('pachi_draft');
     if (raw) {
       const draft = JSON.parse(raw);
+      if (draft.hall && estHall) estHall.value = draft.hall;
       if (draft.machine && state.machines.includes(draft.machine)) {
         estMachine.value = draft.machine;
         estMachine.dispatchEvent(new Event('change'));
@@ -4736,7 +4749,7 @@ async function loadMapPage() {
           <strong>${h.hall_name}</strong><br>
           <span style="color:${h.color};font-weight:bold">平均差枚 ${sign}${h.avg_diff.toLocaleString()}</span><br>
           <span style="color:#888">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span><br>
-          <button onclick="switchToHall('${h.hall_name}')"
+          <button onclick="switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}'))"
             style="margin-top:6px;width:100%;padding:5px;background:#6366f1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">
             店傾向を見る
           </button>

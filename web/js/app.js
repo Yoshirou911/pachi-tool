@@ -361,7 +361,7 @@ document.getElementById('est-seat-number')?.addEventListener('input', async func
     const wrCol = sd.win_rate >= 50 ? 'var(--success)' : 'var(--danger)';
     let badges = '';
     if (sd.win_streak >= 2) badges += `<span style="color:var(--success);font-size:.63rem"> 🔥${sd.win_streak}連勝</span>`;
-    if (sd.best_weekday) badges += `<span style="color:var(--primary-h);font-size:.63rem"> ${sd.best_weekday.weekday}曜強</span>`;
+    if (sd.best_weekday) badges += `<span style="color:var(--primary-h);font-size:.63rem"> ${esc(sd.best_weekday.weekday)}曜強</span>`;
     html += `<div style="margin-top:3px;font-size:.7rem">
       <span style="color:var(--text3)">この台${sd.total_days}日 </span>
       <span style="color:${diffCol};font-weight:700">${sign(sd.avg_diff)}枚</span>
@@ -1820,7 +1820,7 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
     const dowRows = (data.weekday_stats || []).map(w => {
       const c = w.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       return `<tr>
-        <td style="padding:4px 8px;font-size:.78rem">${w.weekday}</td>
+        <td style="padding:4px 8px;font-size:.78rem">${esc(w.weekday)}</td>
         <td style="padding:4px 8px;font-size:.78rem;color:${c};font-weight:700">${sign(w.avg_diff)}枚</td>
         <td style="padding:4px 8px;font-size:.75rem;color:var(--text3)">${w.count}日 / 勝率${w.win_rate}%</td>
       </tr>`;
@@ -1854,13 +1854,13 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
         })()
       : '';
     const bestDowBadge = data.best_weekday
-      ? `<span style="background:rgba(124,127,245,.1);color:var(--primary-h);font-size:.68rem;padding:2px 8px;border-radius:4px">${data.best_weekday.weekday}曜に強い (平均${data.best_weekday.avg_diff > 0 ? '+' : ''}${data.best_weekday.avg_diff}枚)</span>`
+      ? `<span style="background:rgba(124,127,245,.1);color:var(--primary-h);font-size:.68rem;padding:2px 8px;border-radius:4px">${esc(data.best_weekday.weekday)}曜に強い (平均${data.best_weekday.avg_diff > 0 ? '+' : ''}${data.best_weekday.avg_diff}枚)</span>`
       : '';
     const dateBlockHtml = (data.date_block_analysis && data.date_block_analysis.length > 0)
       ? (() => {
           const best = data.date_block_analysis[0];
           return best.avg_diff > 0
-            ? `<div style="font-size:.68rem;color:var(--text3);margin-top:6px">月内傾向: <strong style="color:var(--success)">${best.block}</strong>が最強 (平均+${best.avg_diff}枚 / 勝率${best.win_rate}%)</div>`
+            ? `<div style="font-size:.68rem;color:var(--text3);margin-top:6px">月内傾向: <strong style="color:var(--success)">${esc(best.block)}</strong>が最強 (平均+${best.avg_diff}枚 / 勝率${best.win_rate}%)</div>`
             : '';
         })()
       : '';
@@ -2667,7 +2667,7 @@ async function loadScrapeReport(hall, date) {
                         onclick="renderMachineTrendChart(decodeURIComponent('${encHall}'),decodeURIComponent('${encMachine}'))">
               <td style="padding:5px 2px;max-width:130px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
                 <span style="color:var(--text3);margin-right:4px">${i+1}</span>
-                <span style="color:var(--primary);text-decoration:underline dotted">${r.machine_name}</span>
+                <span style="color:var(--primary);text-decoration:underline dotted">${esc(r.machine_name)}</span>
               </td>
               <td style="text-align:right;padding:5px 2px;color:${diffColor};font-weight:600">${diffStr}</td>
               <td style="text-align:right;padding:5px 2px;color:var(--text3)">${r.avg_games != null ? r.avg_games.toLocaleString() : '-'}</td>
@@ -3239,7 +3239,7 @@ function renderMachineList(profiles) {
                     return `<span style="color:var(--text3);font-size:.7rem">推測設定${e.toFixed(1)}</span>`;
                   })() : '';
                   return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:.75rem">
-                    <span style="color:var(--text3)">${s.date||''} ${s.hall_name||''} #${s.seat_number||'-'}</span>
+                    <span style="color:var(--text3)">${s.date||''} ${esc(s.hall_name||'')} #${s.seat_number||'-'}</span>
                     <span style="display:flex;align-items:center;gap:8px">${est}<strong style="color:${d>=0?'var(--success)':'var(--danger)'}">${sg}${(d||0).toLocaleString()}円</strong></span>
                   </div>`;
                 }).join('');
@@ -4173,7 +4173,7 @@ async function loadTodayBriefing(hall) {
     const dowColor = d.dow_rank === 1 ? 'var(--success)' : d.dow_rank <= 2 ? 'var(--warning)' : 'var(--text2)';
     const dowRow = d.dow_avg_diff !== null
       ? `<div style="font-size:.78rem;margin-bottom:6px">
-           <span style="color:var(--text3)">${d.weekday}曜日の傾向:</span>
+           <span style="color:var(--text3)">${esc(d.weekday)}曜日の傾向:</span>
            <strong style="color:${dowColor};margin-left:6px">${sign(d.dow_avg_diff)}枚平均 / ${d.dow_total}曜日中${d.dow_rank}位</strong>
          </div>` : '';
 
@@ -4258,7 +4258,7 @@ function _renderHallGradeBanner(d) {
   const label = gradeLabels[grade];
   const reasons = [];
   if (d.is_event_candidate) reasons.push('イベント候補');
-  if (d.dow_rank === 1) reasons.push(`${d.weekday}曜は特日傾向`);
+  if (d.dow_rank === 1) reasons.push(`${esc(d.weekday)}曜は特日傾向`);
   if (surgeCount > 0) reasons.push(`BB急上昇${surgeCount}台`);
   if (streakCount > 0) reasons.push(`連続好調${streakCount}台`);
   const reasonStr = reasons.length ? reasons.slice(0, 3).join(' · ') : '通常日';
@@ -4311,7 +4311,7 @@ async function loadEventDayPattern(hall) {
     const todayBanner = todayHits.length > 0
       ? `<div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:.8rem">
            <span style="color:var(--success);font-weight:600">本日 (${now.getMonth()+1}/${now.getDate()} ${todayDow}曜日) はイベント日候補です</span><br>
-           <span style="color:var(--text2);font-size:.72rem">該当パターン: ${todayHits.map(p => p.type).join('・')}</span>
+           <span style="color:var(--text2);font-size:.72rem">該当パターン: ${todayHits.map(p => esc(p.type)).join('・')}</span>
          </div>`
       : '';
 
@@ -4319,7 +4319,7 @@ async function loadEventDayPattern(hall) {
       const isToday = todayHits.includes(p);
       const zColor = p.z >= 1.5 ? 'var(--success)' : p.z >= 0.8 ? 'var(--warning)' : 'var(--text2)';
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
-        <span style="color:${isToday?'var(--success)':'var(--text1)'};font-weight:${isToday?'600':'400'}">${p.type}${isToday?' ◀今日':''}</span>
+        <span style="color:${isToday?'var(--success)':'var(--text1)'};font-weight:${isToday?'600':'400'}">${esc(p.type)}${isToday?' ◀今日':''}</span>
         <span style="display:flex;gap:8px;align-items:center">
           <span style="color:var(--text3);font-size:.7rem">${p.count}日分</span>
           <span style="color:var(--text3);font-size:.7rem">BB${p.bb_mean.toFixed(3)}%</span>
@@ -4360,7 +4360,7 @@ async function loadEventDayPattern(hall) {
         nextEventHtml = `<div style="background:rgba(124,127,245,.08);border:1px solid rgba(124,127,245,.2);border-radius:8px;padding:7px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
           <div style="font-size:1.4rem;font-weight:900;color:var(--primary-h);line-height:1">+${next.delta}</div>
           <div>
-            <div style="font-size:.75rem;font-weight:600;color:var(--text1)">次候補: ${mm}/${dd}(${dow3}) · ${next.hits[0].type}</div>
+            <div style="font-size:.75rem;font-weight:600;color:var(--text1)">次候補: ${mm}/${dd}(${dow3}) · ${esc(next.hits[0].type)}</div>
             <div style="display:flex;align-items:center;gap:4px">${afterStr}</div>
           </div>
         </div>`;
@@ -4438,7 +4438,7 @@ async function loadTodayTargets(hall) {
       return;
     }
     card.style.display = 'block';
-    title.innerHTML = `今日(${data.today_weekday}曜日)の狙い台 <button onclick="event.stopPropagation();_copyTodayTargets()" title="テキストコピー" style="background:none;border:none;cursor:pointer;font-size:.7rem;color:var(--text3);padding:0 4px;vertical-align:middle">📋</button>`;
+    title.innerHTML = `今日(${esc(data.today_weekday)}曜日)の狙い台 <button onclick="event.stopPropagation();_copyTodayTargets()" title="テキストコピー" style="background:none;border:none;cursor:pointer;font-size:.7rem;color:var(--text3);padding:0 4px;vertical-align:middle">📋</button>`;
     let html = '';
     if (data.seats.length) {
       html += `<div style="font-size:.68rem;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">複合スコア順（曜日傾向・BB確率・安定性・トレンド統合）</div>`;
@@ -4451,7 +4451,7 @@ async function loadTodayTargets(hall) {
         const stabW = Math.round(stab * 100);
         const stabCol = stab >= 0.7 ? 'var(--success)' : stab >= 0.4 ? 'var(--warning)' : 'var(--danger)';
         const dowBadge = s.avg_same_dow !== undefined && s.avg_same_dow !== s.avg_diff
-          ? `<span style="font-size:.68rem;color:var(--primary-h);background:rgba(124,127,245,.12);padding:1px 6px;border-radius:4px">${data.today_weekday}曜 ${sign(s.avg_same_dow)}枚</span>`
+          ? `<span style="font-size:.68rem;color:var(--primary-h);background:rgba(124,127,245,.12);padding:1px 6px;border-radius:4px">${esc(data.today_weekday)}曜 ${sign(s.avg_same_dow)}枚</span>`
           : '';
         const trendBadge = s.avg_7d !== null && s.avg_7d !== undefined
           ? `<span style="font-size:.68rem;color:${s.avg_7d >= s.avg_diff ? 'var(--success)' : 'var(--text3)'};background:var(--bg3);padding:1px 6px;border-radius:4px">直近7日 ${sign(s.avg_7d)}枚</span>`
@@ -4490,7 +4490,7 @@ async function loadTodayTargets(hall) {
       html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">`;
       if (data.best_tail) {
         html += `<div style="background:rgba(124,127,245,.1);border:1px solid rgba(124,127,245,.25);border-radius:8px;padding:7px 13px;font-size:.8rem">
-          好調末尾: <strong style="color:var(--primary-h)">${data.best_tail.replace('末尾', '末尾 ')}</strong></div>`;
+          好調末尾: <strong style="color:var(--primary-h)">${esc(data.best_tail.replace('末尾', '末尾 '))}</strong></div>`;
       }
       if (data.best_machine) {
         html += `<div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:8px;padding:7px 13px;font-size:.8rem">
@@ -4789,7 +4789,7 @@ async function loadMapPage() {
       const sign = h.avg_diff >= 0 ? '+' : '';
       marker.bindPopup(`
         <div style="min-width:160px;font-size:13px;line-height:1.7">
-          <strong>${h.hall_name}</strong><br>
+          <strong>${esc(h.hall_name)}</strong><br>
           <span style="color:${h.color};font-weight:bold">平均差枚 ${sign}${h.avg_diff.toLocaleString()}</span><br>
           <span style="color:#888">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span><br>
           <button onclick="switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}'))"
@@ -4859,7 +4859,7 @@ async function loadTodayPickCard() {
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:.7rem;color:${zCol};font-weight:700">${h.z_score != null ? h.z_score.toFixed(1) + 'σ' : ''}</div>
-          <div style="font-size:.58rem;color:var(--text3)">${h.label || ''}</div>
+          <div style="font-size:.58rem;color:var(--text3)">${esc(h.label || '')}</div>
         </div>
         <button onclick="event.stopPropagation();switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}'))" class="btn btn-ghost" style="font-size:.62rem;padding:2px 7px;flex-shrink:0">→</button>
       </div>`;
@@ -4927,7 +4927,7 @@ async function loadTodayRecommendation() {
     let html = `<div style="margin-bottom:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(34,211,238,.06));border:1px solid rgba(251,191,36,.25);border-radius:10px">
       <div style="font-size:.65rem;font-weight:800;color:#fbbf24;letter-spacing:.08em;text-transform:uppercase">今日の分析条件</div>
       <div style="font-size:.8rem;color:var(--text2);margin-top:4px">
-        ${dateStr} （${dow}曜日） &nbsp;|&nbsp; 末尾<strong>${tail}</strong>の日 &nbsp;|&nbsp; ${halls.length}店舗を比較
+        ${esc(dateStr)} （${esc(dow)}曜日） &nbsp;|&nbsp; 末尾<strong>${esc(String(tail))}</strong>の日 &nbsp;|&nbsp; ${halls.length}店舗を比較
       </div>
     </div>`;
 
@@ -4937,7 +4937,7 @@ async function loadTodayRecommendation() {
       const badgeColor = top.badge === '今日の本命' ? '#f59e0b' : '#6366f1';
       html += `<div style="margin-bottom:10px;padding:14px;background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(99,102,241,.08));border:1.5px solid ${badgeColor}40;border-radius:12px;cursor:pointer" onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${encodeURIComponent(top.hall_name)}')),150)">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <span style="background:${badgeColor};color:#fff;font-size:.62rem;font-weight:800;padding:2px 8px;border-radius:99px">${top.badge || '1位'}</span>
+          <span style="background:${badgeColor};color:#fff;font-size:.62rem;font-weight:800;padding:2px 8px;border-radius:99px">${esc(top.badge || '1位')}</span>
           <span style="font-size:.95rem;font-weight:800">${esc(top.hall_name)}</span>
           <span style="margin-left:auto;font-size:.72rem;color:var(--text3)">スコア ${top.score}</span>
         </div>
@@ -4971,7 +4971,7 @@ async function loadTodayRecommendation() {
       if (h.streak_seats >= 2) tags.push(`<span style="background:rgba(34,197,94,.12);color:#4ade80;font-size:.6rem;padding:1px 5px;border-radius:4px">連続好調${h.streak_seats}台</span>`);
       if (isStale) tags.push(`<span style="background:rgba(148,163,184,.12);color:var(--text3);font-size:.6rem;padding:1px 5px;border-radius:4px">データ古い</span>`);
       if (h.reasons.some(r => r.includes('末尾'))) tags.push(`<span style="background:rgba(251,191,36,.15);color:#fbbf24;font-size:.6rem;padding:1px 5px;border-radius:4px">末尾${tail}強</span>`);
-      if (h.reasons.some(r => r.includes('曜日'))) tags.push(`<span style="background:rgba(139,92,246,.15);color:#a78bfa;font-size:.6rem;padding:1px 5px;border-radius:4px">${dow}曜強</span>`);
+      if (h.reasons.some(r => r.includes('曜日'))) tags.push(`<span style="background:rgba(139,92,246,.15);color:#a78bfa;font-size:.6rem;padding:1px 5px;border-radius:4px">${esc(dow)}曜強</span>`);
 
       html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;${isStale ? 'opacity:.6' : ''}" onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}')),150)">
         <div style="width:22px;height:22px;border-radius:50%;background:${rankColor}20;color:${rankColor};font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i + 1}</div>
@@ -5755,12 +5755,12 @@ function _renderCalGrid() {
       dateStr===_calSelectedDate?'selected':'', evs.length?'has-event':'', heatCls]
       .filter(Boolean).join(' ');
     const dots = [...new Set(evs.map(e => e.event_type))]
-      .map(t => `<span class="cal-dot cal-dot-${t}" title="${t}"></span>`).join('');
+      .map(t => `<span class="cal-dot cal-dot-${esc(t)}" title="${esc(t)}"></span>`).join('');
     // 自動検出ホット日
     const hotEntries = !isOther ? (_calHotDays[dateStr] || []) : [];
     const topHot = hotEntries.sort((a,b) => b.z_score - a.z_score)[0];
     const hotBadge = topHot
-      ? `<span class="cal-hot-badge" title="${topHot.hall_name} z=${topHot.z_score}">${topHot.label === '超熱' ? '🔥🔥' : topHot.label === '熱' ? '🔥' : '・'}</span>`
+      ? `<span class="cal-hot-badge" title="${esc(topHot.hall_name)} z=${topHot.z_score}">${topHot.label === '超熱' ? '🔥🔥' : topHot.label === '熱' ? '🔥' : '・'}</span>`
       : '';
     // ホール数バッジ
     const hallBadge = (!isOther && heat && heat.hall_count > 0)
@@ -5948,12 +5948,12 @@ function _renderDayEvents(dateStr) {
     }
     // イベント記録
     html += evs.map(e => {
-      const src = e.source ? `<span style="font-size:.6rem;color:var(--text3)">[${e.source}]</span>` : '';
+      const src = e.source ? `<span style="font-size:.6rem;color:var(--text3)">[${esc(e.source)}]</span>` : '';
       const del = `<button onclick="deleteEvent(${e.id},'${dateStr}')" style="background:none;border:none;cursor:pointer;opacity:.4;margin-left:4px;font-size:.75rem;color:var(--text3);padding:0;line-height:1">✕</button>`;
       return `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;padding:5px 8px;background:var(--bg3);border-radius:7px">
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-            <span class="ev-badge ev-badge-${e.event_type}" style="margin:0">${e.event_type}</span>
+            <span class="ev-badge ev-badge-${esc(e.event_type)}" style="margin:0">${esc(e.event_type)}</span>
             <span style="font-size:.7rem;color:var(--text2)">${esc(e.event_title || '')}</span>
             ${src}
           </div>
@@ -6084,7 +6084,7 @@ async function loadCalStrength() {
       const strengthCol = d.diff_vs_normal >= 100 ? 'var(--success)' : d.diff_vs_normal >= 0 ? 'var(--warning)' : 'var(--danger)';
       return `<div style="margin-bottom:10px;padding:8px;background:var(--bg3);border-radius:8px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <span class="ev-badge ev-badge-${d.event_type}" style="margin:0">${d.event_type}</span>
+          <span class="ev-badge ev-badge-${esc(d.event_type)}" style="margin:0">${esc(d.event_type)}</span>
           <span style="font-size:.68rem;font-weight:700;color:${strengthCol}">${strength}</span>
           <span style="color:var(--text3);font-size:.6rem">${d.event_days}日のデータ</span>
         </div>
@@ -6191,9 +6191,9 @@ function _renderEvProgress(d) {
         ? Object.entries(h.by_source).map(([s, n]) => `${s}:${n}`).join(' ')
         : '';
       return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${h.name}</div>
-        <div style="font-size:.63rem;color:var(--text3);text-align:right">${sources || found}</div>
-        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
+        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${esc(h.name)}</div>
+        <div style="font-size:.63rem;color:var(--text3);text-align:right">${esc(sources) || found}</div>
+        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status] ?? esc(h.status)}</div>
       </div>`;
     }).join('');
   }
@@ -6279,9 +6279,9 @@ function _renderBulkProgress(d) {
       const dot = isRunning ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);animation:bpulse 1.2s ease-in-out infinite;vertical-align:middle;margin-right:4px"></span>' : '';
       const records = h.records ? `${h.records}件` : (h.status === 'waiting' ? '—' : '');
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${h.name}</div>
+        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${esc(h.name)}</div>
         <div style="font-size:.65rem;color:var(--text3);min-width:30px;text-align:right">${records}</div>
-        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
+        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status] ?? esc(h.status)}</div>
       </div>`;
     }).join('');
   }

@@ -497,7 +497,7 @@ function _renderRecentCombos() {
     el.style.display = 'flex';
     el.innerHTML = combos.map(c =>
       `<button class="btn btn-ghost btn-sm" style="font-size:.63rem;padding:3px 8px;white-space:nowrap;color:var(--text3)"
-        onclick="_startSessionReplay(${JSON.stringify(c.machine)},${JSON.stringify(c.hall)})">${esc(c.machine)}<span style='opacity:.5;margin:0 2px'>@</span>${esc(c.hall)}</button>`
+        onclick='_startSessionReplay(${JSON.stringify(c.machine)},${JSON.stringify(c.hall)})'>${esc(c.machine)}<span style="opacity:.5;margin:0 2px">@</span>${esc(c.hall)}</button>`
     ).join('');
   } catch { el.style.display = 'none'; }
 }
@@ -511,7 +511,7 @@ function _renderRecentMachines() {
     el.style.display = 'flex';
     el.innerHTML = recents.map(m =>
       `<button class="btn btn-ghost btn-sm" style="font-size:.65rem;padding:3px 8px;white-space:nowrap"
-        onclick="document.getElementById('est-machine').value=${JSON.stringify(m)};document.getElementById('est-machine').dispatchEvent(new Event('change'))">${esc(m)}</button>`
+        onclick='document.getElementById("est-machine").value=${JSON.stringify(m)};document.getElementById("est-machine").dispatchEvent(new Event("change"))'>${esc(m)}</button>`
     ).join('');
   } catch { el.style.display = 'none'; }
 }
@@ -1470,6 +1470,7 @@ async function loadSessions() {
       params.date_to = `${monthFilter}-${lastDay}`;
     }
 
+    params.limit = 500;
     let sessions = await api.getSessions(params);
     // ソート
     const sortBy = document.getElementById('ses-sort-filter')?.value || 'date_desc';
@@ -1875,8 +1876,8 @@ async function openSessionModal(id) {
   const hEnc = s.hall_name ? JSON.stringify(s.hall_name) : 'null';
   body.innerHTML = `
     <div style="display:flex;gap:6px;margin-bottom:12px">
-      <button onclick="_startSessionReplay(${mEnc}, ${hEnc})" style="flex:1;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:8px;color:var(--primary-h);font-size:.72rem;font-weight:700;padding:7px 4px;cursor:pointer">🎰 同機種・同ホールで推測</button>
-      <button onclick="closeModal();switchTab('machines');setTimeout(()=>{const s=document.getElementById('machine-search');if(s){s.value=${mEnc};s.dispatchEvent(new Event('input'))}},100)" style="flex:0 0 auto;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:.72rem;padding:7px 10px;cursor:pointer">📊 機種DB</button>
+      <button onclick='_startSessionReplay(${mEnc}, ${hEnc})' style="flex:1;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:8px;color:var(--primary-h);font-size:.72rem;font-weight:700;padding:7px 4px;cursor:pointer">🎰 同機種・同ホールで推測</button>
+      <button onclick='closeModal();switchTab("machines");setTimeout(()=>{const s=document.getElementById("machine-search");if(s){s.value=${mEnc};s.dispatchEvent(new Event("input"))}},100)' style="flex:0 0 auto;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:.72rem;padding:7px 10px;cursor:pointer">📊 機種DB</button>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
       <div><span style="font-size:.75rem;color:var(--text3)">ホール</span><br><strong>${esc(s.hall_name || '--')}</strong></div>
@@ -2151,7 +2152,7 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       <div style="margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <span style="font-size:1.05rem;font-weight:800">${esc(machineName)} ${seatNumber}番台</span>
-          <button onclick="togglePinSeat(${JSON.stringify(hall)},${JSON.stringify(machineName)},${seatNumber})" id="pin-seat-btn"
+          <button onclick='togglePinSeat(${JSON.stringify(hall)},${JSON.stringify(machineName)},${seatNumber})' id="pin-seat-btn"
             style="background:none;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">
             ${isPinnedSeat(hall, machineName, seatNumber) ? '★ ピン中' : '☆ ピン'}
           </button>
@@ -2597,7 +2598,7 @@ function renderMachineRankingFromSessions(machineStats) {
       const mEnc = JSON.stringify(machine);
       const hEnc = hall ? JSON.stringify(hall) : 'null';
       return `
-        <div class="machine-rank-row" style="cursor:pointer" onclick="_startSessionReplay(${mEnc},${hEnc})" title="推測フォームを開く">
+        <div class="machine-rank-row" style="cursor:pointer" onclick='_startSessionReplay(${mEnc},${hEnc})' title="推測フォームを開く">
           <span class="rank-num">${medal || (i + 1)}</span>
           <span class="rank-machine">${esc(machine)}</span>
           <div style="text-align:right">
@@ -2709,7 +2710,7 @@ function renderAnasloMachineRanking(machines) {
     const hall2 = getSelectedHall();
     const mEnc2 = JSON.stringify(m.machine);
     const hEnc2 = hall2 ? JSON.stringify(hall2) : 'null';
-    return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="_startSessionReplay(${mEnc2},${hEnc2})" title="推測フォームを開く">
+    return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick='_startSessionReplay(${mEnc2},${hEnc2})' title="推測フォームを開く">
       <span style="font-size:.75rem;color:var(--text3);width:22px;flex-shrink:0">${i+1}</span>
       <span style="font-size:.82rem;flex:1;color:var(--text1)">${esc(m.machine)}${trendHtml}</span>
       <div style="text-align:right;flex-shrink:0">
@@ -4035,9 +4036,9 @@ function renderPinnedSeatsCard() {
          ${memoSnip}
        </div>
        <div style="display:flex;gap:6px;flex-shrink:0">
-         <button onclick="showSeatDetailModal(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})"
+         <button onclick='showSeatDetailModal(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})'
            style="background:var(--bg2);border:none;border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">詳細</button>
-         <button onclick="togglePinSeat(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})"
+         <button onclick='togglePinSeat(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})'
            style="background:none;border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text3)">解除</button>
        </div>
      </div>`;
@@ -5787,7 +5788,7 @@ function _renderMarkdown(text) {
     .replace(/^---+$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:6px 0">')
     .replace(/^(\d+)\.\s+(.+)$/gm, '<div style="padding-left:14px;margin:1px 0">$1. $2</div>')
     .replace(/^[-・•]\s+(.+)$/gm, '<div style="padding-left:10px;margin:1px 0">&bull; $1</div>')
-    .replace(/\n\n/g, '<br>')
+    .replace(/\n\n/g, '<br><br>')
     .replace(/\n/g, '<br>');
 }
 
@@ -5956,8 +5957,11 @@ async function loadScrapeManager() {
           </div>`;
         }).join('');
         const shown = allLogs.slice(0, 15);
-        const moreBtn = allLogs.length > 15
-          ? `<button onclick="this.previousSibling.innerHTML += ${JSON.stringify(renderLogs(allLogs.slice(15)))};this.remove()" class="btn btn-ghost" style="font-size:.62rem;padding:3px 10px;margin-top:4px;width:100%">もっと見る (${allLogs.length - 15}件)</button>`
+        const moreHtml = allLogs.length > 15 ? renderLogs(allLogs.slice(15)) : '';
+        const moreBtn = moreHtml
+          ? `<button class="btn btn-ghost" style="font-size:.62rem;padding:3px 10px;margin-top:4px;width:100%"
+               onclick="this.nextElementSibling.style.display='block';this.remove()">もっと見る (${allLogs.length - 15}件)</button>
+             <div style="display:none">${moreHtml}</div>`
           : '';
         logEl.innerHTML = `<div>${renderLogs(shown)}</div>${moreBtn}`;
       }

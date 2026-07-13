@@ -323,6 +323,7 @@ async function loadMachineSelect() {
       dl.innerHTML = state.machines.map(m => `<option value="${esc(m)}">`).join('');
     }
     _renderRecentMachines();
+    _renderRecentCombos();
   } catch (e) {
     showToast('機種一覧の取得に失敗: ' + e.message, 'error');
   }
@@ -475,6 +476,30 @@ function _trackRecentMachine(name) {
     localStorage.setItem('pachi_recent_machines', JSON.stringify(recents));
     _renderRecentMachines();
   } catch {}
+}
+
+function _trackRecentCombo(machine, hall) {
+  if (!machine || !hall) return;
+  try {
+    let combos = JSON.parse(localStorage.getItem('pachi_recent_combos') || '[]');
+    combos = [{ machine, hall }, ...combos.filter(c => !(c.machine === machine && c.hall === hall))].slice(0, 4);
+    localStorage.setItem('pachi_recent_combos', JSON.stringify(combos));
+    _renderRecentCombos();
+  } catch {}
+}
+
+function _renderRecentCombos() {
+  const el = document.getElementById('est-recent-combos-bar');
+  if (!el) return;
+  try {
+    const combos = JSON.parse(localStorage.getItem('pachi_recent_combos') || '[]');
+    if (!combos.length) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    el.innerHTML = combos.map(c =>
+      `<button class="btn btn-ghost btn-sm" style="font-size:.63rem;padding:3px 8px;white-space:nowrap;color:var(--text3)"
+        onclick="_startSessionReplay(${JSON.stringify(c.machine)},${JSON.stringify(c.hall)})">${esc(c.machine)}<span style='opacity:.5;margin:0 2px'>@</span>${esc(c.hall)}</button>`
+    ).join('');
+  } catch { el.style.display = 'none'; }
 }
 
 function _renderRecentMachines() {
@@ -793,6 +818,7 @@ async function runEstimate() {
       ...(seatNum ? { seat_number: seatNum } : {}),
     });
     state.lastEstimate = { result, machine: state.currentMachine, games, startedFrom, counts };
+    _trackRecentCombo(state.currentMachine, estHall.value);
     // 推測履歴を積む（最大20件）
     if (result.expected_setting) {
       state.estimateHistory.push({ games, expected: result.expected_setting, confidence: result.confidence || 0 });
@@ -1284,6 +1310,10 @@ estResetBtn.addEventListener('click', () => {
 estSaveBtn.addEventListener('click', () => {
   estSaveForm.style.display = estSaveForm.style.display === 'none' ? 'block' : 'none';
   if (estSaveForm.style.display === 'block') {
+    // 台番号を推測フォームから自動引継ぎ
+    const estSeat = document.getElementById('est-seat-number')?.value;
+    const saveSeat = document.getElementById('save-seat');
+    if (estSeat && saveSeat && !saveSeat.value) saveSeat.value = estSeat;
     estSaveForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 });
@@ -1308,7 +1338,8 @@ function updateSaveDiff() {
     diffEl.style.display = 'none';
   }
   if (coins && hintEl) {
-    const coinYen = coins * 20;
+    const denomYen = parseFloat(document.getElementById('denom-select')?.value || '20');
+    const coinYen = Math.round(coins * denomYen);
     hintEl.textContent = `≈ ${coinYen >= 0 ? '+' : ''}${coinYen.toLocaleString()}円`;
     hintEl.style.color = coinYen >= 0 ? 'var(--success)' : 'var(--danger)';
   } else if (hintEl) {
@@ -1643,6 +1674,37 @@ function renderSessionSummary(sessions) {
       sparkEl.style.display = 'none';
     }
   }
+
+  // コピー用サマリーテキストを構築してボタンを表示
+  if (total > 0) {
+    const avgG = Math.round(sessions.reduce((s, r) => s + (r.games_total || 0), 0) / total);
+    const totalInv = sessions.reduce((s, r) => s + (r.investment || 0), 0);
+    const avgD = Math.round(diffYen / total);
+    const bestSession = sessions.reduce((best, s) => (s.diff_yen || 0) > (best.diff_yen || 0) ? s : best, sessions[0]);
+    const activeBtn = document.querySelector('.ses-period-btn.active');
+    const periodText = activeBtn ? activeBtn.textContent : '';
+    _sessionSummaryCopy = [
+      `📊 パチスロ実戦記録 ${periodText}`,
+      `${wins}勝${total - wins}敗 (勝率${Math.round(wins / total * 100)}%) / ${total}セッション`,
+      `総収支: ${diffYen >= 0 ? '+' : ''}${diffYen.toLocaleString()}円`,
+      `平均G数: ${avgG.toLocaleString()}G / 平均収支: ${avgD >= 0 ? '+' : ''}${avgD.toLocaleString()}円`,
+      totalInv ? `総投資: ${(totalInv / 10000).toFixed(1)}万円` : '',
+      bestSession && bestSession.diff_yen > 0
+        ? `ベストセッション: ${bestSession.machine_name} +${bestSession.diff_yen.toLocaleString()}円`
+        : '',
+    ].filter(Boolean).join('\n');
+    const copyBtn = document.getElementById('sum-copy-btn');
+    if (copyBtn) copyBtn.style.display = 'inline';
+  } else {
+    _sessionSummaryCopy = null;
+    const copyBtn = document.getElementById('sum-copy-btn');
+    if (copyBtn) copyBtn.style.display = 'none';
+  }
+}
+
+function copySessionSummary() {
+  if (!_sessionSummaryCopy) return;
+  navigator.clipboard.writeText(_sessionSummaryCopy).then(() => showToast('サマリーをコピーしました', 'success'));
 }
 
 function _renderSessionCard(s, bestDiff, bestGames, totalCount = 0) {
@@ -1693,7 +1755,7 @@ function _renderSessionCard(s, bestDiff, bestGames, totalCount = 0) {
         <span class="session-machine">${esc(s.machine_name)}</span>
         ${tags}
       </div>
-      <div class="session-hall">${esc(s.hall_name || '')}${s.seat_number ? ' &nbsp;台' + s.seat_number : ''}</div>
+      <div class="session-hall">${esc(s.hall_name || '')}${s.seat_number ? `&ensp;<span style="color:var(--text3);font-size:.75rem">${s.seat_number}番台</span>` : ''}</div>
       <div class="session-stats" style="margin-top:6px">
         <span class="session-stat">G数: <span class="val">${(s.games_total || 0).toLocaleString()}</span></span>
         <span class="session-stat">収支: <span class="val ${diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow'}" style="font-weight:800">${fmt(diffYen)}</span></span>
@@ -1736,6 +1798,11 @@ function renderSessions(sessions) {
     const dayTotal = daySessions.reduce((sum, s) => sum + (s.diff_yen || 0), 0);
     const dayColor = dayTotal >= 0 ? 'var(--success)' : 'var(--danger)';
     const daySign = dayTotal >= 0 ? '+' : '';
+    const dayWins = daySessions.filter(s => (s.diff_yen || 0) > 0).length;
+    const dayLoss = daySessions.length - dayWins;
+    const wlBadge = daySessions.length > 1
+      ? `<span style="font-size:.6rem;color:var(--text3);margin-right:4px">${dayWins}勝${dayLoss}敗</span>`
+      : '';
 
     let dateLabel = dateStr;
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
@@ -1749,7 +1816,7 @@ function renderSessions(sessions) {
     html += `<div class="ses-date-header">
       <span class="ses-date-label">${dateLabel}</span>
       <div class="ses-date-line"></div>
-      <span class="ses-date-total" style="color:${dayColor}">${daySign}${dayTotal.toLocaleString()}円</span>
+      ${wlBadge}<span class="ses-date-total" style="color:${dayColor}">${daySign}${dayTotal.toLocaleString()}円</span>
     </div>`;
 
     html += daySessions.map(s => _renderSessionCard(s, bestDiff, bestGames, sessions.length)).join('');
@@ -3254,6 +3321,7 @@ async function loadMachinesPage() {
 }
 
 let _machineCatFilter = 'all';
+let _sessionSummaryCopy = null;
 
 function renderMachineList(profiles) {
   const container = document.getElementById('machine-list');
@@ -3292,7 +3360,7 @@ function renderMachineList(profiles) {
 
   function render(filter = '') {
     let filtered = filter
-      ? profiles.filter(p => p.machine_name.includes(filter))
+      ? profiles.filter(p => p.machine_name.includes(filter) || categorize(p.machine_name).includes(filter))
       : [...profiles];
 
     // Category filter
@@ -5326,7 +5394,13 @@ async function loadHallCompare() {
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
             <div class="anim-bar" style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>
-          <div style="font-size:.58rem;color:var(--text3);margin-top:2px">${r.days_data}日 ${r.machine_count}機種 ${r.record_count}件 勝率${r.win_rate}% <span style="color:${zCol}">${bbLine}</span></div>
+          <div style="display:flex;align-items:center;gap:4px;margin-top:3px">
+            <div style="flex:1;height:2px;background:var(--bg3);border-radius:1px;overflow:hidden">
+              <div class="anim-bar" style="width:${r.win_rate}%;height:100%;background:${r.win_rate >= 55 ? 'var(--success)' : r.win_rate >= 45 ? 'var(--warning)' : 'var(--danger)'};border-radius:1px;opacity:.7"></div>
+            </div>
+            <div style="font-size:.58rem;color:var(--text3);white-space:nowrap">勝率${r.win_rate}%</div>
+          </div>
+          <div style="font-size:.58rem;color:var(--text3);margin-top:2px">${r.days_data}日 ${r.machine_count}機種 ${r.record_count}件 <span style="color:${zCol}">${bbLine}</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pachi-tool-v6';
+const CACHE_NAME = 'pachi-tool-v8';
 const STATIC = ['/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -20,11 +20,11 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // HTML, JS, CSS: ネットワーク優先（常に最新を取得）
+  // HTML, JS, CSS: ネットワーク優先（常に最新を取得、HTTPキャッシュもバイパス）
   if (url.pathname.endsWith('.html') || url.pathname.endsWith('.js') ||
       url.pathname.endsWith('.css') || url.pathname === '/') {
     e.respondWith(
-      fetch(e.request).catch(() =>
+      fetch(new Request(e.request, { cache: 'no-store' })).catch(() =>
         caches.match(e.request)
       )
     );

@@ -32,8 +32,8 @@
   <!-- Tab bar -->
   <nav class="tab-bar">
     <button class="tab-btn active" data-tab="estimate">
-      <span class="tab-icon">🔍</span>
-      <span class="tab-label">推測</span>
+      <span class="tab-icon">🎰</span>
+      <span class="tab-label">設定推測</span>
     </button>
     <button class="tab-btn" data-tab="session">
       <span class="tab-icon">📝</span>
@@ -41,15 +41,15 @@
     </button>
     <button class="tab-btn" data-tab="hall">
       <span class="tab-icon">📊</span>
-      <span class="tab-label">店傾向</span>
+      <span class="tab-label">ホール分析</span>
     </button>
     <button class="tab-btn" data-tab="map">
       <span class="tab-icon">🗺️</span>
-      <span class="tab-label">マップ</span>
+      <span class="tab-label">地図</span>
     </button>
     <button class="tab-btn" data-tab="machines">
       <span class="tab-icon">🎮</span>
-      <span class="tab-label">機種</span>
+      <span class="tab-label">機種DB</span>
     </button>
     <button class="tab-btn" data-tab="ai">
       <span class="tab-icon">🤖</span>
@@ -84,75 +84,78 @@
           <div id="est-recent-machines-bar" style="display:none;gap:5px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
           </div>
           <div class="form-row" style="position:relative">
-            <label class="form-label">機種</label>
+            <label class="form-label">🎰 機種</label>
             <input type="text" id="est-machine" class="form-input" list="est-machine-datalist"
               placeholder="機種名を入力 or 選択…" autocomplete="off" style="cursor:pointer">
             <datalist id="est-machine-datalist"></datalist>
           </div>
-          <!-- 機種スナップショット -->
           <div id="machine-snapshot" style="display:none;margin-bottom:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;font-size:.75rem"></div>
+          <!-- ホール（常に表示） -->
           <div class="form-row">
-            <label class="form-label">ホール</label>
+            <label class="form-label">🏪 ホール <span style="font-weight:400;color:var(--text3);font-size:.72rem">（任意）</span></label>
             <input type="text" id="est-hall" class="form-input" list="hall-datalist"
-                   placeholder="ホール名（任意）" autocomplete="off">
+                   placeholder="ホール名" autocomplete="off">
             <datalist id="hall-datalist"></datalist>
             <div id="est-hall-today-indicator" style="display:none;margin-top:5px;font-size:.7rem;padding:4px 10px;border-radius:6px"></div>
           </div>
-          <div class="form-row-2col">
-            <div>
-              <label class="form-label">曜日</label>
-              <select id="est-weekday" class="form-select">
-                <option value="">--</option>
-                <option value="0">月</option>
-                <option value="1">火</option>
-                <option value="2">水</option>
-                <option value="3">木</option>
-                <option value="4">金</option>
-                <option value="5">土</option>
-                <option value="6">日</option>
-              </select>
+          <!-- 詳細設定トグル -->
+          <button id="est-detail-toggle" onclick="toggleEstDetail()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:.75rem;padding:4px 0;display:flex;align-items:center;gap:4px;margin-top:2px">
+            <span id="est-detail-arrow">▸</span> 台番・宵越し・曜日・確定条件
+          </button>
+          <!-- 詳細設定 (折りたたみ) -->
+          <div id="est-detail-section" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:12px">
+            <div class="form-row-2col">
+              <div>
+                <label class="form-label">台番</label>
+                <input type="number" id="est-seat-number" class="form-input"
+                       placeholder="例: 42" min="1" inputmode="numeric">
+                <div id="seat-tail-hint" style="display:none;margin-top:4px;font-size:.72rem;padding:4px 8px;background:var(--bg2);border-radius:6px"></div>
+              </div>
+              <div id="started-from-row">
+                <label class="form-label">宵越しG数</label>
+                <input type="number" id="est-started-from" class="form-input"
+                       placeholder="0" min="0" inputmode="numeric" value="0">
+              </div>
             </div>
-            <div>
-              <label class="form-label">日付（特定日判定）</label>
-              <input type="number" id="est-dom" class="form-input" placeholder="例: 15" min="1" max="31">
+            <div class="form-row-2col" style="margin-top:8px">
+              <div>
+                <label class="form-label">曜日</label>
+                <select id="est-weekday" class="form-select">
+                  <option value="">自動</option>
+                  <option value="0">月</option>
+                  <option value="1">火</option>
+                  <option value="2">水</option>
+                  <option value="3">木</option>
+                  <option value="4">金</option>
+                  <option value="5">土</option>
+                  <option value="6">日</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">日付</label>
+                <input type="number" id="est-dom" class="form-input" placeholder="例: 15" min="1" max="31">
+              </div>
             </div>
-          </div>
-          <div class="form-row">
-            <label class="form-check-label">
-              <input type="checkbox" id="est-event"> イベント日
-            </label>
+            <div class="form-row" style="margin-top:8px">
+              <label class="form-check-label">
+                <input type="checkbox" id="est-event"> イベント日
+              </label>
+            </div>
           </div>
         </div>
 
-        <!-- Session timer -->
-        <div id="session-timer-bar" style="display:flex;align-items:center;gap:10px;padding:8px 0">
-          <button id="timer-toggle" class="btn btn-sm btn-ghost">⏱ タイマー開始</button>
-          <span id="timer-display" style="font-variant-numeric:tabular-nums;font-weight:700;color:var(--text2);font-size:.9rem;display:none">00:00:00</span>
-          <button id="timer-reset" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger)">リセット</button>
-        </div>
-
-        <!-- Games total -->
+        <!-- Games total + Timer -->
         <div class="card">
-          <div class="form-row">
-            <label class="form-label">総ゲーム数 (G)</label>
-            <input type="number" id="est-games" class="form-input form-input-lg"
-                   placeholder="0" min="0" inputmode="numeric">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <label class="form-label" style="margin:0">📊 総ゲーム数 (G)</label>
+            <div id="session-timer-bar" style="display:flex;align-items:center;gap:8px">
+              <span id="timer-display" style="font-variant-numeric:tabular-nums;font-weight:700;color:var(--primary-h);font-size:.88rem;display:none">00:00:00</span>
+              <button id="timer-toggle" class="btn btn-sm btn-ghost" style="font-size:.72rem;padding:4px 10px">⏱ タイマー</button>
+              <button id="timer-reset" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger);font-size:.72rem;padding:4px 8px">✕</button>
+            </div>
           </div>
-          <div class="form-row" id="started-from-row" style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
-            <label class="form-label" style="font-size:.8rem;color:var(--text3)">
-              宵越し・引き継ぎG数 <span style="font-weight:400">（前日等からの持ち越しG数）</span>
-            </label>
-            <input type="number" id="est-started-from" class="form-input"
-                   placeholder="0（宵越しなし）" min="0" inputmode="numeric" value="0">
-          </div>
-          <div class="form-row" style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
-            <label class="form-label" style="font-size:.8rem;color:var(--text3)">
-              台番 <span style="font-weight:400">（入力すると同台の過去履歴を事前分布に反映）</span>
-            </label>
-            <input type="number" id="est-seat-number" class="form-input"
-                   placeholder="例: 42" min="1" inputmode="numeric">
-            <div id="seat-tail-hint" style="display:none;margin-top:4px;font-size:.72rem;padding:4px 8px;background:var(--bg2);border-radius:6px"></div>
-          </div>
+          <input type="number" id="est-games" class="form-input form-input-lg"
+                 placeholder="0" min="0" inputmode="numeric">
         </div>
 
         <!-- Element counts -->
@@ -443,27 +446,38 @@
         </div>
 
         <!-- Filter bar -->
-        <div class="card filter-bar">
-          <select id="ses-hall-filter" class="form-select form-select-sm">
-            <option value="">全ホール</option>
-          </select>
-          <select id="ses-machine-filter" class="form-select form-select-sm">
-            <option value="">全機種</option>
-          </select>
-          <input type="month" id="ses-month-filter" class="form-input form-select-sm"
-                 style="flex:0 0 auto;width:130px;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
-          <select id="ses-sort-filter" class="form-select form-select-sm" title="並び順">
-            <option value="date_desc">新しい順</option>
-            <option value="date_asc">古い順</option>
-            <option value="diff_desc">収支↑</option>
-            <option value="diff_asc">収支↓</option>
-            <option value="games_desc">G数↑</option>
-          </select>
-          <button id="ses-refresh-btn" class="btn btn-ghost btn-sm">更新</button>
-          <button id="ses-export-btn" class="btn btn-ghost btn-sm" title="CSVエクスポート">📥</button>
-          <label class="btn btn-ghost btn-sm" title="CSVインポート" style="cursor:pointer">
-            📤 <input type="file" id="ses-import-input" accept=".csv" style="display:none">
-          </label>
+        <div class="card" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px">
+          <!-- クイック期間フィルター -->
+          <div style="display:flex;gap:5px">
+            <button class="btn btn-ghost btn-sm ses-period-btn" data-period="today" style="font-size:.68rem;flex:1">今日</button>
+            <button class="btn btn-ghost btn-sm ses-period-btn" data-period="thisweek" style="font-size:.68rem;flex:1">今週</button>
+            <button class="btn btn-ghost btn-sm ses-period-btn active" data-period="thismonth" style="font-size:.68rem;flex:1">今月</button>
+            <button class="btn btn-ghost btn-sm ses-period-btn" data-period="all" style="font-size:.68rem;flex:1">全期間</button>
+          </div>
+          <div style="display:flex;gap:6px">
+            <select id="ses-hall-filter" class="form-select form-select-sm" style="flex:1">
+              <option value="">全ホール</option>
+            </select>
+            <select id="ses-machine-filter" class="form-select form-select-sm" style="flex:1">
+              <option value="">全機種</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="month" id="ses-month-filter" class="form-input form-select-sm"
+                   style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
+            <select id="ses-sort-filter" class="form-select form-select-sm" style="flex:1" title="並び順">
+              <option value="date_desc">新しい順</option>
+              <option value="date_asc">古い順</option>
+              <option value="diff_desc">収支↑</option>
+              <option value="diff_asc">収支↓</option>
+              <option value="games_desc">G数↑</option>
+            </select>
+            <button id="ses-refresh-btn" class="btn btn-ghost btn-sm" title="更新">↻</button>
+            <button id="ses-export-btn" class="btn btn-ghost btn-sm" title="CSVエクスポート" style="font-size:.68rem">📥 出力</button>
+            <label class="btn btn-ghost btn-sm" title="CSVインポート" style="cursor:pointer;font-size:.68rem">
+              📤 入力 <input type="file" id="ses-import-input" accept=".csv" style="display:none">
+            </label>
+          </div>
         </div>
 
         <!-- PnL chart -->
@@ -1175,7 +1189,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=7"></script>
+<script src="/js/app.js?v=10"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

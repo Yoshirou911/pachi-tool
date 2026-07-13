@@ -407,6 +407,17 @@ body::before {
 .session-item.neg { border-left-color: #f43f5e; }
 .session-item.neg:hover { box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(244,63,94,0.08); }
 
+/* Date group header */
+.ses-date-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 2px 6px;
+  position: sticky; top: calc(var(--header-h) + var(--tab-h) + 52px);
+  background: var(--bg); z-index: 2;
+}
+.ses-date-label { font-size: .72rem; font-weight: 700; color: var(--text2); white-space: nowrap; }
+.ses-date-line  { flex: 1; height: 1px; background: var(--border); }
+.ses-date-total { font-size: .72rem; font-weight: 700; white-space: nowrap; }
+
 .session-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .session-date    { font-size: .73rem; color: var(--text3); }
 .session-machine { font-weight: 800; font-size: .95rem; flex: 1; }
@@ -432,6 +443,14 @@ body::before {
 /* ===== Filter bar ===== */
 .filter-bar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; flex-wrap: wrap; }
 .filter-bar .form-select { flex: 1; min-width: 80px; }
+
+/* 期間クイックフィルター */
+.ses-period-btn.active {
+  background: var(--accent-dim) !important;
+  border-color: rgba(124,127,245,.35) !important;
+  color: var(--primary-h) !important;
+  font-weight: 700;
+}
 
 /* ===== Hall charts ===== */
 .weekday-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }

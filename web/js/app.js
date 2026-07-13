@@ -1136,11 +1136,7 @@ async function fetchAiEstimateComment(r) {
       }),
     }).then(res => res.json());
     if (data.comment) {
-      const rendered = data.comment
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\n/g, '<br>');
-      el.innerHTML = `<span style="font-size:.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:4px">AIコメント</span>${rendered}`;
+      el.innerHTML = `<span style="font-size:.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:4px">AIコメント</span>${_renderMarkdown(data.comment)}`;
     } else {
       el.style.display = 'none';
     }
@@ -1490,6 +1486,7 @@ async function loadSessions() {
     renderMonthlyBarChart(sessions);
     renderMachineBreakdownChart(sessions);
     renderSeatAnalysis(sessions);
+    renderWeekdayAnalysis(sessions);
     renderDailyProfitChart(sessions);
     loadEstimationAccuracy(hallFilter || null);
   } catch (e) {
@@ -1652,7 +1649,13 @@ function renderSessionSummary(sessions) {
     if (streak > 1) {
       const label = first ? `🔥${streak}連勝中` : `❄${streak}連敗中`;
       const color = first ? 'var(--success)' : 'var(--danger)';
-      streakEl.innerHTML = `<span style="color:${color}">${label}</span>`;
+      let sub = '';
+      if (!first && streak >= 5) {
+        sub = `<div style="font-size:.6rem;color:var(--danger);opacity:.8;margin-top:1px">冷静に再考を。一時休止を検討してください</div>`;
+      } else if (!first && streak >= 3) {
+        sub = `<div style="font-size:.6rem;color:var(--text3);margin-top:1px">今日はお休みも選択肢のひとつです</div>`;
+      }
+      streakEl.innerHTML = `<span style="color:${color}">${label}</span>${sub}`;
     } else {
       streakEl.innerHTML = '';
     }
@@ -1699,6 +1702,33 @@ function renderSessionSummary(sessions) {
     _sessionSummaryCopy = null;
     const copyBtn = document.getElementById('sum-copy-btn');
     if (copyBtn) copyBtn.style.display = 'none';
+  }
+
+  // 機種別ベスト/ワーストインサイト
+  const insightEl = document.getElementById('sum-machine-insight');
+  if (insightEl) {
+    const machineMap = {};
+    for (const s of sessions) {
+      const m = s.machine_name;
+      if (!m) continue;
+      if (!machineMap[m]) machineMap[m] = { sum: 0, count: 0 };
+      machineMap[m].sum += (s.diff_yen || 0);
+      machineMap[m].count++;
+    }
+    const entries = Object.entries(machineMap).filter(([, v]) => v.count >= 2);
+    if (entries.length >= 2) {
+      entries.sort((a, b) => (b[1].sum / b[1].count) - (a[1].sum / a[1].count));
+      const [bestM, bestV] = entries[0];
+      const [worstM, worstV] = entries[entries.length - 1];
+      const bAvg = Math.round(bestV.sum / bestV.count);
+      const wAvg = Math.round(worstV.sum / worstV.count);
+      insightEl.style.display = 'block';
+      insightEl.innerHTML =
+        `<span style="color:var(--success)">▲ ${esc(bestM)}</span> ${bAvg >= 0?'+':''}${bAvg.toLocaleString()}円/回` +
+        `&ensp;·&ensp;<span style="color:var(--danger)">▼ ${esc(worstM)}</span> ${wAvg >= 0?'+':''}${wAvg.toLocaleString()}円/回`;
+    } else {
+      insightEl.style.display = 'none';
+    }
   }
 }
 
@@ -3865,6 +3895,56 @@ function renderSeatAnalysis(sessions) {
   `;
 }
 
+function renderWeekdayAnalysis(sessions) {
+  const card = document.getElementById('weekday-card');
+  const el = document.getElementById('weekday-analysis');
+  if (!card || !el) return;
+  if (sessions.length < 7) { card.style.display = 'none'; return; }
+
+  const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+  const byDay = Array.from({length: 7}, () => []);
+  for (const s of sessions) {
+    if (!s.date || !/^\d{4}-\d{2}-\d{2}$/.test(s.date)) continue;
+    const [y, m, d] = s.date.split('-').map(Number);
+    byDay[new Date(y, m - 1, d).getDay()].push(s.diff_yen || 0);
+  }
+  if (!byDay.some(d => d.length)) { card.style.display = 'none'; return; }
+
+  const todayDow = new Date().getDay();
+  const dayStats = byDay.map((diffs, i) => {
+    if (!diffs.length) return { i, count: 0, avg: 0, wr: 0 };
+    const avg = Math.round(diffs.reduce((a, b) => a + b, 0) / diffs.length);
+    const wr = Math.round(diffs.filter(d => d > 0).length / diffs.length * 100);
+    return { i, count: diffs.length, avg, wr };
+  });
+  const maxAbs = Math.max(...dayStats.map(d => Math.abs(d.avg)), 1);
+  const bestDay = dayStats.reduce((b, d) => (d.count && d.avg > b.avg ? d : b), {avg: -Infinity, i: -1});
+
+  card.style.display = 'block';
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:8px">
+      ${dayStats.map(({i, count, avg, wr}) => {
+        const isToday = i === todayDow;
+        const isBest = count >= 2 && i === bestDay.i;
+        const col = avg >= 500 ? 'var(--success)' : avg <= -500 ? 'var(--danger)' : 'var(--text3)';
+        const bg = avg >= 500 ? 'rgba(34,197,94,.1)' : avg <= -500 ? 'rgba(239,68,68,.08)' : 'var(--bg3)';
+        const barH = count ? Math.max(3, Math.round(Math.abs(avg) / maxAbs * 26)) : 0;
+        const barCol = avg >= 0 ? '#10b981' : '#f43f5e';
+        return `<div style="text-align:center;padding:5px 2px 4px;border-radius:7px;background:${bg};border:1.5px solid ${isToday ? 'var(--primary-h)' : 'transparent'}">
+          <div style="font-size:.7rem;font-weight:${isToday?'700':'400'};color:${isToday?'var(--primary-h)':isBest?'var(--warning)':'var(--text2)'}">${dayNames[i]}${isBest?' ★':''}</div>
+          <div style="height:28px;display:flex;align-items:flex-end;justify-content:center;margin:2px 0">
+            ${count ? `<div style="width:10px;height:${barH}px;background:${barCol};border-radius:2px;opacity:.75"></div>` : `<div style="width:10px;height:3px;background:var(--border);border-radius:2px"></div>`}
+          </div>
+          <div style="font-size:.6rem;color:${col};font-weight:600;min-height:9px">${count ? (avg >= 0?'+':'') + Math.round(avg/100)/10 + 'k' : ''}</div>
+          <div style="font-size:.57rem;color:var(--text3)">${count ? wr+'%' : '--'}</div>
+          <div style="font-size:.52rem;color:var(--text3);opacity:.6">${count ? count+'回' : ''}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${bestDay.i >= 0 && bestDay.count >= 2 ? `<div style="font-size:.68rem;color:var(--text3);text-align:center">★ ベスト曜日: <strong style="color:var(--warning)">${dayNames[bestDay.i]}曜日</strong> (平均 ${bestDay.avg >= 0?'+':''}${bestDay.avg.toLocaleString()}円 / 勝率${bestDay.wr}%)</div>` : ''}
+  `;
+}
+
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
@@ -5645,12 +5725,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const data = await fetch(`/api/ai/report?hall_name=${encodeURIComponent(getAiHall())}`).then(r => r.json());
       const txt = data.report || '';
-      out.innerHTML = txt
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/^###?\s+(.+)$/gm, '<strong style="color:var(--text1);display:block;margin:10px 0 4px">$1</strong>')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\n\n/g, '<br><br>')
-        .replace(/^[-•]\s+(.+)$/gm, '• $1<br>');
+      out.innerHTML = _renderMarkdown(txt);
     } catch (e) {
       out.textContent = 'エラーが発生しました: ' + e.message;
     } finally {
@@ -5674,12 +5749,7 @@ document.addEventListener('DOMContentLoaded', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, hall_name: getAiHall(), history: aiChatHistory }),
       }).then(r => r.json());
-      thinkingEl.innerHTML = (data.reply || '')
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-        .replace(/^###?\s+(.+)$/gm, '<strong style="display:block;margin-top:6px;color:var(--primary-h)">$1</strong>')
-        .replace(/^[-・•]\s+(.+)$/gm, '&bull; $1')
-        .replace(/\n/g, '<br>');
+      thinkingEl.innerHTML = _renderMarkdown(data.reply || '');
       aiChatHistory.push({ role: 'user', content: msg });
       aiChatHistory.push({ role: 'assistant', content: data.reply });
       if (aiChatHistory.length > 12) aiChatHistory = aiChatHistory.slice(-12);
@@ -5707,6 +5777,20 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+function _renderMarkdown(text) {
+  return (text || '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/`([^`\n]+)`/g, '<code style="background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:.85em;font-family:monospace">$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/^#{1,3}\s+(.+)$/gm, '<strong style="display:block;margin-top:8px;color:var(--primary-h);font-size:.92rem">$1</strong>')
+    .replace(/^---+$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:6px 0">')
+    .replace(/^(\d+)\.\s+(.+)$/gm, '<div style="padding-left:14px;margin:1px 0">$1. $2</div>')
+    .replace(/^[-・•]\s+(.+)$/gm, '<div style="padding-left:10px;margin:1px 0">&bull; $1</div>')
+    .replace(/\n\n/g, '<br>')
+    .replace(/\n/g, '<br>');
+}
+
 function appendChatMessage(role, text) {
   const container = document.getElementById('ai-chat-messages');
   const el = document.createElement('div');
@@ -5714,13 +5798,7 @@ function appendChatMessage(role, text) {
   if (role === 'user') {
     el.textContent = text;
   } else {
-    // AIメッセージは簡易markdownレンダリング
-    el.innerHTML = (text || '')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/^###?\s+(.+)$/gm, '<strong style="display:block;margin-top:6px;color:var(--primary-h)">$1</strong>')
-      .replace(/^[-・•]\s+(.+)$/gm, '&bull; $1')
-      .replace(/\n/g, '<br>');
+    el.innerHTML = _renderMarkdown(text);
   }
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
@@ -5745,12 +5823,7 @@ document.getElementById('hall-ai-btn').addEventListener('click', async () => {
   try {
     const r = await apiFetch(`/api/ai/report?hall_name=${encodeURIComponent(hall)}`);
     const raw = r.report || 'データが不足しています。スクレイプ後に再試行してください。';
-    out.innerHTML = raw
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/^###?\s+(.+)$/gm, '<strong style="display:block;margin-top:8px;color:var(--primary-h)">$1</strong>')
-      .replace(/^[-・•]\s+(.+)$/gm, '&bull; $1')
-      .replace(/\n/g, '<br>');
+    out.innerHTML = _renderMarkdown(raw);
     if (copyBtn) {
       copyBtn.style.display = 'block';
       copyBtn.onclick = () => {

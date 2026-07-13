@@ -381,13 +381,14 @@
             <div style="flex:1;text-align:center;padding:7px 4px;border-left:1px solid var(--border)">総投資 <strong id="sum-total-inv" style="color:var(--text2)">--</strong></div>
             <div style="flex:1;text-align:center;padding:7px 4px;border-left:1px solid var(--border)">平均収支 <strong id="sum-avg-diff" style="color:var(--text2)">--</strong></div>
           </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 16px 10px;min-height:32px">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 16px 6px;min-height:28px">
             <div id="sum-streak" style="font-size:.85rem;font-weight:700"></div>
             <div style="display:flex;align-items:center;gap:6px">
               <div id="sum-sparkline" style="display:none"></div>
               <button id="sum-copy-btn" onclick="copySessionSummary()" title="サマリーをコピー" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);font-size:.65rem;padding:3px 7px;cursor:pointer;display:none">📋</button>
             </div>
           </div>
+          <div id="sum-machine-insight" style="display:none;font-size:.65rem;color:var(--text3);padding:0 16px 10px;line-height:1.7"></div>
         </div>
 
         <!-- 推定精度レポート -->
@@ -512,6 +513,12 @@
         <div class="card" id="seat-card" style="display:none">
           <div class="card-title">🎰 台番号・角台分析</div>
           <div id="seat-analysis"></div>
+        </div>
+
+        <!-- Weekday performance -->
+        <div class="card" id="weekday-card" style="display:none">
+          <div class="card-title">📆 曜日別パフォーマンス</div>
+          <div id="weekday-analysis"></div>
         </div>
 
         <!-- Session list -->
@@ -1212,7 +1219,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=12"></script>
+<script src="/js/app.js?v=13"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

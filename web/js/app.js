@@ -101,6 +101,21 @@ function startEstimateForHall(hallName) {
   showToast(`${hallName} をセット`, 'success');
 }
 
+function _startSessionReplay(machineName, hallName) {
+  closeModal();
+  const estMachineEl = document.getElementById('est-machine');
+  if (estMachineEl) {
+    estMachineEl.value = machineName;
+    estMachineEl.dispatchEvent(new Event('change'));
+  }
+  if (hallName) {
+    startEstimateForHall(hallName);
+  } else {
+    switchTab('estimate');
+    showToast(`${machineName} をセット`, 'success');
+  }
+}
+
 function switchHallTab(htabId) {
   document.querySelectorAll('.hall-sub-btn').forEach(b => b.classList.toggle('active', b.dataset.htab === htabId));
   document.querySelectorAll('.htab-pane').forEach(p => {
@@ -702,6 +717,18 @@ timerToggle?.addEventListener('click', () => {
       const el = Date.now() - _timerStart;
       timerDisplay.dataset.elapsed = el;
       timerDisplay.textContent = formatElapsed(el);
+      // G/h レート
+      const rateEl = document.getElementById('timer-rate');
+      if (rateEl) {
+        const games = parseInt(estGames?.value) || 0;
+        const hours = el / 3600000;
+        if (games > 0 && hours > 0.05) {
+          rateEl.textContent = `${Math.round(games / hours).toLocaleString()} G/h`;
+          rateEl.style.display = 'inline';
+        } else {
+          rateEl.style.display = 'none';
+        }
+      }
     }, 1000);
     timerToggle.textContent = '⏸ 一時停止';
     timerToggle.classList.add('btn-primary');
@@ -717,7 +744,9 @@ timerReset?.addEventListener('click', () => {
   timerDisplay.textContent = '00:00:00';
   timerDisplay.dataset.elapsed = '0';
   timerDisplay.style.display = 'none';
-  timerToggle.textContent = '⏱ タイマー開始';
+  const rateEl = document.getElementById('timer-rate');
+  if (rateEl) rateEl.style.display = 'none';
+  timerToggle.textContent = '⏱ タイマー';
   timerToggle.classList.remove('btn-primary');
   timerReset.style.display = 'none';
 });
@@ -1591,6 +1620,23 @@ function renderSessionSummary(sessions) {
     } else {
       streakEl.innerHTML = '';
     }
+
+    // 直近スパークライン
+    const sparkEl = document.getElementById('sum-sparkline');
+    if (sparkEl && total >= 3) {
+      const recent = sorted.slice(0, 12).reverse();
+      const maxAbs = Math.max(...recent.map(s => Math.abs(s.diff_yen || 0)), 1);
+      const bars = recent.map(s => {
+        const d = s.diff_yen || 0;
+        const h = Math.max(3, Math.round(Math.abs(d) / maxAbs * 26));
+        const col = d >= 0 ? '#10b981' : '#f43f5e';
+        return `<div style="flex:1;min-width:4px;max-width:10px;height:${h}px;background:${col};border-radius:2px 2px 0 0;align-self:flex-end;opacity:.8" title="${fmt(d)}"></div>`;
+      }).join('');
+      sparkEl.innerHTML = `<div style="display:flex;gap:2px;height:28px;align-items:flex-end;padding-left:8px">${bars}</div>`;
+      sparkEl.style.display = 'block';
+    } else if (sparkEl) {
+      sparkEl.style.display = 'none';
+    }
   }
 }
 
@@ -1723,7 +1769,13 @@ async function openSessionModal(id) {
   const posterior = s.posterior;
   const expectedSetting = posterior ? calcExpectedSetting(posterior).toFixed(2) : '--';
 
+  const mEnc = JSON.stringify(s.machine_name);
+  const hEnc = s.hall_name ? JSON.stringify(s.hall_name) : 'null';
   body.innerHTML = `
+    <div style="display:flex;gap:6px;margin-bottom:12px">
+      <button onclick="_startSessionReplay(${mEnc}, ${hEnc})" style="flex:1;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:8px;color:var(--primary-h);font-size:.72rem;font-weight:700;padding:7px 4px;cursor:pointer">🎰 同機種・同ホールで推測</button>
+      <button onclick="closeModal();switchTab('machines');setTimeout(()=>{const s=document.getElementById('machine-search');if(s){s.value=${mEnc};s.dispatchEvent(new Event('input'))}},100)" style="flex:0 0 auto;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:.72rem;padding:7px 10px;cursor:pointer">📊 機種DB</button>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
       <div><span style="font-size:.75rem;color:var(--text3)">ホール</span><br><strong>${esc(s.hall_name || '--')}</strong></div>
       <div><span style="font-size:.75rem;color:var(--text3)">台番号</span><br><strong>${s.seat_number ? s.seat_number + '番台' : '--'}</strong></div>
@@ -3196,14 +3248,32 @@ async function loadMachinesPage() {
   }
 }
 
+let _machineCatFilter = 'all';
+
 function renderMachineList(profiles) {
   const container = document.getElementById('machine-list');
   const search = document.getElementById('machine-search');
   const sortSel = document.getElementById('machine-sort');
   if (sortSel && !sortSel._bound) {
     sortSel._bound = true;
-    sortSel.addEventListener('change', () => renderMachineList(profiles));
+    sortSel.addEventListener('change', () => render(search?.value || ''));
   }
+
+  // Category chips
+  const chips = document.querySelectorAll('.cat-chip');
+  if (chips.length && !chips[0]._bound) {
+    chips.forEach(chip => {
+      chip._bound = true;
+      chip.addEventListener('click', () => {
+        chips.forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        _machineCatFilter = chip.dataset.cat;
+        render(search?.value || '');
+      });
+    });
+  }
+  // Sync chip UI to current filter state
+  chips.forEach(c => c.classList.toggle('active', c.dataset.cat === _machineCatFilter));
 
   function categorize(name) {
     if (/ジャグラー/.test(name)) return 'ジャグラー系';
@@ -3220,8 +3290,28 @@ function renderMachineList(profiles) {
       ? profiles.filter(p => p.machine_name.includes(filter))
       : [...profiles];
 
+    // Category filter
+    if (_machineCatFilter && _machineCatFilter !== 'all') {
+      filtered = filtered.filter(p => categorize(p.machine_name) === _machineCatFilter);
+    }
+
     if (!filtered.length) {
-      container.innerHTML = '<p class="hint center">機種が見つかりません</p>';
+      const catCtx = _machineCatFilter !== 'all' ? `「${_machineCatFilter}」の` : '';
+      const srchCtx = filter ? `「${esc(filter)}」に一致する` : '';
+      const resetBtn = _machineCatFilter !== 'all'
+        ? `<button class="btn btn-ghost btn-sm cat-chip-reset" style="margin-top:6px;font-size:.72rem">全カテゴリを表示</button>`
+        : '';
+      container.innerHTML = `<div class="empty-hint" style="padding:32px 16px">
+        <span>🔍</span>
+        <strong style="color:var(--text2)">${srchCtx}${catCtx}機種が見つかりません</strong>
+        ${resetBtn}
+      </div>`;
+      container.querySelector('.cat-chip-reset')?.addEventListener('click', () => {
+        _machineCatFilter = 'all';
+        document.querySelectorAll('.cat-chip').forEach(c => c.classList.toggle('active', c.dataset.cat === 'all'));
+        const srch = document.getElementById('machine-search');
+        if (srch) { srch.value = ''; srch.dispatchEvent(new Event('input')); }
+      });
       return;
     }
 
@@ -3237,7 +3327,7 @@ function renderMachineList(profiles) {
         if (ai !== -1 && bi !== -1) return ai - bi;
         return a.machine_name.localeCompare(b.machine_name, 'ja');
       });
-    } else if (sortBy === 'winrate') {
+    } else if (sortBy === 'winrate' || sortBy === 'kw') {
       filtered.sort((a, b) => {
         const aw = a.machine_kw ? Math.max(...Object.values(a.machine_kw)) : 0;
         const bw = b.machine_kw ? Math.max(...Object.values(b.machine_kw)) : 0;
@@ -3255,7 +3345,7 @@ function renderMachineList(profiles) {
     const catOrder = ['ジャグラー系', 'ハナハナ系', 'スマスロ系', 'バジリスク系', 'カバネリ系', '北斗系', 'その他'];
     const sortedGroups = catOrder.filter(c => groups[c]);
     // フィルター時はグループ表示なし / ソート時もグループ表示なし
-    const useGroups = !filter && sortBy === 'name' && sortedGroups.length > 1;
+    const useGroups = !filter && _machineCatFilter === 'all' && sortBy === 'name' && sortedGroups.length > 1;
 
     container.innerHTML = (useGroups ? sortedGroups : ['__all__']).map(cat => {
       const items = useGroups ? groups[cat] : filtered;

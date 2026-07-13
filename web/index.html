@@ -150,6 +150,7 @@
             <label class="form-label" style="margin:0">📊 総ゲーム数 (G)</label>
             <div id="session-timer-bar" style="display:flex;align-items:center;gap:8px">
               <span id="timer-display" style="font-variant-numeric:tabular-nums;font-weight:700;color:var(--primary-h);font-size:.88rem;display:none">00:00:00</span>
+              <span id="timer-rate" style="display:none;font-size:.65rem;color:var(--text3);font-variant-numeric:tabular-nums"></span>
               <button id="timer-toggle" class="btn btn-sm btn-ghost" style="font-size:.72rem;padding:4px 10px">⏱ タイマー</button>
               <button id="timer-reset" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger);font-size:.72rem;padding:4px 8px">✕</button>
             </div>
@@ -378,7 +379,10 @@
             <div style="flex:1;text-align:center;padding:7px 4px;border-left:1px solid var(--border)">総投資 <strong id="sum-total-inv" style="color:var(--text2)">--</strong></div>
             <div style="flex:1;text-align:center;padding:7px 4px;border-left:1px solid var(--border)">平均収支 <strong id="sum-avg-diff" style="color:var(--text2)">--</strong></div>
           </div>
-          <div id="sum-streak" style="text-align:center;padding:6px 0 10px;min-height:24px;font-size:.85rem;font-weight:700"></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 16px 10px;min-height:32px">
+            <div id="sum-streak" style="font-size:.85rem;font-weight:700"></div>
+            <div id="sum-sparkline" style="display:none"></div>
+          </div>
         </div>
 
         <!-- 推定精度レポート -->
@@ -1084,14 +1088,26 @@
     <!-- ======================== 機種ページ ======================== -->
     <section id="page-machines" class="page">
       <div class="page-inner">
-        <div class="card" style="display:flex;gap:8px;align-items:center">
-          <input type="text" id="machine-search" class="form-input"
-                 placeholder="機種名で検索..." style="flex:1">
-          <select id="machine-sort" class="form-select" style="flex:0 0 auto;width:auto;font-size:.78rem;padding:8px 8px">
-            <option value="name">名前順</option>
-            <option value="sessions">実戦多</option>
-            <option value="winrate">勝率↑</option>
-          </select>
+        <div class="card" style="padding:10px 12px">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <input type="text" id="machine-search" class="form-input"
+                   placeholder="機種名で検索..." style="flex:1">
+            <select id="machine-sort" class="form-select" style="flex:0 0 auto;width:auto;font-size:.78rem;padding:8px 8px">
+              <option value="name">名前順</option>
+              <option value="sessions">最近使用</option>
+              <option value="kw">機械割↑</option>
+            </select>
+          </div>
+          <div id="machine-cat-chips" style="display:flex;gap:5px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none;-webkit-overflow-scrolling:touch">
+            <button class="cat-chip active" data-cat="all">全て</button>
+            <button class="cat-chip" data-cat="ジャグラー系">🎰 ジャグラー</button>
+            <button class="cat-chip" data-cat="ハナハナ系">🌺 ハナハナ</button>
+            <button class="cat-chip" data-cat="スマスロ系">⚡ スマスロ</button>
+            <button class="cat-chip" data-cat="バジリスク系">🐍 バジリスク</button>
+            <button class="cat-chip" data-cat="カバネリ系">⚙️ カバネリ</button>
+            <button class="cat-chip" data-cat="北斗系">🌟 北斗</button>
+            <button class="cat-chip" data-cat="その他">その他</button>
+          </div>
         </div>
         <div id="machine-list"></div>
       </div>
@@ -1189,7 +1205,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=10"></script>
+<script src="/js/app.js?v=11"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

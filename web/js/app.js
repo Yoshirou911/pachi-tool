@@ -103,17 +103,22 @@ function startEstimateForHall(hallName) {
 
 function _startSessionReplay(machineName, hallName) {
   closeModal();
+  switchTab('estimate');
+  // ホールを先にセット（autoEstimateで参照されるため）
+  const estHallEl = document.getElementById('est-hall');
+  if (hallName && estHallEl) {
+    estHallEl.value = hallName;
+    state.currentHall = hallName;
+    loadHallTodayIndicator(hallName);
+  }
+  // 機種をセット
   const estMachineEl = document.getElementById('est-machine');
   if (estMachineEl) {
     estMachineEl.value = machineName;
     estMachineEl.dispatchEvent(new Event('change'));
   }
-  if (hallName) {
-    startEstimateForHall(hallName);
-  } else {
-    switchTab('estimate');
-    showToast(`${machineName} をセット`, 'success');
-  }
+  const hint = hallName ? `${machineName} @ ${hallName}` : machineName;
+  showToast(`${hint} をセット`, 'success');
 }
 
 function switchHallTab(htabId) {

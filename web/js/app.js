@@ -2563,8 +2563,11 @@ function renderMachineRankingFromSessions(machineStats) {
       const avgColor = avg >= 0 ? 'var(--success)' : 'var(--danger)';
       const wr = Math.round(d.wins / d.count * 100);
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+      const hall = getSelectedHall();
+      const mEnc = JSON.stringify(machine);
+      const hEnc = hall ? JSON.stringify(hall) : 'null';
       return `
-        <div class="machine-rank-row">
+        <div class="machine-rank-row" style="cursor:pointer" onclick="_startSessionReplay(${mEnc},${hEnc})" title="推測フォームを開く">
           <span class="rank-num">${medal || (i + 1)}</span>
           <span class="rank-machine">${esc(machine)}</span>
           <div style="text-align:right">
@@ -2673,7 +2676,10 @@ function renderAnasloMachineRanking(machines) {
       const ta = t > 1 ? '↑' : t < -1 ? '↓' : '→';
       trendHtml = `<span style="font-size:.6rem;color:${tc};margin-left:4px">BB${ta}${t > 0 ? '+' : ''}${t}%</span>`;
     }
-    return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
+    const hall2 = getSelectedHall();
+    const mEnc2 = JSON.stringify(m.machine);
+    const hEnc2 = hall2 ? JSON.stringify(hall2) : 'null';
+    return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="_startSessionReplay(${mEnc2},${hEnc2})" title="推測フォームを開く">
       <span style="font-size:.75rem;color:var(--text3);width:22px;flex-shrink:0">${i+1}</span>
       <span style="font-size:.82rem;flex:1;color:var(--text1)">${esc(m.machine)}${trendHtml}</span>
       <div style="text-align:right;flex-shrink:0">

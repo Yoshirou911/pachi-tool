@@ -81,7 +81,7 @@ function switchTab(tabId) {
   localStorage.setItem('pachi_last_tab', tabId);
   if (tabId === 'session') loadSessions();
   if (tabId === 'hall') {
-    const last = localStorage.getItem('pachi_last_hall_tab') || 'compare';
+    const last = localStorage.getItem('pachi_last_hall_tab') || 'today';
     switchHallTab(last);
   }
   if (tabId === 'map') loadMapPage();
@@ -1296,7 +1296,7 @@ function saveDraft() {
     hall: estHall?.value || '',
     games: estGames.value,
     started_from: document.getElementById('est-started-from')?.value || '',
-    seat: document.getElementById('est-seat')?.value || '',
+    seat: document.getElementById('est-seat-number')?.value || '',
     counts,
   };
   localStorage.setItem('pachi_draft', JSON.stringify(draft));
@@ -1312,7 +1312,7 @@ function restoreDraft(machine) {
     if (draft.hall && estHall) estHall.value = draft.hall;
     const sfEl = document.getElementById('est-started-from');
     if (sfEl && draft.started_from) sfEl.value = draft.started_from;
-    const seatEl = document.getElementById('est-seat');
+    const seatEl = document.getElementById('est-seat-number');
     if (seatEl && draft.seat) seatEl.value = draft.seat;
     Object.entries(draft.counts || {}).forEach(([el, cnt]) => {
       const input = estCountsList.querySelector(`[data-el="${el}"]`);

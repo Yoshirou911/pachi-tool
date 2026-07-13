@@ -506,18 +506,14 @@
 
         <!-- サブタブ -->
         <div class="hall-sub-tabs">
-          <button class="hall-sub-btn" data-htab="today" style="position:relative">
-            今日おすすめ
-            <span style="position:absolute;top:-4px;right:-4px;background:var(--accent);color:#fff;font-size:.55rem;font-weight:800;padding:1px 4px;border-radius:99px;line-height:1.4">NEW</span>
-          </button>
-          <button class="hall-sub-btn active" data-htab="compare">比較</button>
-          <button class="hall-sub-btn" data-htab="detail">詳細</button>
-          <button class="hall-sub-btn" data-htab="calendar">カレンダー</button>
-          <button class="hall-sub-btn" data-htab="admin">管理</button>
+          <button class="hall-sub-btn active" data-htab="today">📅 今日</button>
+          <button class="hall-sub-btn" data-htab="compare">📊 比較</button>
+          <button class="hall-sub-btn" data-htab="detail">🏪 詳細</button>
+          <button class="hall-sub-btn" data-htab="calendar">📆 カレ</button>
         </div>
 
         <!-- ===== 今日おすすめタブ ===== -->
-        <div id="htab-today" class="htab-pane">
+        <div id="htab-today" class="htab-pane active">
           <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
             <button class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px" onclick="_todayRecLoaded=false;loadTodayRecommendation()">↻ 再分析</button>
           </div>
@@ -526,7 +522,7 @@
         </div>
 
         <!-- ===== 比較タブ ===== -->
-        <div id="htab-compare" class="htab-pane active">
+        <div id="htab-compare" class="htab-pane">
           <!-- 今日の注目ホール -->
           <div id="today-pick-card" style="display:none;margin-bottom:10px;background:linear-gradient(135deg,rgba(251,191,36,.12) 0%,rgba(34,211,238,.06) 100%);border:1px solid rgba(251,191,36,.25);border-radius:12px;padding:12px 14px">
             <div style="font-size:.62rem;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">⚡ 今日の注目ホール</div>
@@ -797,10 +793,17 @@
             </div>
           </div>
 
+          <!-- 管理へのアクセス -->
+          <div style="text-align:center;padding:12px 0 4px">
+            <button onclick="switchHallTab('admin')" class="btn btn-ghost btn-sm" style="font-size:.72rem;color:var(--text3)">⚙️ データ管理・スクレイプ設定</button>
+          </div>
         </div><!-- /htab-detail -->
 
         <!-- ===== 管理タブ ===== -->
         <div id="htab-admin" class="htab-pane">
+          <div style="margin-bottom:10px">
+            <button onclick="switchHallTab('detail')" class="btn btn-ghost btn-sm" style="font-size:.72rem">← 詳細に戻る</button>
+          </div>
           <!-- データ統計サマリー -->
           <div id="db-stats-card" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px"></div>
           <!-- キャッシュ統計 -->
@@ -1172,7 +1175,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js"></script>
+<script src="/js/app.js?v=7"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

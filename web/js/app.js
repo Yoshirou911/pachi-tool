@@ -1856,6 +1856,50 @@ function renderSessionSummary(sessions) {
       insightEl.style.display = 'none';
     }
   }
+
+  // 月間目標トラッカー
+  _renderMonthlyTarget(diffYen);
+}
+
+function _renderMonthlyTarget(currentYen) {
+  const el = document.getElementById('sum-monthly-target');
+  if (!el) return;
+  const periodBtn = document.querySelector('.ses-period-btn.active');
+  const period = periodBtn?.dataset.period || '';
+  if (period !== 'thismonth' && period !== 'today' && period !== 'thisweek') { el.style.display = 'none'; return; }
+  const stored = parseInt(localStorage.getItem('pachi_monthly_target') || '0');
+  const now = new Date();
+  el.style.display = 'block';
+  const pct = stored > 0 ? Math.min(120, Math.round(currentYen / stored * 100)) : 0;
+  const col = stored > 0 ? (currentYen >= stored ? 'var(--success)' : pct >= 70 ? 'var(--warning)' : 'var(--danger)') : 'var(--text3)';
+  const sign = currentYen >= 0 ? '+' : '';
+  const remaining = stored > 0 ? stored - currentYen : null;
+  const remHtml = remaining !== null && currentYen < stored
+    ? `<span style="font-size:.6rem;color:var(--text3);margin-left:6px">あと ${remaining.toLocaleString()}円</span>`
+    : remaining !== null && currentYen >= stored
+      ? `<span style="font-size:.6rem;color:var(--success);margin-left:6px">✅ 達成！</span>`
+      : '';
+  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+    <span style="font-size:.65rem;color:var(--text3);font-weight:600">月間目標</span>
+    <div style="display:flex;align-items:center;gap:5px">
+      ${stored > 0 ? `<span style="font-size:.75rem;font-weight:700;color:${col}">${sign}${currentYen.toLocaleString()}円 / ${stored.toLocaleString()}円</span>${remHtml}` : `<span style="font-size:.65rem;color:var(--text3)">未設定</span>`}
+      <button onclick="_editMonthlyTarget()" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:.6rem;padding:1px 5px;cursor:pointer;white-space:nowrap">目標設定</button>
+    </div>
+  </div>
+  ${stored > 0 ? `<div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
+    <div style="width:${pct}%;height:100%;background:${col};border-radius:2px;transition:width .4s ease"></div>
+  </div>` : ''}`;
+}
+
+function _editMonthlyTarget() {
+  const stored = parseInt(localStorage.getItem('pachi_monthly_target') || '0');
+  const val = prompt('今月の目標収支を入力してください（円）\n例: 30000', stored || '');
+  if (val === null) return;
+  const n = parseInt(val.replace(/[^0-9-]/g, ''));
+  if (!isNaN(n)) {
+    localStorage.setItem('pachi_monthly_target', n);
+    loadSessions();
+  }
 }
 
 function copySessionSummary() {

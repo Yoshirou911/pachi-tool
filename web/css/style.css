@@ -402,10 +402,10 @@ body::before {
 }
 .session-item:active  { transform: scale(.99); }
 .session-item:hover   { border-color: rgba(124,127,245,0.3); box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(124,127,245,0.08); }
-.session-item.pos { border-left-color: #10b981; }
-.session-item.pos:hover { box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(16,185,129,0.08); }
-.session-item.neg { border-left-color: #f43f5e; }
-.session-item.neg:hover { box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(244,63,94,0.08); }
+.session-item.pos { border-left-color: var(--success); }
+.session-item.pos:hover { box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px var(--success-glow); }
+.session-item.neg { border-left-color: var(--danger); }
+.session-item.neg:hover { box-shadow: 0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px var(--danger-glow); }
 
 /* Date group header */
 .ses-date-header {

@@ -2368,10 +2368,16 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       <div style="margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <span style="font-size:1.05rem;font-weight:800">${esc(machineName)} ${seatNumber}番台</span>
-          <button onclick='togglePinSeat(${JSON.stringify(hall)},${JSON.stringify(machineName)},${seatNumber})' id="pin-seat-btn"
-            style="background:none;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">
-            ${isPinnedSeat(hall, machineName, seatNumber) ? '★ ピン中' : '☆ ピン'}
-          </button>
+          <div style="display:flex;gap:5px;align-items:center">
+            <button onclick='togglePinSeat(${JSON.stringify(hall)},${JSON.stringify(machineName)},${seatNumber})' id="pin-seat-btn"
+              style="background:none;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">
+              ${isPinnedSeat(hall, machineName, seatNumber) ? '★ ピン中' : '☆ ピン'}
+            </button>
+            <button onclick='_startSessionReplay(${JSON.stringify(machineName)},${JSON.stringify(hall)})'
+              style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);border-radius:5px;padding:3px 8px;font-size:.7rem;cursor:pointer;color:var(--success);font-weight:700">
+              🎰 推測
+            </button>
+          </div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:6px">
           <div style="background:var(--bg2);border-radius:6px;padding:6px;text-align:center">
@@ -2751,6 +2757,89 @@ async function loadHallPage() {
   loadTodayDowMachines(hall);
   loadMachineSettingTendency(hall);
   loadSlumpSeats(hall);
+  loadWeekdayMachineMap(hall);
+}
+
+async function loadWeekdayMachineMap(hall) {
+  const card = document.getElementById('weekday-machine-map-card');
+  const body = document.getElementById('weekday-machine-map-body');
+  if (!card || !body) return;
+  try {
+    const rows = await apiFetch(`/api/hall/weekday_machine_stats?hall_name=${encodeURIComponent(hall)}&days=90`);
+    if (!rows || rows.length < 3) { card.style.display = 'none'; return; }
+
+    const DOW = ['月','火','水','木','金','土','日'];
+    const todayDow = (() => { const d = new Date().getDay(); return d === 0 ? '日' : DOW[d - 1]; })();
+
+    // Group by machine, then weekday
+    const byMachine = {};
+    rows.forEach(r => {
+      if (!byMachine[r.machine_name]) byMachine[r.machine_name] = {};
+      byMachine[r.machine_name][r.weekday] = { avg: r.avg_diff, wr: r.win_rate, cnt: r.count };
+    });
+
+    // Only machines with at least 3 weekday entries
+    const machines = Object.entries(byMachine)
+      .filter(([, wmap]) => Object.keys(wmap).length >= 2)
+      .sort((a, b) => {
+        const scoreA = Object.values(a[1]).reduce((s, v) => s + v.avg, 0);
+        const scoreB = Object.values(b[1]).reduce((s, v) => s + v.avg, 0);
+        return scoreB - scoreA;
+      })
+      .slice(0, 10);
+
+    if (!machines.length) { card.style.display = 'none'; return; }
+
+    // Global avg diff for normalizing colors
+    const allAvgs = rows.map(r => r.avg_diff);
+    const globalMean = allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length;
+    const globalStd = Math.sqrt(allAvgs.reduce((s, v) => s + (v - globalMean) ** 2, 0) / allAvgs.length) || 100;
+
+    const cellStyle = (val) => {
+      if (val == null) return 'background:var(--bg3);color:var(--text3)';
+      const z = (val - globalMean) / globalStd;
+      if (z >= 1.2) return 'background:rgba(16,185,129,.25);color:var(--success)';
+      if (z >= 0.4) return 'background:rgba(16,185,129,.12);color:var(--success)';
+      if (z <= -1.2) return 'background:rgba(244,63,94,.2);color:var(--danger)';
+      if (z <= -0.4) return 'background:rgba(244,63,94,.08);color:var(--danger)';
+      return 'background:var(--bg3);color:var(--text3)';
+    };
+
+    const enc = encodeURIComponent(hall);
+    const headerCells = DOW.map(d =>
+      `<th style="padding:3px 4px;font-size:.6rem;font-weight:${d===todayDow?'900':'500'};color:${d===todayDow?'var(--primary-h)':'var(--text3)'};text-align:center;white-space:nowrap">${d}${d===todayDow?'●':''}</th>`
+    ).join('');
+
+    const tableRows = machines.map(([name, wmap]) => {
+      const cells = DOW.map(d => {
+        const v = wmap[d];
+        if (!v) return `<td style="padding:3px 4px;font-size:.58rem;text-align:center;${cellStyle(null)}">—</td>`;
+        const sign = v.avg >= 0 ? '+' : '';
+        return `<td style="padding:3px 4px;font-size:.58rem;text-align:center;border-radius:3px;${cellStyle(v.avg)}" title="${esc(name)} ${d}曜: ${sign}${v.avg}枚 勝率${v.wr}% (${v.cnt}日)">${sign}${v.avg}</td>`;
+      }).join('');
+      const mEnc = encodeURIComponent(name);
+      return `<tr style="cursor:pointer" onclick="_startSessionReplay(decodeURIComponent('${mEnc}'),decodeURIComponent('${enc}'))" title="${esc(name)}を推測フォームにセット">
+        <td style="padding:3px 4px;font-size:.65rem;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px">${esc(name)}</td>
+        ${cells}
+      </tr>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div style="font-size:.65rem;color:var(--text3);margin-bottom:6px">各セルは平均差枚（枚）。タップ行でその機種を推測フォームにセット</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;min-width:300px">
+          <thead><tr>
+            <th style="padding:3px 4px;font-size:.6rem;color:var(--text3);text-align:left">機種</th>
+            ${headerCells}
+          </tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>`;
+    card.style.display = 'block';
+  } catch(e) {
+    const c = document.getElementById('weekday-machine-map-card');
+    if (c) c.style.display = 'none';
+  }
 }
 
 async function loadSlumpSeats(hall) {
@@ -4313,7 +4402,9 @@ function renderPinnedSeatsCard() {
          <div style="font-size:.62rem;color:var(--text3)">${esc(p.hall)}</div>
          ${memoSnip}
        </div>
-       <div style="display:flex;gap:6px;flex-shrink:0">
+       <div style="display:flex;gap:5px;flex-shrink:0">
+         <button onclick='_startSessionReplay(${JSON.stringify(p.machine)},${JSON.stringify(p.hall)})'
+           style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);border-radius:5px;padding:4px 7px;font-size:.7rem;cursor:pointer;color:var(--success);font-weight:700">🎰</button>
          <button onclick='showSeatDetailModal(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})'
            style="background:var(--bg2);border:none;border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">詳細</button>
          <button onclick='togglePinSeat(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})'
@@ -5140,6 +5231,8 @@ async function loadTodayTargets(hall) {
               <div class="anim-bar" style="width:${stabW}%;height:100%;background:${stabCol};border-radius:2px"></div>
             </div>
             <span style="font-size:.62rem;color:var(--text3)">${stabW}%</span>
+            <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMach2}'),decodeURIComponent('${encHall2}'))"
+              style="margin-left:4px;font-size:.65rem;padding:3px 8px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.3);border-radius:4px;cursor:pointer;font-weight:700;white-space:nowrap">🎰 推測</button>
           </div>
         </div>`;
       });

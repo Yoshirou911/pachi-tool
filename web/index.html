@@ -734,6 +734,14 @@
             </div>
           </div>
 
+          <!-- 機種×曜日ヒートマップ -->
+          <div class="card card-col closed" id="weekday-machine-map-card" style="display:none">
+            <div class="card-title card-col-hd">🗓️ 機種別曜日傾向マップ <span class="col-arr">▾</span></div>
+            <div class="card-col-body">
+              <div id="weekday-machine-map-body"></div>
+            </div>
+          </div>
+
           <!-- 特定日 -->
           <div class="card card-col closed">
             <div class="card-title card-col-hd">📅 特定日の傾向 <span class="col-arr">▾</span></div>
@@ -1239,7 +1247,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=22"></script>
+<script src="/js/app.js?v=23"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

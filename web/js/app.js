@@ -2286,8 +2286,9 @@ function _renderSeatHistory() {
   el.style.display = 'flex';
   el.innerHTML = filtered.map(h => {
     const encH = encodeURIComponent(h.hall), encM = encodeURIComponent(h.machine);
-    return `<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 8px;flex-shrink:0;white-space:nowrap"
-      onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${h.seat})">${h.seat}番</button>`;
+    const shortName = h.machine.length > 10 ? h.machine.slice(0, 9) + '…' : h.machine;
+    return `<button class="btn btn-ghost" style="font-size:.65rem;padding:3px 8px;flex-shrink:0;white-space:nowrap;display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.2"
+      onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${h.seat})"><span style="font-weight:700">${h.seat}番</span><span style="color:var(--text3);font-size:.58rem">${esc(shortName)}</span></button>`;
   }).join('');
 }
 
@@ -5500,12 +5501,14 @@ async function loadMachineSeatRankingInline(hall, machineName, rowEl) {
       const encM = encodeURIComponent(machineName);
       const bbBadge2 = r.bb_z != null
         ? `<span style="font-size:.6rem;color:${r.bb_z>=0.5?'var(--success)':r.bb_z<=-0.5?'var(--danger)':'var(--text3)'}">${r.bb_z>=0?'+':''}${r.bb_z}σ</span>` : '';
-      return `<div onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${r.seat_number})"
-        style="display:flex;justify-content:space-between;align-items:center;
-               padding:5px 8px;border-radius:6px;background:var(--bg2);margin-bottom:3px;cursor:pointer">
-        <span style="font-size:.78rem;font-weight:700">#${i+1} ${r.seat_number}番台 ${bbBadge2}</span>
-        <span style="font-size:.78rem;font-weight:900;color:${col}">${sign(r.avg_diff)}枚</span>
-        <span style="font-size:.63rem;color:var(--text3)">${r.days}日 勝${r.win_rate}%</span>
+      return `<div style="display:flex;align-items:center;gap:5px;
+               padding:5px 8px;border-radius:6px;background:var(--bg2);margin-bottom:3px">
+        <span style="font-size:.78rem;font-weight:700;cursor:pointer;flex:1"
+          onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${r.seat_number})">#${i+1} ${r.seat_number}番台 ${bbBadge2}</span>
+        <span style="font-size:.78rem;font-weight:900;color:${col};flex-shrink:0">${sign(r.avg_diff)}枚</span>
+        <span style="font-size:.63rem;color:var(--text3);flex-shrink:0">${r.days}日 勝${r.win_rate}%</span>
+        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM}'),decodeURIComponent('${encH}'))"
+          style="font-size:.55rem;padding:2px 5px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0;line-height:1.4">🎰</button>
       </div>`;
     }).join('');
     slot.innerHTML = items;

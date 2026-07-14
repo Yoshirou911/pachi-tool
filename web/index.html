@@ -473,6 +473,11 @@
             </select>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
+            <input type="text" id="ses-search-filter" class="form-input form-select-sm"
+                   placeholder="🔍 メモ・機種・ホールで検索" autocomplete="off"
+                   style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
+          </div>
+          <div style="display:flex;gap:6px;align-items:center">
             <input type="month" id="ses-month-filter" class="form-input form-select-sm"
                    style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
             <select id="ses-sort-filter" class="form-select form-select-sm" style="flex:1" title="並び順">
@@ -1219,7 +1224,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=14"></script>
+<script src="/js/app.js?v=15"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

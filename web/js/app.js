@@ -887,19 +887,24 @@ function renderEstimateResult(r) {
   if (!verdictEl) {
     verdictEl = document.createElement('div');
     verdictEl.id = 'res-verdict-badge';
-    verdictEl.style.cssText = 'margin-top:5px;font-size:.67rem;font-weight:800;padding:2px 9px;border-radius:99px;display:inline-block;letter-spacing:.03em';
     expectedEl.parentNode.appendChild(verdictEl);
   }
+  // 毎回リセット（繰り返し呼ばれたとき色が蓄積するバグを防ぐ）
+  const _verdictBase = 'margin-top:5px;font-size:.67rem;font-weight:800;padding:2px 9px;border-radius:99px;display:inline-block;letter-spacing:.03em';
   if (r.expected_setting != null) {
     const es = r.expected_setting;
     if (es >= 5.0) {
-      verdictEl.textContent = '高設定確定圏'; verdictEl.style.cssText += ';background:rgba(16,185,129,.2);color:#34d399;border:1px solid rgba(16,185,129,.35)';
+      verdictEl.textContent = '高設定確定圏';
+      verdictEl.style.cssText = _verdictBase + ';background:rgba(16,185,129,.2);color:#34d399;border:1px solid rgba(16,185,129,.35)';
     } else if (es >= 4.0) {
-      verdictEl.textContent = '高設定優勢'; verdictEl.style.cssText += ';background:rgba(16,185,129,.12);color:#34d399;border:1px solid rgba(16,185,129,.2)';
+      verdictEl.textContent = '高設定優勢';
+      verdictEl.style.cssText = _verdictBase + ';background:rgba(16,185,129,.12);color:#34d399;border:1px solid rgba(16,185,129,.2)';
     } else if (es >= 3.0) {
-      verdictEl.textContent = '中間設定帯'; verdictEl.style.cssText += ';background:rgba(251,191,36,.12);color:var(--warning);border:1px solid rgba(251,191,36,.2)';
+      verdictEl.textContent = '中間設定帯';
+      verdictEl.style.cssText = _verdictBase + ';background:rgba(251,191,36,.12);color:var(--warning);border:1px solid rgba(251,191,36,.2)';
     } else {
-      verdictEl.textContent = '低設定濃厚'; verdictEl.style.cssText += ';background:rgba(244,63,94,.12);color:#fb7185;border:1px solid rgba(244,63,94,.2)';
+      verdictEl.textContent = '低設定濃厚';
+      verdictEl.style.cssText = _verdictBase + ';background:rgba(244,63,94,.12);color:#fb7185;border:1px solid rgba(244,63,94,.2)';
     }
     verdictEl.style.display = 'inline-block';
   } else {
@@ -1210,7 +1215,13 @@ function renderAdvice(r) {
     icon.textContent = '⏳';
     text.textContent = 'データ収集中';
     text.style.color = 'var(--text2)';
-    detail.textContent = 'G数を増やすと推測精度が向上します';
+    const target = 1000;
+    const pct = Math.min(100, Math.round(games / target * 100));
+    detail.innerHTML = `G数を増やすと推測精度が向上します
+      <div style="margin-top:6px;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:var(--text3);border-radius:3px;transition:width .3s"></div>
+      </div>
+      <div style="font-size:.6rem;color:var(--text3);margin-top:3px">${games.toLocaleString()} / ${target.toLocaleString()}G</div>`;
     return;
   }
 
@@ -1516,6 +1527,15 @@ async function loadSessions() {
 
     params.limit = 500;
     let sessions = await api.getSessions(params);
+    // テキスト検索フィルター（クライアント側）
+    const searchQ = (document.getElementById('ses-search-filter')?.value || '').trim().toLowerCase();
+    if (searchQ) {
+      sessions = sessions.filter(s =>
+        (s.machine_name || '').toLowerCase().includes(searchQ) ||
+        (s.hall_name || '').toLowerCase().includes(searchQ) ||
+        (s.notes || '').toLowerCase().includes(searchQ)
+      );
+    }
     // ソート
     const sortBy = document.getElementById('ses-sort-filter')?.value || 'date_desc';
     if (sortBy === 'date_asc') sessions = [...sessions].sort((a, b) => a.date < b.date ? -1 : 1);
@@ -1597,6 +1617,11 @@ document.getElementById('ses-month-filter')?.addEventListener('change', () => {
   const monthEl = document.getElementById('ses-month-filter');
   if (monthEl) delete monthEl.dataset.periodOverride;
   loadSessions();
+});
+let _searchTimer;
+document.getElementById('ses-search-filter')?.addEventListener('input', () => {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(loadSessions, 350);
 });
 document.getElementById('ses-sort-filter')?.addEventListener('change', loadSessions);
 
@@ -1881,8 +1906,12 @@ function renderSessions(sessions) {
     const daySign = dayTotal >= 0 ? '+' : '';
     const dayWins = daySessions.filter(s => (s.diff_yen || 0) > 0).length;
     const dayLoss = daySessions.length - dayWins;
+    const dayGames = daySessions.reduce((sum, s) => sum + (s.games_total || 0), 0);
     const wlBadge = daySessions.length > 1
       ? `<span style="font-size:.6rem;color:var(--text3);margin-right:4px">${dayWins}勝${dayLoss}敗</span>`
+      : '';
+    const gamesBadge = dayGames > 0
+      ? `<span style="font-size:.6rem;color:var(--text3);margin-right:6px">${dayGames.toLocaleString()}G</span>`
       : '';
 
     let dateLabel = dateStr;
@@ -1897,7 +1926,7 @@ function renderSessions(sessions) {
     html += `<div class="ses-date-header">
       <span class="ses-date-label">${dateLabel}</span>
       <div class="ses-date-line"></div>
-      ${wlBadge}<span class="ses-date-total" style="color:${dayColor}">${daySign}${dayTotal.toLocaleString()}円</span>
+      ${gamesBadge}${wlBadge}<span class="ses-date-total" style="color:${dayColor}">${daySign}${dayTotal.toLocaleString()}円</span>
     </div>`;
 
     html += daySessions.map(s => _renderSessionCard(s, bestDiff, bestGames, sessions.length)).join('');
@@ -1937,6 +1966,7 @@ async function openSessionModal(id) {
       <div><span style="font-size:.75rem;color:var(--text3)">収支</span><br><strong class="${diffYen >= 0 ? 'diff-pos' : 'diff-neg'}">${fmt(diffYen)}</strong></div>
       <div><span style="font-size:.75rem;color:var(--text3)">総G数</span><br><strong>${(s.games_total || 0).toLocaleString()}</strong></div>
       <div><span style="font-size:.75rem;color:var(--text3)">差枚</span><br><strong>${(s.diff_coins || 0).toLocaleString()}</strong></div>
+      ${s.diff_coins && s.games_total ? (() => { const rate = (s.diff_coins / s.games_total).toFixed(2); const col = parseFloat(rate) >= 0 ? 'var(--success)' : 'var(--danger)'; return `<div><span style="font-size:.75rem;color:var(--text3)">枚/G効率</span><br><strong style="color:${col}">${parseFloat(rate)>=0?'+':''}${rate}</strong></div>`; })() : `<div></div>`}
       <div><span style="font-size:.75rem;color:var(--text3)">推測設定</span><br><strong>${expectedSetting}</strong></div>
     </div>
     ${posterior ? renderMiniPosterior(posterior) : ''}

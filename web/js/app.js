@@ -782,6 +782,22 @@ timerReset?.addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
+// G数クイック加算ボタン
+// ---------------------------------------------------------------------------
+document.querySelectorAll('.g-inc-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const inc = parseInt(btn.dataset.inc) || 0;
+    const cur = parseInt(estGames.value) || 0;
+    estGames.value = cur + inc;
+    estGames.dispatchEvent(new Event('input'));
+  });
+});
+document.getElementById('g-set-0-btn')?.addEventListener('click', () => {
+  estGames.value = '0';
+  estGames.dispatchEvent(new Event('input'));
+});
+
+// ---------------------------------------------------------------------------
 // ノートテンプレートボタン
 // ---------------------------------------------------------------------------
 document.querySelectorAll('.note-tag').forEach(btn => {
@@ -799,6 +815,7 @@ async function runEstimate() {
   if (!state.currentMachine) return;
   const counts = getCountValues();
   const games = parseInt(estGames.value) || 0;
+  estRunBtn.textContent = '推測中…';
   const startedFrom = parseInt(document.getElementById('est-started-from')?.value) || 0;
   const seatNum = parseInt(document.getElementById('est-seat-number')?.value) || null;
   const weekday = estWeekday.value !== '' ? parseInt(estWeekday.value) : null;
@@ -827,6 +844,8 @@ async function runEstimate() {
     renderEstimateResult(result);
   } catch (e) {
     showToast('推測エラー: ' + e.message, 'error');
+  } finally {
+    estRunBtn.textContent = '設定を推測する';
   }
 }
 
@@ -1968,6 +1987,7 @@ async function openSessionModal(id) {
       <div><span style="font-size:.75rem;color:var(--text3)">差枚</span><br><strong>${(s.diff_coins || 0).toLocaleString()}</strong></div>
       ${s.diff_coins && s.games_total ? (() => { const rate = (s.diff_coins / s.games_total).toFixed(2); const col = parseFloat(rate) >= 0 ? 'var(--success)' : 'var(--danger)'; return `<div><span style="font-size:.75rem;color:var(--text3)">枚/G効率</span><br><strong style="color:${col}">${parseFloat(rate)>=0?'+':''}${rate}</strong></div>`; })() : `<div></div>`}
       <div><span style="font-size:.75rem;color:var(--text3)">推測設定</span><br><strong>${expectedSetting}</strong></div>
+      ${s.investment > 0 ? (() => { const roi = (((s.returns||0) / s.investment) - 1) * 100; const col = roi >= 0 ? 'var(--success)' : 'var(--danger)'; return `<div><span style="font-size:.75rem;color:var(--text3)">ROI</span><br><strong style="color:${col}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%</strong></div>`; })() : `<div></div>`}
     </div>
     ${posterior ? renderMiniPosterior(posterior) : ''}
     ${Object.keys(s.element_counts || {}).length ? `
@@ -3590,11 +3610,26 @@ function renderMachineList(profiles) {
             この機種で推測する →
           </button>`;
 
+      // EV最高グレードバッジ
+      let evGrade = '', evGradeStyle = '';
+      if (p.machine_kw) {
+        const maxKw = Math.max(...Object.values(p.machine_kw));
+        if (maxKw >= 1.12) { evGrade = 'S+'; evGradeStyle = 'background:rgba(16,185,129,.2);color:#10b981;border:1px solid rgba(16,185,129,.4)'; }
+        else if (maxKw >= 1.08) { evGrade = 'A'; evGradeStyle = 'background:rgba(124,127,245,.2);color:var(--primary-h);border:1px solid rgba(124,127,245,.35)'; }
+        else if (maxKw >= 1.04) { evGrade = 'B'; evGradeStyle = 'background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3)'; }
+        else if (maxKw >= 1.0) { evGrade = 'C'; evGradeStyle = 'background:rgba(148,163,184,.12);color:var(--text3);border:1px solid var(--border)'; }
+        else { evGrade = 'D'; evGradeStyle = 'background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.2)'; }
+      }
+      const evBadge = evGrade ? `<span style="font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:4px;margin-left:6px;${evGradeStyle}" title="最高設定機械割グレード">${evGrade}</span>` : '';
+
       return `
         <div class="machine-card" data-name="${esc(p.machine_name)}">
           <div style="display:flex;align-items:center;justify-content:space-between">
-            <div class="machine-card-name">${esc(p.machine_name)}</div>
-            <span class="expand-arrow" style="color:var(--text3);font-size:.8rem;transition:transform .2s">▶</span>
+            <div style="display:flex;align-items:center;min-width:0">
+              <div class="machine-card-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.machine_name)}</div>
+              ${evBadge}
+            </div>
+            <span class="expand-arrow" style="color:var(--text3);font-size:.8rem;transition:transform .2s;flex-shrink:0;margin-left:4px">▶</span>
           </div>
           <div class="machine-card-meta">
             <span class="machine-tag">設定: ${settings.join('・')}</span>
@@ -5252,7 +5287,7 @@ async function loadMapPage() {
         <div style="min-width:160px;font-size:13px;line-height:1.7">
           <strong>${esc(h.hall_name)}</strong><br>
           <span style="color:${h.color};font-weight:bold">平均差枚 ${sign}${h.avg_diff.toLocaleString()}</span><br>
-          <span style="color:#888">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span><br>
+          <span style="color:var(--text3)">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span><br>
           <button onclick="switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}'))"
             style="margin-top:6px;width:100%;padding:5px;background:#6366f1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">
             店傾向を見る
@@ -5731,12 +5766,10 @@ async function loadAiPage() {
     const badge = document.getElementById('ai-status-badge');
     if (st.available) {
       badge.textContent = '利用可能';
-      badge.style.background = '#276749';
-      badge.style.color = '#9ae6b4';
+      badge.style.cssText = 'font-size:.68rem;padding:3px 10px;border-radius:99px;background:rgba(16,185,129,.18);color:var(--success);border:1px solid rgba(16,185,129,.3)';
     } else {
       badge.textContent = 'APIキー未設定';
-      badge.style.background = '#744210';
-      badge.style.color = '#fbd38d';
+      badge.style.cssText = 'font-size:.68rem;padding:3px 10px;border-radius:99px;background:rgba(251,191,36,.15);color:var(--warning);border:1px solid rgba(251,191,36,.3)';
     }
   } catch {}
 
@@ -5760,6 +5793,12 @@ async function loadAiPage() {
     else aiHallSel.value = '全店舗';
   }
   _updateAiScopeUI();
+
+  // ウェルカムメッセージ（初回のみ）
+  const chatMessages = document.getElementById('ai-chat-messages');
+  if (chatMessages && chatMessages.children.length === 0) {
+    appendChatMessage('ai', 'こんにちは！ホールデータや実戦記録について何でも質問してください。下のクイックボタンもご利用いただけます。');
+  }
 }
 
 function getAiHall() {
@@ -5813,11 +5852,21 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await fetch(`/api/ai/report?hall_name=${encodeURIComponent(getAiHall())}`).then(r => r.json());
       const txt = data.report || '';
       out.innerHTML = _renderMarkdown(txt);
+      // コピーボタンを追加
+      const copyDiv = document.createElement('div');
+      copyDiv.style.cssText = 'margin-top:10px;text-align:right';
+      const copyBtn2 = document.createElement('button');
+      copyBtn2.className = 'btn btn-ghost btn-sm';
+      copyBtn2.style.cssText = 'font-size:.65rem;opacity:.75';
+      copyBtn2.textContent = '📋 コピー';
+      copyBtn2.onclick = () => navigator.clipboard.writeText(txt).then(() => showToast('コピーしました', 'success'));
+      copyDiv.appendChild(copyBtn2);
+      out.appendChild(copyDiv);
     } catch (e) {
       out.textContent = 'エラーが発生しました: ' + e.message;
     } finally {
       btn.disabled = false;
-      btn.textContent = '生成';
+      btn.textContent = '再生成';
     }
   });
 
@@ -5829,7 +5878,7 @@ document.addEventListener('DOMContentLoaded', () => {
     input.value = '';
     appendChatMessage('user', msg);
 
-    const thinkingEl = appendChatMessage('ai', '...');
+    const thinkingEl = appendChatMessage('ai', '', true);
     try {
       const data = await fetch('/api/ai/chat', {
         method: 'POST',
@@ -5852,7 +5901,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('ai-chat-clear')?.addEventListener('click', () => {
     aiChatHistory = [];
     const c = document.getElementById('ai-chat-messages');
-    if (c) c.innerHTML = '';
+    if (c) {
+      c.innerHTML = '';
+      appendChatMessage('ai', 'チャット履歴をクリアしました。新しい質問をどうぞ！');
+    }
   });
 
   // クイックボタン
@@ -5865,24 +5917,63 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function _renderMarkdown(text) {
-  return (text || '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const esc2 = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inlineFmt = s => s
     .replace(/`([^`\n]+)`/g, '<code style="background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:.85em;font-family:monospace">$1</code>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
-    .replace(/^#{1,3}\s+(.+)$/gm, '<strong style="display:block;margin-top:8px;color:var(--primary-h);font-size:.92rem">$1</strong>')
-    .replace(/^---+$/gm, '<hr style="border:none;border-top:1px solid var(--border);margin:6px 0">')
-    .replace(/^(\d+)\.\s+(.+)$/gm, '<div style="padding-left:14px;margin:1px 0">$1. $2</div>')
-    .replace(/^[-・•]\s+(.+)$/gm, '<div style="padding-left:10px;margin:1px 0">&bull; $1</div>')
-    .replace(/\n\n/g, '<br><br>')
-    .replace(/\n/g, '<br>');
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+
+  // Process line by line to handle tables and block elements
+  const lines = (text || '').split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // Markdown table: start of a row with pipes
+    if (/^\|.+\|$/.test(line.trim()) && i + 1 < lines.length && /^\|[-: |]+\|$/.test(lines[i + 1].trim())) {
+      const tableLines = [];
+      while (i < lines.length && /^\|.+\|$/.test(lines[i].trim())) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      const headerCells = tableLines[0].split('|').filter((c, idx, a) => idx > 0 && idx < a.length - 1);
+      const bodyRows = tableLines.slice(2);
+      const renderCells = (row, tag) =>
+        row.split('|').filter((c, idx, a) => idx > 0 && idx < a.length - 1)
+          .map(c => `<${tag} style="padding:5px 8px;border:1px solid var(--border);white-space:nowrap">${inlineFmt(esc2(c.trim()))}</${tag}>`).join('');
+      const thead = `<thead><tr>${renderCells(tableLines[0], 'th')}</tr></thead>`;
+      const tbody = bodyRows.length
+        ? `<tbody>${bodyRows.map(r => `<tr>${renderCells(r, 'td')}</tr>`).join('')}</tbody>`
+        : '';
+      out.push(`<div style="overflow-x:auto;margin:6px 0"><table style="border-collapse:collapse;font-size:.8rem;color:var(--text2)">${thead}${tbody}</table></div>`);
+      continue;
+    }
+    const el = esc2(line);
+    if (/^#{1,3}\s+/.test(line)) {
+      out.push(`<strong style="display:block;margin-top:8px;color:var(--primary-h);font-size:.92rem">${inlineFmt(el.replace(/^#+\s+/, ''))}</strong>`);
+    } else if (/^---+$/.test(line.trim())) {
+      out.push('<hr style="border:none;border-top:1px solid var(--border);margin:6px 0">');
+    } else if (/^(\d+)\.\s+/.test(line)) {
+      out.push(`<div style="padding-left:14px;margin:1px 0">${inlineFmt(el)}</div>`);
+    } else if (/^[-・•]\s+/.test(line)) {
+      out.push(`<div style="padding-left:10px;margin:1px 0">&bull; ${inlineFmt(el.replace(/^[-・•]\s+/, ''))}</div>`);
+    } else if (line === '') {
+      out.push('<br>');
+    } else {
+      out.push(inlineFmt(el));
+    }
+    i++;
+  }
+  return out.join('<br>').replace(/<br><br><br>/g, '<br><br>');
 }
 
-function appendChatMessage(role, text) {
+function appendChatMessage(role, text, isTyping = false) {
   const container = document.getElementById('ai-chat-messages');
   const el = document.createElement('div');
   el.className = `chat-bubble ${role === 'user' ? 'user' : 'assistant'}`;
-  if (role === 'user') {
+  if (isTyping) {
+    el.innerHTML = '<span class="chat-typing"><span></span><span></span><span></span></span>';
+  } else if (role === 'user') {
     el.textContent = text;
   } else {
     el.innerHTML = _renderMarkdown(text);

@@ -159,6 +159,13 @@
           </div>
           <input type="number" id="est-games" class="form-input form-input-lg"
                  placeholder="0" min="0" inputmode="numeric">
+          <div style="display:flex;gap:5px;margin-top:8px">
+            <span style="font-size:.62rem;color:var(--text3);align-self:center;margin-right:2px">＋</span>
+            <button type="button" class="g-inc-btn btn btn-ghost btn-sm" data-inc="100" style="flex:1;font-size:.75rem;padding:5px 0">100G</button>
+            <button type="button" class="g-inc-btn btn btn-ghost btn-sm" data-inc="500" style="flex:1;font-size:.75rem;padding:5px 0">500G</button>
+            <button type="button" class="g-inc-btn btn btn-ghost btn-sm" data-inc="1000" style="flex:1;font-size:.75rem;padding:5px 0">1000G</button>
+            <button type="button" id="g-set-0-btn" class="btn btn-ghost btn-sm" style="flex:0 0 auto;font-size:.72rem;padding:5px 8px;color:var(--text3)">0</button>
+          </div>
         </div>
 
         <!-- Element counts -->
@@ -1173,12 +1180,13 @@
           <div id="ai-chat-messages"
                style="min-height:100px;max-height:320px;overflow-y:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:6px;padding:2px"></div>
           <div class="grad-line"></div>
-          <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div style="display:flex;gap:8px;margin-bottom:4px">
             <input type="text" id="ai-chat-input" class="form-input"
                    placeholder="例: 今日どの店に行くべき？"
                    style="flex:1;font-size:.85rem">
             <button id="ai-chat-send" class="btn btn-primary btn-sm" style="white-space:nowrap;padding:0 18px">送信</button>
           </div>
+          <div style="font-size:.6rem;color:var(--text3);margin-bottom:8px;padding-left:2px">Enter で送信 · Shift+Enter で改行</div>
           <!-- 全店舗モードのクイックボタン -->
           <div id="ai-quick-all" style="display:flex;gap:5px;flex-wrap:wrap">
             <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今日どの店に行くべきか教えて。スコアと根拠も示して">🔥 今日どの店?</button>
@@ -1224,7 +1232,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=15"></script>
+<script src="/js/app.js?v=20"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

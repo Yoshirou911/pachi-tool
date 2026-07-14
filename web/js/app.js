@@ -209,6 +209,7 @@ async function loadWeeklyHighlight() {
       html += hotMachines.slice(0, 5).map(h => {
         const sign = h.surge >= 0 ? '+' : '';
         const col = h.surge > 0 ? 'var(--success)' : 'var(--danger)';
+        const encHM = encodeURIComponent(h.hall_name), encMM = encodeURIComponent(h.machine_name);
         return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">
           <div style="flex:1;min-width:0">
             <div style="font-size:.74rem;font-weight:700;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.machine_name)}</div>
@@ -218,6 +219,8 @@ async function loadWeeklyHighlight() {
             <div style="font-size:.72rem;font-weight:700;color:${col}">${sign}${h.surge}枚</div>
             <div style="font-size:.58rem;color:var(--text3)">${h.recent_avg >= 0 ? '+' : ''}${h.recent_avg} / ${h.base_avg >= 0 ? '+' : ''}${h.base_avg}</div>
           </div>
+          <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMM}'),decodeURIComponent('${encHM}'))"
+            style="font-size:.55rem;padding:2px 5px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
         </div>`;
       }).join('');
     }
@@ -236,6 +239,33 @@ async function loadWeeklyHighlight() {
 }
 
 let _todayHotCache = null; // { events: [], hotHalls: [] }
+
+async function loadTodayPnlBanner() {
+  const banner = document.getElementById('today-pnl-banner');
+  const body = document.getElementById('today-pnl-body');
+  if (!banner || !body) return;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const sessions = await api.getSessions({ date_from: today, date_to: today, limit: 100 }).catch(() => []);
+    if (!sessions || sessions.length === 0) { banner.style.display = 'none'; return; }
+    const total = sessions.length;
+    const wins = sessions.filter(s => (s.diff_yen || 0) > 0).length;
+    const pnl = sessions.reduce((s, r) => s + (r.diff_yen || 0), 0);
+    const pnlCol = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+    const pnlSign = pnl >= 0 ? '+' : '';
+    const wr = Math.round(wins / total * 100);
+    banner.style.display = 'block';
+    body.innerHTML = `
+      <span style="color:var(--text3);font-size:.72rem;font-weight:600">📅 今日</span>
+      <span style="color:var(--text2)">${wins}勝${total - wins}敗</span>
+      <span style="font-weight:800;color:${pnlCol}">${pnlSign}${pnl.toLocaleString()}円</span>
+      <span style="font-size:.68rem;color:var(--text3)">勝率${wr}%</span>
+      <button onclick="switchTab('session')" style="margin-left:auto;font-size:.65rem;padding:2px 8px;background:none;border:1px solid var(--border);border-radius:5px;cursor:pointer;color:var(--text3)">詳細 →</button>
+    `;
+  } catch(e) {
+    if (banner) banner.style.display = 'none';
+  }
+}
 
 async function loadTodayHotCard() {
   const card = document.getElementById('today-hot-card');
@@ -1451,6 +1481,7 @@ document.getElementById('save-confirm-btn').addEventListener('click', async () =
     });
     showToast('セッションを保存しました ✓', 'success');
     estSaveForm.style.display = 'none';
+    loadTodayPnlBanner();
     // フォームリセット
     ['save-inv','save-ret','save-seat','save-coins','save-notes'].forEach(id => {
       document.getElementById(id).value = '';
@@ -2614,6 +2645,7 @@ document.getElementById('qe-save-btn')?.addEventListener('click', async () => {
     document.getElementById('qe-corner').checked = false;
     document.getElementById('qe-diff-display').style.display = 'none';
     loadSessions();
+    loadTodayPnlBanner();
     // ホールdatalist更新
     await populateSessionFilters();
   } catch (e) {
@@ -2998,16 +3030,21 @@ function renderWeekdayChart(weekdays) {
 
 function renderMachineRanking(machines) {
   const el = document.getElementById('hall-machine-ranking');
+  const hall = getSelectedHall();
   el.innerHTML = machines.slice(0, 10).map((m, i) => {
     const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
+    const mEnc = JSON.stringify(m.machine);
+    const hEnc = hall ? JSON.stringify(hall) : 'null';
     return `
-      <div class="machine-rank-row">
-        <span class="rank-num">${medal || (i + 1)}</span>
-        <span class="rank-machine">${esc(m.machine)}</span>
-        <div style="text-align:right">
-          <span class="rank-score">+${m.score}pt</span><br>
-          <span class="rank-meta">${m.appearances}回 avg${m.avg}</span>
+      <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:.75rem;color:var(--text3);width:22px;flex-shrink:0">${medal || (i + 1)}</span>
+        <span style="font-size:.82rem;flex:1;color:var(--text1);cursor:pointer" onclick='_startSessionReplay(${mEnc},${hEnc})'>${esc(m.machine)}</span>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:.8rem;font-weight:700;color:var(--success)">+${m.score}pt</div>
+          <div style="font-size:.65rem;color:var(--text3)">${m.appearances}回 avg${m.avg}</div>
         </div>
+        <button onclick='event.stopPropagation();_startSessionReplay(${mEnc},${hEnc})'
+          style="font-size:.6rem;padding:2px 6px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
       </div>
     `;
   }).join('');
@@ -3365,17 +3402,18 @@ async function loadTopMachines(hall) {
       const diffStr = (diff > 0 ? '+' : '') + Math.round(diff).toLocaleString();
       const rankLabel = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
       const encHm = encodeURIComponent(hall), encMm = encodeURIComponent(r.machine_name);
-      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer"
-        onclick="renderMachineTrendChart(decodeURIComponent('${encHm}'),decodeURIComponent('${encMm}'))">
-        <span style="width:22px;text-align:right;font-size:${i<3?'.82':'.72'}rem;color:var(--text3)">${rankLabel}</span>
-        <div style="flex:1;min-width:0">
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <span style="width:22px;text-align:right;font-size:${i<3?'.82':'.72'}rem;color:var(--text3);flex-shrink:0">${rankLabel}</span>
+        <div style="flex:1;min-width:0;cursor:pointer" onclick="renderMachineTrendChart(decodeURIComponent('${encHm}'),decodeURIComponent('${encMm}'))">
           <div style="font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--primary);text-decoration:underline dotted">${esc(r.machine_name)}</div>
           <div style="height:5px;background:var(--bg3);border-radius:3px;margin-top:2px;overflow:hidden">
             <div class="anim-bar" style="width:${pct}%;height:5px;background:${barColor};border-radius:3px;box-shadow:0 0 6px ${barColor}55"></div>
           </div>
         </div>
-        <span style="font-size:.78rem;font-weight:700;color:${barColor};white-space:nowrap">${diffStr}</span>
-        <span style="font-size:.62rem;color:var(--text3);white-space:nowrap">${r.report_count}日</span>
+        <span style="font-size:.78rem;font-weight:700;color:${barColor};white-space:nowrap;flex-shrink:0">${diffStr}</span>
+        <span style="font-size:.62rem;color:var(--text3);white-space:nowrap;flex-shrink:0">${r.report_count}日</span>
+        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMm}'),decodeURIComponent('${encHm}'))"
+          style="font-size:.55rem;padding:2px 5px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
       </div>`;
     }).join('');
   } catch(e) {
@@ -4497,6 +4535,7 @@ async function init() {
   await loadMachineSelect();
   await populateSessionFilters();
   _renderRecentHallsBar();
+  loadTodayPnlBanner();
   loadTodayHotCard();
   loadWeeklyHighlight();
 
@@ -5438,6 +5477,7 @@ async function loadMachineSeatRanking(hall, machineName) {
     if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
 
     const sign = v => v >= 0 ? `+${v}` : `${v}`;
+    const encH_sr = encodeURIComponent(hall), encM_sr = encodeURIComponent(machineName);
     const items = rows.slice(0, 10).map((r, i) => {
       const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       const stabW = Math.round((r.stability || 0) * 100);
@@ -5448,7 +5488,7 @@ async function loadMachineSeatRanking(hall, machineName) {
         ? `<span style="font-size:.63rem;padding:1px 5px;border-radius:3px;background:${r.bb_z>=0.5?'rgba(16,185,129,.15)':r.bb_z<=-0.5?'rgba(244,63,94,.1)':'var(--bg3)'};color:${r.bb_z>=0.5?'var(--success)':r.bb_z<=-0.5?'var(--danger)':'var(--text3)'}">BB ${r.bb_z>=0?'+':''}${r.bb_z}σ</span>` : '';
       return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
         <span style="font-size:.7rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
-        <div style="flex:1">
+        <div style="flex:1;cursor:pointer" onclick="showSeatDetailModal(decodeURIComponent('${encH_sr}'),decodeURIComponent('${encM_sr}'),${r.seat_number})">
           <div style="font-size:.88rem;font-weight:700;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${r.seat_number}番台 ${dowTxt} ${bbBadge}</div>
           <div style="display:flex;align-items:center;gap:5px;margin-top:3px">
             <div style="flex:1;height:3px;background:var(--bg3);border-radius:2px">
@@ -5457,10 +5497,12 @@ async function loadMachineSeatRanking(hall, machineName) {
             <span style="font-size:.6rem;color:var(--text3)">安定${stabW}%</span>
           </div>
         </div>
-        <div style="text-align:right">
+        <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:900;color:${col};font-size:.95rem">${sign(r.avg_diff)}枚</div>
           <div style="font-size:.62rem;color:var(--text3)">${r.days}日 勝${r.win_rate}%</div>
         </div>
+        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM_sr}'),decodeURIComponent('${encH_sr}'))"
+          style="font-size:.6rem;padding:2px 6px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
       </div>`;
     }).join('');
 

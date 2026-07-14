@@ -64,6 +64,11 @@
     <section id="page-estimate" class="page active">
       <div class="page-inner">
 
+        <!-- 今日の収支バナー -->
+        <div id="today-pnl-banner" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:.78rem">
+          <div id="today-pnl-body" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div>
+        </div>
+
         <!-- 今日の注目情報 -->
         <div id="today-hot-card" style="display:none;background:linear-gradient(135deg,rgba(124,127,245,.12) 0%,rgba(34,211,238,.07) 100%);border:1px solid rgba(124,127,245,.25);border-radius:12px;padding:12px 14px">
           <div style="font-size:.65rem;font-weight:800;color:var(--primary-h);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px">📅 今日の注目情報</div>
@@ -1247,7 +1252,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=24"></script>
+<script src="/js/app.js?v=25"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

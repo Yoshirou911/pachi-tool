@@ -882,6 +882,30 @@ function renderEstimateResult(r) {
 
   expectedEl.textContent = r.expected_setting != null ? r.expected_setting.toFixed(2) : '--';
 
+  // 判定バッジ（期待設定に基づく簡易サマリー）
+  let verdictEl = document.getElementById('res-verdict-badge');
+  if (!verdictEl) {
+    verdictEl = document.createElement('div');
+    verdictEl.id = 'res-verdict-badge';
+    verdictEl.style.cssText = 'margin-top:5px;font-size:.67rem;font-weight:800;padding:2px 9px;border-radius:99px;display:inline-block;letter-spacing:.03em';
+    expectedEl.parentNode.appendChild(verdictEl);
+  }
+  if (r.expected_setting != null) {
+    const es = r.expected_setting;
+    if (es >= 5.0) {
+      verdictEl.textContent = '高設定確定圏'; verdictEl.style.cssText += ';background:rgba(16,185,129,.2);color:#34d399;border:1px solid rgba(16,185,129,.35)';
+    } else if (es >= 4.0) {
+      verdictEl.textContent = '高設定優勢'; verdictEl.style.cssText += ';background:rgba(16,185,129,.12);color:#34d399;border:1px solid rgba(16,185,129,.2)';
+    } else if (es >= 3.0) {
+      verdictEl.textContent = '中間設定帯'; verdictEl.style.cssText += ';background:rgba(251,191,36,.12);color:var(--warning);border:1px solid rgba(251,191,36,.2)';
+    } else {
+      verdictEl.textContent = '低設定濃厚'; verdictEl.style.cssText += ';background:rgba(244,63,94,.12);color:#fb7185;border:1px solid rgba(244,63,94,.2)';
+    }
+    verdictEl.style.display = 'inline-block';
+  } else {
+    verdictEl.style.display = 'none';
+  }
+
   // 90%信用区間をサブテキストで表示
   let ciEl = document.getElementById('res-credible-interval');
   if (!ciEl) {
@@ -948,6 +972,26 @@ function renderEstimateResult(r) {
   highEl.style.color = (r.high_setting_prob ?? 0) > 0.5 ? 'var(--success)' : (r.high_setting_prob ?? 0) > 0.3 ? 'var(--warning)' : 'var(--danger)';
   evEl.textContent = r.ev_pct != null ? r.ev_pct.toFixed(1) + '%' : '--';
   evEl.style.color = r.ev >= 1.0 ? 'var(--success)' : r.ev >= 0.98 ? 'var(--warning)' : 'var(--danger)';
+  // EV解説ラベル
+  let evLabelEl = document.getElementById('res-ev-label');
+  if (!evLabelEl) {
+    evLabelEl = document.createElement('div');
+    evLabelEl.id = 'res-ev-label';
+    evLabelEl.style.cssText = 'margin-top:4px;font-size:.62rem;font-weight:700;padding:1px 7px;border-radius:99px;display:inline-block';
+    evEl.parentNode.appendChild(evLabelEl);
+  }
+  if (r.ev_pct != null) {
+    if (r.ev >= 1.0) {
+      evLabelEl.textContent = 'プラス'; evLabelEl.style.background = 'rgba(16,185,129,.15)'; evLabelEl.style.color = '#34d399';
+    } else if (r.ev >= 0.98) {
+      evLabelEl.textContent = 'ほぼ均衡'; evLabelEl.style.background = 'rgba(251,191,36,.12)'; evLabelEl.style.color = 'var(--warning)';
+    } else {
+      evLabelEl.textContent = 'マイナス'; evLabelEl.style.background = 'rgba(244,63,94,.12)'; evLabelEl.style.color = '#fb7185';
+    }
+    evLabelEl.style.display = 'inline-block';
+  } else {
+    evLabelEl.style.display = 'none';
+  }
 
   // 要素識別力ランキング（折りたたみ）
   let powerEl = document.getElementById('res-element-powers');
@@ -1629,7 +1673,12 @@ function renderSessionSummary(sessions) {
     const avgG = Math.round(sessions.reduce((s, r) => s + (r.games_total || 0), 0) / total);
     avgGEl.textContent = avgG.toLocaleString();
     const totalInv = sessions.reduce((s, r) => s + (r.investment || 0), 0);
-    totalInvEl.textContent = totalInv ? (totalInv / 10000).toFixed(1) + '万' : '--';
+    if (totalInv) {
+      const roi = Math.round(diffYen / totalInv * 100);
+      totalInvEl.innerHTML = `${(totalInv / 10000).toFixed(1)}万 <span style="font-size:.6rem;color:${roi >= 0 ? 'var(--success)' : 'var(--danger)'}">ROI${roi >= 0 ? '+' : ''}${roi}%</span>`;
+    } else {
+      totalInvEl.textContent = '--';
+    }
     const avgD = Math.round(diffYen / total);
     avgDiffEl.textContent = (avgD >= 0 ? '+' : '') + avgD.toLocaleString() + '円';
     avgDiffEl.style.color = avgD >= 0 ? 'var(--success)' : 'var(--danger)';
@@ -1791,6 +1840,7 @@ function _renderSessionCard(s, bestDiff, bestGames, totalCount = 0) {
         <span class="session-stat">G数: <span class="val">${(s.games_total || 0).toLocaleString()}</span></span>
         <span class="session-stat">収支: <span class="val ${diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow'}" style="font-weight:800">${fmt(diffYen)}</span></span>
         ${s.investment ? `<span class="session-stat" style="color:var(--text3)">投資: <span class="val">${(s.investment/10000).toFixed(1)}万</span></span>` : ''}
+        ${s.diff_coins && s.games_total ? (() => { const rate = (s.diff_coins / s.games_total).toFixed(2); const col = parseFloat(rate) >= 0 ? 'var(--success)' : 'var(--danger)'; return `<span class="session-stat" style="color:var(--text3)">枚/G: <span class="val" style="color:${col}">${parseFloat(rate)>=0?'+':''}${rate}</span></span>`; })() : ''}
       </div>
       ${posteriorBar}
     </div>
@@ -3459,7 +3509,7 @@ function renderMachineList(profiles) {
 
     container.innerHTML = (useGroups ? sortedGroups : ['__all__']).map(cat => {
       const items = useGroups ? groups[cat] : filtered;
-      const header = useGroups ? `<div style="font-size:.72rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;padding:8px 4px 4px">${esc(cat)}</div>` : '';
+      const header = useGroups ? `<div style="display:flex;align-items:center;gap:8px;padding:10px 2px 5px"><span style="font-size:.7rem;font-weight:800;color:var(--primary-h);text-transform:uppercase;letter-spacing:.08em">${esc(cat)}</span><div style="flex:1;height:1px;background:rgba(124,127,245,.2)"></div><span style="font-size:.6rem;color:var(--text3)">${items.length}機種</span></div>` : '';
       return header + items.map(p => {
       const settings = p.settings || [];
       const kwTags = p.machine_kw
@@ -3519,6 +3569,7 @@ function renderMachineList(profiles) {
           <div class="machine-card-meta">
             <span class="machine-tag">設定: ${settings.join('・')}</span>
             <span class="machine-tag">${els.length}要素</span>
+            <span style="font-size:.62rem;color:var(--text3);margin-left:auto">タップで確率表示</span>
           </div>
           <div class="machine-card-meta" style="margin-top:6px">${kwTags}</div>
           <div class="machine-stats-wrap" style="display:none"></div>
@@ -5342,12 +5393,14 @@ async function loadTodayRecommendation() {
         <span style="font-size:.68rem;color:var(--text3);margin-left:8px">高いほど今日おすすめ</span>
       </div>`;
 
+    const maxScore = Math.max(...halls.map(h => h.score || 0), 1);
     halls.forEach((h, i) => {
       const rankColors = ['#f59e0b', '#94a3b8', '#cd7f32'];
       const rankColor = rankColors[i] || 'var(--text3)';
       const diffColor = h.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       const diffSign = h.avg_diff >= 0 ? '+' : '';
       const isStale = h.stale;
+      const scorePct = Math.round((h.score || 0) / maxScore * 100);
 
       const tags = [];
       if (h.surge_seats >= 2) tags.push(`<span style="background:rgba(239,68,68,.15);color:#f87171;font-size:.6rem;padding:1px 5px;border-radius:4px">BB急上昇${h.surge_seats}台</span>`);
@@ -5362,7 +5415,10 @@ async function loadTodayRecommendation() {
         <div style="width:22px;height:22px;border-radius:50%;background:${rankColor}20;color:${rankColor};font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i + 1}</div>
         <div style="flex:1;min-width:0;cursor:pointer" onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${hEnc}')),150)">
           <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(h.hall_name)}</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:3px">${tags.join('')}</div>
+          <div style="height:3px;background:var(--bg3);border-radius:2px;margin:4px 0 3px;overflow:hidden">
+            <div class="anim-bar" style="width:${scorePct}%;height:100%;background:${rankColors[i]||'var(--primary-h)'};border-radius:2px"></div>
+          </div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">${tags.join('')}</div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:.82rem;font-weight:700;color:${diffColor}">${diffSign}${h.avg_diff}枚</div>

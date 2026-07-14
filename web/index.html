@@ -484,6 +484,11 @@
             <input type="text" id="ses-search-filter" class="form-input form-select-sm"
                    placeholder="🔍 メモ・機種・ホールで検索" autocomplete="off"
                    style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
+            <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0">
+              <button class="ses-wl-btn active" data-wl="all" style="font-size:.6rem;padding:4px 7px;background:var(--bg3);border:none;color:var(--text2);cursor:pointer;white-space:nowrap">全て</button>
+              <button class="ses-wl-btn" data-wl="win" style="font-size:.6rem;padding:4px 7px;background:var(--bg3);border-left:1px solid var(--border);color:var(--success);cursor:pointer;white-space:nowrap">勝</button>
+              <button class="ses-wl-btn" data-wl="loss" style="font-size:.6rem;padding:4px 7px;background:var(--bg3);border-left:1px solid var(--border);color:var(--danger);cursor:pointer;white-space:nowrap">負</button>
+            </div>
           </div>
           <div style="display:flex;gap:6px;align-items:center">
             <input type="month" id="ses-month-filter" class="form-input form-select-sm"
@@ -1234,7 +1239,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=21"></script>
+<script src="/js/app.js?v=22"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

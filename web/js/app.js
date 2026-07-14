@@ -1555,6 +1555,10 @@ async function loadSessions() {
         (s.notes || '').toLowerCase().includes(searchQ)
       );
     }
+    // 勝ち/負け フィルター
+    const wlFilter = document.querySelector('.ses-wl-btn.active')?.dataset.wl || 'all';
+    if (wlFilter === 'win') sessions = sessions.filter(s => (s.diff_yen || 0) > 0);
+    else if (wlFilter === 'loss') sessions = sessions.filter(s => (s.diff_yen || 0) <= 0);
     // ソート
     const sortBy = document.getElementById('ses-sort-filter')?.value || 'date_desc';
     if (sortBy === 'date_asc') sessions = [...sessions].sort((a, b) => a.date < b.date ? -1 : 1);
@@ -1643,6 +1647,22 @@ document.getElementById('ses-search-filter')?.addEventListener('input', () => {
   _searchTimer = setTimeout(loadSessions, 350);
 });
 document.getElementById('ses-sort-filter')?.addEventListener('change', loadSessions);
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.ses-wl-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.ses-wl-btn').forEach(b => {
+        b.classList.remove('active');
+        b.style.background = 'var(--bg3)';
+        b.style.fontWeight = '';
+      });
+      btn.classList.add('active');
+      btn.style.background = 'var(--bg2)';
+      btn.style.fontWeight = '700';
+      loadSessions();
+    });
+  });
+});
 
 // 期間クイックフィルター
 document.querySelectorAll('.ses-period-btn').forEach(btn => {
@@ -1930,7 +1950,7 @@ function _renderSessionCard(s, bestDiff, bestGames, totalCount = 0) {
     s.is_corner ? '<span class="tag tag-corner">角台</span>' : '',
     settingLabel,
     isBestDiff ? '<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.15));color:var(--warning);font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">🏆自己最高</span>' : '',
-    isBestGames && !isBestDiff ? '<span style="background:rgba(99,102,241,.15);color:#818cf8;font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">最長G</span>' : '',
+    isBestGames && !isBestDiff ? '<span style="background:rgba(99,102,241,.15);color:var(--primary-h);font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">最長G</span>' : '',
   ].filter(Boolean).join('');
 
   let posteriorBar = '';
@@ -2525,6 +2545,14 @@ quickEntryBtn?.addEventListener('click', () => {
         const o = document.createElement('option'); o.value = m; machineDL.appendChild(o);
       });
     }
+    // 直近セッションのホール・機種を自動入力（未入力の場合のみ）
+    const qeHall = document.getElementById('qe-hall');
+    const qeMachine = document.getElementById('qe-machine');
+    if (qeHall && !qeHall.value && state.sessions && state.sessions.length > 0) {
+      const rec = state.sessions[0]; // most recent
+      if (rec.hall_name) qeHall.value = rec.hall_name;
+      if (rec.machine_name && qeMachine && !qeMachine.value) qeMachine.value = rec.machine_name;
+    }
     quickEntryForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 });
@@ -2737,7 +2765,7 @@ async function loadSlumpSeats(hall) {
     body.innerHTML = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">直近5日のBB確率が平均より急落（低設定継続 or 変更待ち候補）</p>
       ${rows.slice(0, 8).map(r => {
         const z = r.slump_z;
-        const slumpCol = z > 2.0 ? '#f43f5e' : z > 1.5 ? 'var(--danger)' : z > 1.0 ? 'var(--warning)' : 'var(--text3)';
+        const slumpCol = z > 1.5 ? 'var(--danger)' : z > 1.0 ? 'var(--warning)' : 'var(--text3)';
         const barPct = Math.min(Math.round(z / maxSZ * 100), 100);
         const encHall = encodeURIComponent(hall);
         const encM = encodeURIComponent(r.machine_name);
@@ -3733,11 +3761,11 @@ function renderMachineList(profiles) {
       let evGrade = '', evGradeStyle = '';
       if (p.machine_kw) {
         const maxKw = Math.max(...Object.values(p.machine_kw));
-        if (maxKw >= 1.12) { evGrade = 'S+'; evGradeStyle = 'background:rgba(16,185,129,.2);color:#10b981;border:1px solid rgba(16,185,129,.4)'; }
+        if (maxKw >= 1.12) { evGrade = 'S+'; evGradeStyle = 'background:rgba(16,185,129,.2);color:var(--success);border:1px solid rgba(16,185,129,.4)'; }
         else if (maxKw >= 1.08) { evGrade = 'A'; evGradeStyle = 'background:rgba(124,127,245,.2);color:var(--primary-h);border:1px solid rgba(124,127,245,.35)'; }
-        else if (maxKw >= 1.04) { evGrade = 'B'; evGradeStyle = 'background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3)'; }
+        else if (maxKw >= 1.04) { evGrade = 'B'; evGradeStyle = 'background:rgba(251,191,36,.15);color:var(--warning);border:1px solid rgba(251,191,36,.3)'; }
         else if (maxKw >= 1.0) { evGrade = 'C'; evGradeStyle = 'background:rgba(148,163,184,.12);color:var(--text3);border:1px solid var(--border)'; }
-        else { evGrade = 'D'; evGradeStyle = 'background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.2)'; }
+        else { evGrade = 'D'; evGradeStyle = 'background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.2)'; }
       }
       const evBadge = evGrade ? `<span style="font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:4px;margin-left:6px;${evGradeStyle}" title="最高設定機械割グレード">${evGrade}</span>` : '';
       const sesInfo = _machineSessionMap[p.machine_name];
@@ -5017,8 +5045,8 @@ async function loadBBSurgeSeats(hall) {
     const html = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">直近3日のBB確率が過去60日平均より急上昇（設定変更シグナル）</p>
       ${rows.slice(0, 8).map(r => {
         const z = r.surge_z;
-        const surgeCol = z > 2.0 ? '#fbbf24' : z > 1.5 ? 'var(--warning)' : z > 1.0 ? 'var(--success)' : 'var(--primary-h)';
-        const glowStr = z > 1.5 ? `0 0 12px ${z > 2.0 ? 'rgba(251,191,36,.4)' : 'rgba(16,185,129,.3)'}` : 'none';
+        const surgeCol = z > 1.5 ? 'var(--warning)' : z > 1.0 ? 'var(--success)' : 'var(--primary-h)';
+        const glowStr = z > 1.5 ? `0 0 12px rgba(251,191,36,.4)` : z > 1.0 ? '0 0 12px rgba(16,185,129,.3)' : 'none';
         const barPct = Math.min(Math.round(z / maxZ * 100), 100);
         const encHall = encodeURIComponent(hall);
         const encM = encodeURIComponent(r.machine_name);
@@ -5417,15 +5445,22 @@ async function loadMapPage() {
       }).addTo(_hallMap);
 
       const sign = h.avg_diff >= 0 ? '+' : '';
+      const hallEnc = encodeURIComponent(h.hall_name);
       marker.bindPopup(`
-        <div style="min-width:160px;font-size:13px;line-height:1.7">
-          <strong>${esc(h.hall_name)}</strong><br>
+        <div style="min-width:170px;font-size:13px;line-height:1.7">
+          <strong style="font-size:14px">${esc(h.hall_name)}</strong><br>
           <span style="color:${h.color};font-weight:bold">平均差枚 ${sign}${h.avg_diff.toLocaleString()}</span><br>
-          <span style="color:var(--text3)">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span><br>
-          <button onclick="switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}'))"
-            style="margin-top:6px;width:100%;padding:5px;background:#6366f1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">
-            店傾向を見る
-          </button>
+          <span style="color:#666;font-size:11px">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span>
+          <div style="display:flex;gap:5px;margin-top:6px">
+            <button onclick="switchToHall(decodeURIComponent('${hallEnc}'))"
+              style="flex:1;padding:5px;background:#6366f1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">
+              📊 店傾向
+            </button>
+            <button onclick="startEstimateForHall(decodeURIComponent('${hallEnc}'))"
+              style="flex:1;padding:5px;background:#10b981;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">
+              🎰 推測
+            </button>
+          </div>
         </div>
       `);
     });

@@ -4,6 +4,7 @@
 /* ===== Design Tokens ===== */
 :root {
   --bg:    #060810;
+  --bg1:   #0a1120;
   --bg2:   #0e1628;
   --bg3:   #172038;
   --bg4:   #1e2a46;
@@ -12,6 +13,7 @@
   --border-h: rgba(130,150,220,0.25);
 
   --text:  #eaf0ff;
+  --text1: #eaf0ff;
   --text2: #90a3cc;
   --text3: #546480;
 

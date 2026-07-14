@@ -295,7 +295,7 @@ function loadHallTodayIndicator(hall) {
     parts.push(`📅 ${hallEvents.map(e => `<span class="ev-badge ev-badge-${e.event_type}" style="margin:0 2px;font-size:.6rem">${e.event_type}</span>`).join('')}`);
   }
   const isHot = !!hallHot;
-  el.style.cssText = `display:block;margin-top:5px;font-size:.7rem;padding:5px 10px;border-radius:6px;background:${isHot ? 'rgba(251,191,36,.1)' : 'rgba(124,127,245,.08)'};border:1px solid ${isHot ? 'rgba(251,191,36,.25)' : 'rgba(124,127,245,.2)'};color:${isHot ? '#fbbf24' : 'var(--primary-h)'}`;
+  el.style.cssText = `display:block;margin-top:5px;font-size:.7rem;padding:5px 10px;border-radius:6px;background:${isHot ? 'rgba(251,191,36,.1)' : 'rgba(124,127,245,.08)'};border:1px solid ${isHot ? 'rgba(251,191,36,.25)' : 'rgba(124,127,245,.2)'};color:${isHot ? 'var(--warning)' : 'var(--primary-h)'}`;
   el.innerHTML = parts.join(' &nbsp;|&nbsp; ');
 }
 
@@ -1236,11 +1236,11 @@ function renderAdvice(r) {
     text.style.color = 'var(--text2)';
     const target = 1000;
     const pct = Math.min(100, Math.round(games / target * 100));
-    detail.innerHTML = `G数を増やすと推測精度が向上します
+    detail.innerHTML = `G数を増やすと推測精度が向上します（目安: ${target.toLocaleString()}G以上）
       <div style="margin-top:6px;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden">
-        <div style="width:${pct}%;height:100%;background:var(--text3);border-radius:3px;transition:width .3s"></div>
+        <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,rgba(124,127,245,.8),var(--primary-h));border-radius:3px;transition:width .3s"></div>
       </div>
-      <div style="font-size:.6rem;color:var(--text3);margin-top:3px">${games.toLocaleString()} / ${target.toLocaleString()}G</div>`;
+      <div style="font-size:.6rem;color:var(--text3);margin-top:3px">${games.toLocaleString()}G / ${target.toLocaleString()}G (${pct}%)</div>`;
     return;
   }
 
@@ -1762,7 +1762,7 @@ function renderSessionSummary(sessions) {
       const bars = recent.map(s => {
         const d = s.diff_yen || 0;
         const h = Math.max(3, Math.round(Math.abs(d) / maxAbs * 26));
-        const col = d >= 0 ? '#10b981' : '#f43f5e';
+        const col = d >= 0 ? 'var(--success)' : 'var(--danger)';
         return `<div style="flex:1;min-width:4px;max-width:10px;height:${h}px;background:${col};border-radius:2px 2px 0 0;align-self:flex-end;opacity:.8" title="${fmt(d)}"></div>`;
       }).join('');
       sparkEl.innerHTML = `<div style="display:flex;gap:2px;height:28px;align-items:flex-end;padding-left:8px">${bars}</div>`;
@@ -1853,7 +1853,7 @@ function _renderSessionCard(s, bestDiff, bestGames, totalCount = 0) {
     s.is_event_day ? '<span class="tag tag-event">イベント</span>' : '',
     s.is_corner ? '<span class="tag tag-corner">角台</span>' : '',
     settingLabel,
-    isBestDiff ? '<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.15));color:#fbbf24;font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">🏆自己最高</span>' : '',
+    isBestDiff ? '<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.15));color:var(--warning);font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">🏆自己最高</span>' : '',
     isBestGames && !isBestDiff ? '<span style="background:rgba(99,102,241,.15);color:#818cf8;font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">最長G</span>' : '',
   ].filter(Boolean).join('');
 
@@ -1887,6 +1887,7 @@ function _renderSessionCard(s, bestDiff, bestGames, totalCount = 0) {
         ${s.diff_coins && s.games_total ? (() => { const rate = (s.diff_coins / s.games_total).toFixed(2); const col = parseFloat(rate) >= 0 ? 'var(--success)' : 'var(--danger)'; return `<span class="session-stat" style="color:var(--text3)">枚/G: <span class="val" style="color:${col}">${parseFloat(rate)>=0?'+':''}${rate}</span></span>`; })() : ''}
       </div>
       ${posteriorBar}
+      ${s.notes ? `<div style="font-size:.63rem;color:var(--text3);margin-top:5px;padding-top:5px;border-top:1px solid var(--border);display:flex;align-items:flex-start;gap:4px"><span style="flex-shrink:0;opacity:.55">📝</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(s.notes.slice(0, 80))}${s.notes.length > 80 ? '…' : ''}</span></div>` : ''}
     </div>
   `;
 }
@@ -1904,6 +1905,24 @@ function renderSessions(sessions) {
 
   const bestDiff = Math.max(...sessions.map(s => s.diff_yen || 0));
   const bestGames = Math.max(...sessions.map(s => s.games_total || 0));
+
+  // 今日フィルター時の収支サマリーバナー
+  const periodOverride = document.getElementById('ses-month-filter')?.dataset.periodOverride || '';
+  const todayBanner = periodOverride === 'today' ? (() => {
+    const dayTotal = sessions.reduce((s, r) => s + (r.diff_yen || 0), 0);
+    const dayGames = sessions.reduce((s, r) => s + (r.games_total || 0), 0);
+    const wins = sessions.filter(s => (s.diff_yen || 0) > 0).length;
+    const col = dayTotal >= 0 ? 'var(--success)' : 'var(--danger)';
+    const bg  = dayTotal >= 0 ? 'rgba(16,185,129,.07)' : 'rgba(244,63,94,.07)';
+    const bdr = dayTotal >= 0 ? 'rgba(16,185,129,.25)' : 'rgba(244,63,94,.25)';
+    const icon = dayTotal >= 5000 ? '🎉' : dayTotal >= 0 ? '✅' : dayTotal <= -5000 ? '😔' : '📊';
+    const sign = dayTotal >= 0 ? '+' : '';
+    return `<div style="background:${bg};border:1.5px solid ${bdr};border-radius:12px;padding:14px 16px;margin-bottom:12px;text-align:center">
+      <div style="font-size:.65rem;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em">今日の収支</div>
+      <div style="font-size:2rem;font-weight:900;color:${col};letter-spacing:-.04em;line-height:1">${icon} ${sign}${dayTotal.toLocaleString()}<span style="font-size:.9rem">円</span></div>
+      <div style="font-size:.68rem;color:var(--text3);margin-top:6px">${sessions.length}セッション · ${wins}勝${sessions.length - wins}敗 · ${dayGames.toLocaleString()}G</div>
+    </div>`;
+  })() : '';
 
   // 日付でグループ化
   const dayGroups = {};
@@ -1951,7 +1970,7 @@ function renderSessions(sessions) {
     html += daySessions.map(s => _renderSessionCard(s, bestDiff, bestGames, sessions.length)).join('');
   });
 
-  container.innerHTML = html;
+  container.innerHTML = todayBanner + html;
   container.querySelectorAll('.session-item').forEach(item => {
     item.addEventListener('click', () => openSessionModal(parseInt(item.dataset.id)));
   });
@@ -1993,11 +2012,12 @@ async function openSessionModal(id) {
     ${Object.keys(s.element_counts || {}).length ? `
       <div style="margin-top:12px">
         <div style="font-size:.75rem;color:var(--text3);margin-bottom:6px">カウント</div>
-        ${Object.entries(s.element_counts).map(([k, v]) => `
-          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.85rem;border-bottom:1px solid var(--border)">
-            <span style="color:var(--text2)">${esc(k)}</span><span><strong>${v}</strong></span>
-          </div>
-        `).join('')}
+        ${Object.entries(s.element_counts).map(([k, v]) => {
+          const perN = (v > 0 && s.games_total > 0) ? `<span style="color:var(--text3);font-size:.72rem;margin-left:6px">1/${Math.round(s.games_total / v)}</span>` : '';
+          return `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.85rem;border-bottom:1px solid var(--border)">
+            <span style="color:var(--text2)">${esc(k)}</span><span><strong>${v}</strong>${perN}</span>
+          </div>`;
+        }).join('')}
       </div>
     ` : ''}
     <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
@@ -3443,11 +3463,25 @@ document.getElementById('anaslo-tab-tail').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 // Machines page
 // ---------------------------------------------------------------------------
+let _machineSessionMap = {}; // machine_name → {last_date, count, total_diff}
+
 async function loadMachinesPage() {
   const container = document.getElementById('machine-list');
   container.innerHTML = '<p class="hint center">読み込み中...</p>';
   try {
-    const machines = await api.getMachines();
+    const [machines, sessions] = await Promise.all([
+      api.getMachines(),
+      api.getSessions({ limit: 500 }).catch(() => []),
+    ]);
+    _machineSessionMap = {};
+    for (const s of (Array.isArray(sessions) ? sessions : [])) {
+      if (!s.machine_name) continue;
+      const m = _machineSessionMap[s.machine_name] || { last_date: null, count: 0, total_diff: 0 };
+      m.count++;
+      m.total_diff += s.diff_yen || 0;
+      if (!m.last_date || s.date > m.last_date) m.last_date = s.date;
+      _machineSessionMap[s.machine_name] = m;
+    }
     const profiles = await Promise.all(
       machines.map(m => api.getMachine(m).catch(() => ({ machine_name: m, elements: [], settings: [] })))
     );
@@ -3543,6 +3577,15 @@ function renderMachineList(profiles) {
         const bw = b.machine_kw ? Math.max(...Object.values(b.machine_kw)) : 0;
         return bw - aw;
       });
+    } else if (sortBy === 'myplay') {
+      filtered.sort((a, b) => {
+        const as = _machineSessionMap[a.machine_name];
+        const bs = _machineSessionMap[b.machine_name];
+        if (as && !bs) return -1;
+        if (!as && bs) return 1;
+        if (as && bs) return (bs.last_date || '') > (as.last_date || '') ? 1 : -1;
+        return a.machine_name.localeCompare(b.machine_name, 'ja');
+      });
     }
 
     // カテゴリ別グループ化
@@ -3621,6 +3664,20 @@ function renderMachineList(profiles) {
         else { evGrade = 'D'; evGradeStyle = 'background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.2)'; }
       }
       const evBadge = evGrade ? `<span style="font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:4px;margin-left:6px;${evGradeStyle}" title="最高設定機械割グレード">${evGrade}</span>` : '';
+      const sesInfo = _machineSessionMap[p.machine_name];
+      const sesInfoHtml = sesInfo
+        ? (() => {
+            const avgD = Math.round(sesInfo.total_diff / sesInfo.count);
+            const col = sesInfo.total_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+            const sign = sesInfo.total_diff >= 0 ? '+' : '';
+            const lastSlice = sesInfo.last_date ? sesInfo.last_date.slice(5).replace('-', '/') : '';
+            return `<div style="font-size:.6rem;color:var(--text3);margin-top:4px;display:flex;gap:8px;align-items:center;padding:3px 6px;background:rgba(124,127,245,.06);border-radius:4px;border:1px solid rgba(124,127,245,.12)">
+              <span>🎰 ${sesInfo.count}回</span>
+              ${lastSlice ? `<span>最終: ${lastSlice}</span>` : ''}
+              <span style="color:${col};font-weight:700">avg ${sign}${avgD.toLocaleString()}円</span>
+            </div>`;
+          })()
+        : '';
 
       return `
         <div class="machine-card" data-name="${esc(p.machine_name)}">
@@ -3636,6 +3693,7 @@ function renderMachineList(profiles) {
             <span class="machine-tag">${els.length}要素</span>
             <span style="font-size:.62rem;color:var(--text3);margin-left:auto">タップで確率表示</span>
           </div>
+          ${sesInfoHtml}
           <div class="machine-card-meta" style="margin-top:6px">${kwTags}</div>
           <div class="machine-stats-wrap" style="display:none"></div>
           ${probTable}
@@ -4046,7 +4104,7 @@ function renderWeekdayAnalysis(sessions) {
         const col = avg >= 500 ? 'var(--success)' : avg <= -500 ? 'var(--danger)' : 'var(--text3)';
         const bg = avg >= 500 ? 'rgba(34,197,94,.1)' : avg <= -500 ? 'rgba(239,68,68,.08)' : 'var(--bg3)';
         const barH = count ? Math.max(3, Math.round(Math.abs(avg) / maxAbs * 26)) : 0;
-        const barCol = avg >= 0 ? '#10b981' : '#f43f5e';
+        const barCol = avg >= 0 ? 'var(--success)' : 'var(--danger)';
         return `<div style="text-align:center;padding:5px 2px 4px;border-radius:7px;background:${bg};border:1.5px solid ${isToday ? 'var(--primary-h)' : 'transparent'}">
           <div style="font-size:.7rem;font-weight:${isToday?'700':'400'};color:${isToday?'var(--primary-h)':isBest?'var(--warning)':'var(--text2)'}">${dayNames[i]}${isBest?' ★':''}</div>
           <div style="height:28px;display:flex;align-items:flex-end;justify-content:center;margin:2px 0">
@@ -6216,6 +6274,7 @@ let _calHallFilter = '';
 let _calEventMap  = {};  // dateStr → [{event}]
 let _calHeatMap   = {};  // dateStr → {avg_diff, hall_count, halls:[]}
 let _calHotDays   = {};  // dateStr → [{hall_name, z_score, label}]  (自動検出)
+let _calSessionMap = {}; // dateStr → count  (自分のセッション件数)
 let _calDrillDate = null;
 let _calDrillHall = null;
 
@@ -6242,13 +6301,19 @@ async function loadCalendar() {
   const ym = _ym();
   const evUrl = `/api/events/calendar?month=${ym}` + (hallFilter ? `&hall_name=${encodeURIComponent(hallFilter)}` : '');
   const hallHotParam = hallFilter ? `&hall_name=${encodeURIComponent(hallFilter)}` : '';
-  const [evData, hmData, hotData] = await Promise.all([
+  const lastDay = new Date(_calYear, _calMonth + 1, 0).getDate();
+  const [evData, hmData, hotData, sesData] = await Promise.all([
     fetch(evUrl).then(r => r.json()).catch(() => ({events:{}})),
     fetch(`/api/hall/month_heatmap?month=${ym}`).then(r => r.json()).catch(() => ({days:{}})),
     fetch(`/api/hall/hot_days?months=3${hallHotParam}`).then(r => r.json()).catch(() => ({hot_days:[]})),
+    fetch(`/api/sessions?date_from=${ym}-01&date_to=${ym}-${String(lastDay).padStart(2,'0')}&limit=500`).then(r => r.json()).catch(() => []),
   ]);
   _calEventMap = evData.events || {};
   _calHeatMap  = hmData.days  || {};
+  _calSessionMap = {};
+  for (const s of (Array.isArray(sesData) ? sesData : [])) {
+    if (s.date) _calSessionMap[s.date] = (_calSessionMap[s.date] || 0) + 1;
+  }
   _calHotDays  = {};
   for (const h of (hotData.hot_days || [])) {
     if (h.date.startsWith(ym)) {
@@ -6275,7 +6340,7 @@ function _renderCalMonthStats() {
   el.style.display = 'block';
   el.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.7rem">
     <span style="background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.2);border-radius:5px;padding:2px 8px">
-      🔥 ホット日 <strong style="color:#fbbf24">${hotDayCount}日</strong>
+      🔥 ホット日 <strong style="color:var(--warning)">${hotDayCount}日</strong>
     </span>
     ${heatCount ? `<span style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:5px;padding:2px 8px">
       📊 出玉+ <strong style="color:var(--success)">${heatCount}日</strong>
@@ -6329,11 +6394,17 @@ function _renderCalGrid() {
     // ホール数バッジ
     const hallBadge = (!isOther && heat && heat.hall_count > 0)
       ? `<span class="cal-hall-badge">${heat.hall_count}店</span>` : '';
+    // 自分のセッション件数バッジ
+    const sesCnt = !isOther ? (_calSessionMap[dateStr] || 0) : 0;
+    const sesBadge = sesCnt > 0
+      ? `<span style="position:absolute;bottom:2px;right:2px;font-size:.48rem;font-weight:800;background:rgba(124,127,245,.25);color:var(--primary-h);border-radius:3px;padding:0 3px;line-height:1.4" title="${sesCnt}セッション">${sesCnt}件</span>`
+      : '';
     html += `<div class="${cls}" onclick="selectCalDay('${dateStr}')" style="position:relative">
       ${hallBadge}
       <span class="cal-day-num">${day}</span>
       ${hotBadge}
       <div class="cal-dots">${dots}</div>
+      ${sesBadge}
     </div>`;
   }
   grid.innerHTML = html;
@@ -6405,6 +6476,9 @@ function _renderHallBars(halls, dateStr) {
     return;
   }
   const maxAbs = Math.max(...halls.map(h => Math.abs(h.avg_diff)), 1);
+  const hdr = `<div style="display:flex;justify-content:space-between;font-size:.6rem;color:var(--text3);margin-bottom:6px;padding:0 2px">
+    <span>店舗別 平均差枚数（コイン）</span><span>プラス = 出玉有利</span>
+  </div>`;
   const items = halls.map((h, i) => {
     const pct = Math.round(Math.abs(h.avg_diff) / maxAbs * 100);
     const pos = h.avg_diff >= 0;
@@ -6422,7 +6496,7 @@ function _renderHallBars(halls, dateStr) {
       <div class="drill-bar-val" style="color:${col}">${sign}${h.avg_diff}</div>
     </div>`;
   }).join('');
-  el.innerHTML = items;
+  el.innerHTML = hdr + items;
   // イベント委譲でクリック処理
   el.querySelectorAll('.drill-bar-item').forEach(item => {
     item.addEventListener('click', () => calDrillHall(item.dataset.date, item.dataset.hall));

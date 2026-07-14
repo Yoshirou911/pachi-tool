@@ -9,8 +9,9 @@
   --bg3:   #172038;
   --bg4:   #1e2a46;
 
-  --border:   rgba(120,140,200,0.14);
-  --border-h: rgba(130,150,220,0.25);
+  --border:        rgba(120,140,200,0.14);
+  --border-subtle: rgba(120,140,200,0.07);
+  --border-h:      rgba(130,150,220,0.25);
 
   --text:  #eaf0ff;
   --text1: #eaf0ff;

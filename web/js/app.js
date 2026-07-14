@@ -1969,11 +1969,14 @@ function _renderSessionCard(s, bestDiff, bestGames, totalCount = 0) {
     </div>`;
   }
 
+  const _sMEnc = encodeURIComponent(s.machine_name), _sHEnc = encodeURIComponent(s.hall_name || '');
   return `
     <div class="session-item ${diffYen >= 0 ? 'pos' : 'neg'}" data-id="${s.id}">
       <div class="session-item-header">
         <span class="session-machine">${esc(s.machine_name)}</span>
         ${tags}
+        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${_sMEnc}'),decodeURIComponent('${_sHEnc}'))"
+          style="margin-left:auto;font-size:.6rem;padding:2px 7px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.28);border-radius:4px;cursor:pointer;white-space:nowrap;flex-shrink:0">🎰 推測</button>
       </div>
       <div class="session-hall">${esc(s.hall_name || '')}${s.seat_number ? `&ensp;<span style="color:var(--text3);font-size:.75rem">${s.seat_number}番台</span>` : ''}</div>
       <div class="session-stats" style="margin-top:6px">
@@ -2877,6 +2880,8 @@ async function loadSlumpSeats(hall) {
                 style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:2px;color:${isPinnedSeat(hall,r.machine_name,r.seat_number)?'var(--warning)':'var(--text3)'}">
                 ${isPinnedSeat(hall, r.machine_name, r.seat_number) ? '★' : '☆'}
               </button>
+              <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM}'),decodeURIComponent('${encHall}'))"
+                style="font-size:.62rem;padding:2px 6px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;white-space:nowrap">🎰</button>
               <div style="font-size:1.1rem;font-weight:900;color:${slumpCol}">-${z.toFixed(1)}σ</div>
             </div>
           </div>
@@ -4762,6 +4767,8 @@ async function loadTodayDowMachines(hall) {
           <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
           <div style="font-size:.62rem;color:var(--text3)">${r.last_date || ''}</div>
         </div>
+        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM}'),decodeURIComponent('${encH}'))"
+          style="font-size:.65rem;padding:4px 7px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:5px;cursor:pointer;flex-shrink:0;white-space:nowrap">🎰</button>
       </div>`;
     }).join('');
   } catch(e) {
@@ -4826,9 +4833,13 @@ async function loadMachineSettingTendency(hall) {
         onclick="loadMachineSeatRankingInline(decodeURIComponent('${encHallT}'),decodeURIComponent('${encMachT}'),this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div style="font-size:.85rem;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.machine_name)}</div>
-          <div style="text-align:right;flex-shrink:0;margin-left:8px">
-            <span style="font-size:1rem;font-weight:900;color:${col}">設定${estS.toFixed(1)}</span>
-            <span style="font-size:.65rem;color:var(--text3);margin-left:4px">高設定${highPct}%</span>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px">
+            <div style="text-align:right">
+              <span style="font-size:1rem;font-weight:900;color:${col}">設定${estS.toFixed(1)}</span>
+              <span style="font-size:.65rem;color:var(--text3);margin-left:4px">高設定${highPct}%</span>
+            </div>
+            <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMachT}'),decodeURIComponent('${encHallT}'))"
+              style="font-size:.62rem;padding:3px 6px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;white-space:nowrap">🎰</button>
           </div>
         </div>
         <div style="display:flex;gap:2px;margin:4px 0">${distBar}</div>
@@ -4931,19 +4942,26 @@ async function loadTodayBriefing(hall) {
       return `<span style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px"
         onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${seat})">${content}</span>`;
     };
-    const surgeRows = d.bb_surge_seats?.map(s =>
-      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0">
-         <span style="color:var(--text1)">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
+    const surgeRows = d.bb_surge_seats?.map(s => {
+      const sMEnc = encodeURIComponent(s.machine), sHEnc = encodeURIComponent(hall);
+      return `<div style="display:flex;align-items:center;gap:5px;font-size:.75rem;padding:3px 0">
+         <span style="color:var(--text1);flex:1">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
          <span style="color:var(--success);font-weight:700">BB急上昇 +${s.surge_z}σ</span>
-       </div>`
-    ).join('') || '<span style="font-size:.72rem;color:var(--text3)">なし</span>';
+         <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${sMEnc}'),decodeURIComponent('${sHEnc}'))"
+           style="font-size:.6rem;padding:2px 5px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
+       </div>`;
+    }).join('') || '<span style="font-size:.72rem;color:var(--text3)">なし</span>';
 
-    const topSeatRows = d.top_seats?.map((s, i) =>
-      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0;border-bottom:1px solid var(--border)">
-         <span><strong style="color:var(--text3);margin-right:4px">${i+1}.</strong>${_seatBtn(s.machine, s.seat, `${esc(s.machine)} ${s.seat}番台`)}</span>
+    const topSeatRows = d.top_seats?.map((s, i) => {
+      const mEnc = encodeURIComponent(s.machine);
+      const hEnc = encodeURIComponent(hall);
+      return `<div style="display:flex;align-items:center;gap:5px;font-size:.75rem;padding:3px 0;border-bottom:1px solid var(--border)">
+         <span style="flex:1"><strong style="color:var(--text3);margin-right:4px">${i+1}.</strong>${_seatBtn(s.machine, s.seat, `${esc(s.machine)} ${s.seat}番台`)}</span>
          <span style="color:${s.avg_diff>=0?'var(--success)':'var(--danger)'};font-weight:700">${sign(s.avg_diff)}枚</span>
-       </div>`
-    ).join('') || '';
+         <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${mEnc}'),decodeURIComponent('${hEnc}'))"
+           style="font-size:.6rem;padding:2px 6px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
+       </div>`;
+    }).join('') || '';
 
     const streakRows = d.streak_seats?.length
       ? d.streak_seats.map(s =>

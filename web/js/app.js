@@ -1910,6 +1910,35 @@ function renderSessionSummary(sessions) {
     }
   }
 
+  // ベストセッションハイライト
+  const recEl = document.getElementById('sum-records');
+  if (recEl && total >= 5) {
+    const sorted = [...sessions].sort((a, b) => (b.diff_yen || 0) - (a.diff_yen || 0));
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+    const chips = [];
+    if (best && (best.diff_yen || 0) > 0) {
+      const bCol = 'rgba(16,185,129,.12)';
+      const bBdr = 'rgba(16,185,129,.28)';
+      const bDate = best.date?.slice(5).replace('-', '/') || '';
+      chips.push(`<span style="background:${bCol};border:1px solid ${bBdr};border-radius:99px;padding:2px 10px;cursor:pointer;white-space:nowrap;color:var(--success)"
+        onclick="openSessionModal(${best.id})">🏆 ベスト ${bDate} +${(best.diff_yen/10000).toFixed(1)}万</span>`);
+    }
+    if (worst && (worst.diff_yen || 0) < -5000) {
+      const wDate = worst.date?.slice(5).replace('-', '/') || '';
+      chips.push(`<span style="background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.22);border-radius:99px;padding:2px 10px;cursor:pointer;white-space:nowrap;color:var(--danger)"
+        onclick="openSessionModal(${worst.id})">↓ ワースト ${wDate} ${(worst.diff_yen/10000).toFixed(1)}万</span>`);
+    }
+    if (chips.length) {
+      recEl.style.display = 'flex';
+      recEl.innerHTML = chips.join('');
+    } else {
+      recEl.style.display = 'none';
+    }
+  } else if (recEl) {
+    recEl.style.display = 'none';
+  }
+
   // 月間目標トラッカー
   _renderMonthlyTarget(diffYen);
 }
@@ -3069,13 +3098,15 @@ function renderAnasloMachineRanking(machines) {
     const hall2 = getSelectedHall();
     const mEnc2 = JSON.stringify(m.machine);
     const hEnc2 = hall2 ? JSON.stringify(hall2) : 'null';
-    return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick='_startSessionReplay(${mEnc2},${hEnc2})' title="推測フォームを開く">
+    return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
       <span style="font-size:.75rem;color:var(--text3);width:22px;flex-shrink:0">${i+1}</span>
-      <span style="font-size:.82rem;flex:1;color:var(--text1)">${esc(m.machine)}${trendHtml}</span>
+      <span style="font-size:.82rem;flex:1;color:var(--text1);cursor:pointer" onclick='_startSessionReplay(${mEnc2},${hEnc2})'>${esc(m.machine)}${trendHtml}</span>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:.8rem;font-weight:700;color:${diffColor}">${sign(avgDiff)}枚</div>
         <div style="font-size:.65rem;color:${wrColor}">勝率${m.win_rate || 0}%</div>
       </div>
+      <button onclick='event.stopPropagation();_startSessionReplay(${mEnc2},${hEnc2})'
+        style="font-size:.6rem;padding:2px 6px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
     </div>`;
   }).join('');
 }
@@ -5281,6 +5312,8 @@ async function loadBBSurgeSeats(hall) {
                 style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:2px;color:${isPinnedSeat(hall,r.machine_name,r.seat_number)?'var(--warning)':'var(--text3)'}">
                 ${isPinnedSeat(hall, r.machine_name, r.seat_number) ? '★' : '☆'}
               </button>
+              <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM}'),decodeURIComponent('${encHall}'))"
+                style="font-size:.6rem;padding:2px 5px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer">🎰</button>
               <div style="font-size:1.1rem;font-weight:900;color:${surgeCol};text-shadow:${glowStr}">+${z.toFixed(1)}σ</div>
             </div>
           </div>

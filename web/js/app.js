@@ -876,7 +876,7 @@ function renderEstimateResult(r) {
   if (!warnEl) {
     warnEl = document.createElement('div');
     warnEl.id = 'res-sample-warning';
-    warnEl.style.cssText = 'display:none;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:#fbbf24;font-size:0.82rem;line-height:1.4';
+    warnEl.style.cssText = 'display:none;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:var(--warning);font-size:0.82rem;line-height:1.4';
     confEl.parentNode.insertBefore(warnEl, confEl);
   }
   if (r.sample_warning) {
@@ -1754,18 +1754,31 @@ function renderSessionSummary(sessions) {
       streakEl.innerHTML = '';
     }
 
-    // 直近スパークライン
+    // 累積P&L スパークライン（SVGライン）
     const sparkEl = document.getElementById('sum-sparkline');
     if (sparkEl && total >= 3) {
-      const recent = sorted.slice(0, 12).reverse();
-      const maxAbs = Math.max(...recent.map(s => Math.abs(s.diff_yen || 0)), 1);
-      const bars = recent.map(s => {
-        const d = s.diff_yen || 0;
-        const h = Math.max(3, Math.round(Math.abs(d) / maxAbs * 26));
-        const col = d >= 0 ? 'var(--success)' : 'var(--danger)';
-        return `<div style="flex:1;min-width:4px;max-width:10px;height:${h}px;background:${col};border-radius:2px 2px 0 0;align-self:flex-end;opacity:.8" title="${fmt(d)}"></div>`;
-      }).join('');
-      sparkEl.innerHTML = `<div style="display:flex;gap:2px;height:28px;align-items:flex-end;padding-left:8px">${bars}</div>`;
+      const chronological = sorted.slice().reverse(); // 古い順
+      const W = 120, H = 30, PAD = 2;
+      let cum = 0;
+      const cumPoints = chronological.map(s => { cum += (s.diff_yen || 0); return cum; });
+      const minV = Math.min(0, ...cumPoints);
+      const maxV = Math.max(0, ...cumPoints);
+      const range = maxV - minV || 1;
+      const n = cumPoints.length;
+      const pts = cumPoints.map((v, i) => {
+        const x = PAD + i / Math.max(n - 1, 1) * (W - PAD * 2);
+        const y = H - PAD - (v - minV) / range * (H - PAD * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      // ゼロライン
+      const zeroY = (H - PAD - (0 - minV) / range * (H - PAD * 2)).toFixed(1);
+      const endCum = cumPoints[n - 1];
+      const lineCol = endCum >= 0 ? 'var(--success)' : 'var(--danger)';
+      sparkEl.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible" title="累積収支: ${endCum >= 0 ? '+' : ''}${endCum.toLocaleString()}円">
+        <line x1="${PAD}" y1="${zeroY}" x2="${W - PAD}" y2="${zeroY}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
+        <polyline points="${pts}" fill="none" stroke="${lineCol}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle cx="${(PAD + (n-1)/Math.max(n-1,1)*(W-PAD*2)).toFixed(1)}" cy="${(H-PAD-(endCum-minV)/range*(H-PAD*2)).toFixed(1)}" r="2.5" fill="${lineCol}"/>
+      </svg>`;
       sparkEl.style.display = 'block';
     } else if (sparkEl) {
       sparkEl.style.display = 'none';
@@ -1810,16 +1823,35 @@ function renderSessionSummary(sessions) {
       machineMap[m].count++;
     }
     const entries = Object.entries(machineMap).filter(([, v]) => v.count >= 2);
-    if (entries.length >= 2) {
-      entries.sort((a, b) => (b[1].sum / b[1].count) - (a[1].sum / a[1].count));
-      const [bestM, bestV] = entries[0];
-      const [worstM, worstV] = entries[entries.length - 1];
-      const bAvg = Math.round(bestV.sum / bestV.count);
-      const wAvg = Math.round(worstV.sum / worstV.count);
+    // ホール別集計
+    const hallMap = {};
+    for (const s of sessions) {
+      const h = s.hall_name;
+      if (!h) continue;
+      if (!hallMap[h]) hallMap[h] = { sum: 0, count: 0 };
+      hallMap[h].sum += (s.diff_yen || 0);
+      hallMap[h].count++;
+    }
+    const hallEntries = Object.entries(hallMap).filter(([, v]) => v.count >= 2);
+    if (entries.length >= 2 || hallEntries.length >= 1) {
+      let parts = [];
+      if (entries.length >= 2) {
+        entries.sort((a, b) => (b[1].sum / b[1].count) - (a[1].sum / a[1].count));
+        const [bestM, bestV] = entries[0];
+        const [worstM, worstV] = entries[entries.length - 1];
+        const bAvg = Math.round(bestV.sum / bestV.count);
+        const wAvg = Math.round(worstV.sum / worstV.count);
+        parts.push(`<span style="color:var(--success)">▲ ${esc(bestM)}</span> ${bAvg >= 0?'+':''}${bAvg.toLocaleString()}円/回`);
+        parts.push(`<span style="color:var(--danger)">▼ ${esc(worstM)}</span> ${wAvg >= 0?'+':''}${wAvg.toLocaleString()}円/回`);
+      }
+      if (hallEntries.length >= 1) {
+        hallEntries.sort((a, b) => (b[1].sum / b[1].count) - (a[1].sum / a[1].count));
+        const [topH, topV] = hallEntries[0];
+        const hAvg = Math.round(topV.sum / topV.count);
+        parts.push(`<span style="color:var(--primary-h)">🏪 ${esc(topH)}</span> ${hAvg >= 0?'+':''}${hAvg.toLocaleString()}円/回`);
+      }
       insightEl.style.display = 'block';
-      insightEl.innerHTML =
-        `<span style="color:var(--success)">▲ ${esc(bestM)}</span> ${bAvg >= 0?'+':''}${bAvg.toLocaleString()}円/回` +
-        `&ensp;·&ensp;<span style="color:var(--danger)">▼ ${esc(worstM)}</span> ${wAvg >= 0?'+':''}${wAvg.toLocaleString()}円/回`;
+      insightEl.innerHTML = parts.join('&ensp;·&ensp;');
     } else {
       insightEl.style.display = 'none';
     }
@@ -5479,7 +5511,7 @@ async function loadTodayRecommendation() {
 
     // ヘッダー
     let html = `<div style="margin-bottom:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(34,211,238,.06));border:1px solid rgba(251,191,36,.25);border-radius:10px">
-      <div style="font-size:.65rem;font-weight:800;color:#fbbf24;letter-spacing:.08em;text-transform:uppercase">今日の分析条件</div>
+      <div style="font-size:.65rem;font-weight:800;color:var(--warning);letter-spacing:.08em;text-transform:uppercase">今日の分析条件</div>
       <div style="font-size:.8rem;color:var(--text2);margin-top:4px">
         ${esc(dateStr)} （${esc(dow)}曜日） &nbsp;|&nbsp; 末尾<strong>${esc(String(tail))}</strong>の日 &nbsp;|&nbsp; ${halls.length}店舗を比較
       </div>
@@ -5501,7 +5533,7 @@ async function loadTodayRecommendation() {
           &nbsp;/&nbsp; 勝率 <strong>${top.win_rate}%</strong>
           &nbsp;/&nbsp; ${top.data_days}日分データ
         </div>
-        ${top.reasons.length ? `<div style="margin-top:6px;font-size:.74rem;color:#fbbf24">${top.reasons.map(r => '⚡ ' + esc(r)).join('&nbsp;&nbsp;')}</div>` : ''}
+        ${top.reasons.length ? `<div style="margin-top:6px;font-size:.74rem;color:var(--warning)">${top.reasons.map(r => '⚡ ' + esc(r)).join('&nbsp;&nbsp;')}</div>` : ''}
         <div style="display:flex;gap:8px;margin-top:10px">
           <button onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${topEnc}')),150)" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:.72rem;padding:6px 0;cursor:pointer">🏪 詳細を見る</button>
           <button onclick="startEstimateForHall(decodeURIComponent('${topEnc}'))" style="flex:1;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);border-radius:8px;color:var(--primary-h);font-size:.72rem;font-weight:700;padding:6px 0;cursor:pointer">🎰 この店で推測開始</button>
@@ -5530,7 +5562,7 @@ async function loadTodayRecommendation() {
       else if (h.surge_seats === 1) tags.push(`<span style="background:rgba(239,68,68,.1);color:#fca5a5;font-size:.6rem;padding:1px 5px;border-radius:4px">BB急上昇1台</span>`);
       if (h.streak_seats >= 2) tags.push(`<span style="background:rgba(34,197,94,.12);color:#4ade80;font-size:.6rem;padding:1px 5px;border-radius:4px">連続好調${h.streak_seats}台</span>`);
       if (isStale) tags.push(`<span style="background:rgba(148,163,184,.12);color:var(--text3);font-size:.6rem;padding:1px 5px;border-radius:4px">データ古い</span>`);
-      if (h.reasons.some(r => r.includes('末尾'))) tags.push(`<span style="background:rgba(251,191,36,.15);color:#fbbf24;font-size:.6rem;padding:1px 5px;border-radius:4px">末尾${tail}強</span>`);
+      if (h.reasons.some(r => r.includes('末尾'))) tags.push(`<span style="background:rgba(251,191,36,.15);color:var(--warning);font-size:.6rem;padding:1px 5px;border-radius:4px">末尾${tail}強</span>`);
       if (h.reasons.some(r => r.includes('曜日'))) tags.push(`<span style="background:rgba(139,92,246,.15);color:#a78bfa;font-size:.6rem;padding:1px 5px;border-radius:4px">${esc(dow)}曜強</span>`);
 
       const hEnc = encodeURIComponent(h.hall_name);
@@ -5635,7 +5667,7 @@ async function loadHallCompare() {
         + (r.bb_trend_7d != null && r.bb_trend_7d > 2 ? 2 : 0)
         + (r.surge_seat_count > 0 ? 1 : 0);
       const todayBadge = todayScore >= 6
-        ? `<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.2));border:1px solid rgba(251,191,36,.4);color:#fbbf24;font-size:.58rem;padding:1px 6px;border-radius:4px;font-weight:700;margin-left:4px">★今日</span>`
+        ? `<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.2));border:1px solid rgba(251,191,36,.4);color:var(--warning);font-size:.58rem;padding:1px 6px;border-radius:4px;font-weight:700;margin-left:4px">★今日</span>`
         : '';
       const srcBadge = r.data_source === 'minrepo'
         ? `<span style="font-size:.52rem;color:var(--text3);margin-left:3px">みんレポ</span>`
@@ -5645,7 +5677,7 @@ async function loadHallCompare() {
       const rankStyle = i === 0 ? 'background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:7px 8px;margin-bottom:4px' :
                         i <= 2 ? 'border-bottom:1px solid var(--border);padding:7px 0' :
                                  'border-bottom:1px solid var(--border);padding:7px 0';
-      const rankNumStyle = i === 0 ? 'font-size:.78rem;font-weight:900;color:#fbbf24;width:18px;text-align:center;flex-shrink:0' :
+      const rankNumStyle = i === 0 ? 'font-size:.78rem;font-weight:900;color:var(--warning);width:18px;text-align:center;flex-shrink:0' :
                            'font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0';
       const isPinned = _isFavHall(r.hall_name);
       const copyText = `${i+1}位 ${r.hall_name} ${r.avg_diff >= 0 ? '+' : ''}${r.avg_diff}枚 (${r.days_data}日 勝率${r.win_rate}%)`;

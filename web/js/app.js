@@ -3262,6 +3262,7 @@ async function loadScrapeReport(hall, date) {
             <th style="text-align:right;padding:4px 2px">差枚</th>
             <th style="text-align:right;padding:4px 2px">G数</th>
             <th style="text-align:right;padding:4px 2px">出率</th>
+            <th style="padding:4px 2px"></th>
           </tr>
         </thead>
         <tbody>
@@ -3271,15 +3272,19 @@ async function loadScrapeReport(hall, date) {
             const diffStr = diff != null ? (diff > 0 ? '+' : '') + diff.toLocaleString() : '-';
             const encHall = encodeURIComponent(hall).replace(/'/g, '%27');
             const encMachine = encodeURIComponent(r.machine_name).replace(/'/g, '%27');
-            return `<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer"
-                        onclick="renderMachineTrendChart(decodeURIComponent('${encHall}'),decodeURIComponent('${encMachine}'))">
-              <td style="padding:5px 2px;max-width:130px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
+            return `<tr style="border-bottom:1px solid var(--border-subtle)">
+              <td style="padding:5px 2px;max-width:120px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer"
+                  onclick="renderMachineTrendChart(decodeURIComponent('${encHall}'),decodeURIComponent('${encMachine}'))">
                 <span style="color:var(--text3);margin-right:4px">${i+1}</span>
                 <span style="color:var(--primary);text-decoration:underline dotted">${esc(r.machine_name)}</span>
               </td>
               <td style="text-align:right;padding:5px 2px;color:${diffColor};font-weight:600">${diffStr}</td>
               <td style="text-align:right;padding:5px 2px;color:var(--text3)">${r.avg_games != null ? r.avg_games.toLocaleString() : '-'}</td>
               <td style="text-align:right;padding:5px 2px;color:var(--text2)">${r.ev_pct != null ? r.ev_pct + '%' : '-'}</td>
+              <td style="padding:3px 2px;white-space:nowrap">
+                <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMachine}'),decodeURIComponent('${encHall}'))"
+                  style="font-size:.55rem;padding:2px 5px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;line-height:1.4">🎰</button>
+              </td>
             </tr>`;
           }).join('')}
         </tbody>

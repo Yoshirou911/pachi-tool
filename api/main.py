@@ -641,6 +641,40 @@ def get_halls() -> list[str]:
     return result
 
 
+@app.get("/api/sessions/hall_summary", tags=["sessions"])
+def get_sessions_hall_summary() -> list[dict]:
+    """ホール別の実戦実績サマリー（全セッション集計）を返す。"""
+    from records.models import list_sessions
+    sessions = list_sessions(limit=2000)
+    agg: dict = {}
+    for s in sessions:
+        h = s.hall_name or ""
+        if not h:
+            continue
+        if h not in agg:
+            agg[h] = {"total": 0, "wins": 0, "total_pnl": 0, "total_games": 0}
+        agg[h]["total"] += 1
+        dy = s.diff_yen or 0
+        if dy > 0:
+            agg[h]["wins"] += 1
+        agg[h]["total_pnl"] += dy
+        agg[h]["total_games"] += s.games_total or 0
+    result = []
+    for hall, a in agg.items():
+        t = a["total"]
+        result.append({
+            "hall_name": hall,
+            "total": t,
+            "wins": a["wins"],
+            "losses": t - a["wins"],
+            "win_rate": round(a["wins"] / t * 100) if t else 0,
+            "total_pnl": a["total_pnl"],
+            "avg_pnl": round(a["total_pnl"] / t) if t else 0,
+        })
+    result.sort(key=lambda x: -x["total"])
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Hall analysis
 # ---------------------------------------------------------------------------

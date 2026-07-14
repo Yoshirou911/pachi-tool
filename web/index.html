@@ -532,6 +532,12 @@
           <canvas id="machine-breakdown-chart" height="160"></canvas>
         </div>
 
+        <!-- Hall breakdown -->
+        <div class="card" id="hall-breakdown-card" style="display:none">
+          <div class="card-title">🏪 ホール別収支</div>
+          <div id="hall-breakdown-stats"></div>
+        </div>
+
         <!-- Seat analysis -->
         <div class="card" id="seat-card" style="display:none">
           <div class="card-title">🎰 台番号・角台分析</div>
@@ -1252,7 +1258,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=25"></script>
+<script src="/js/app.js?v=26"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

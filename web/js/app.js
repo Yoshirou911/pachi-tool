@@ -1481,6 +1481,7 @@ document.getElementById('save-confirm-btn').addEventListener('click', async () =
     });
     showToast('セッションを保存しました ✓', 'success');
     estSaveForm.style.display = 'none';
+    _todayRecLoaded = false; // 個人実績バッジ再計算のためキャッシュ無効化
     loadTodayPnlBanner();
     // フォームリセット
     ['save-inv','save-ret','save-seat','save-coins','save-notes'].forEach(id => {
@@ -1604,6 +1605,7 @@ async function loadSessions() {
     renderMonthlyStats(sessions);
     renderMonthlyBarChart(sessions);
     renderMachineBreakdownChart(sessions);
+    renderHallBreakdown(sessions);
     renderSeatAnalysis(sessions);
     renderWeekdayAnalysis(sessions);
     renderDailyProfitChart(sessions);
@@ -2646,6 +2648,7 @@ document.getElementById('qe-save-btn')?.addEventListener('click', async () => {
     document.getElementById('qe-diff-display').style.display = 'none';
     loadSessions();
     loadTodayPnlBanner();
+    _todayRecLoaded = false;
     // ホールdatalist更新
     await populateSessionFilters();
   } catch (e) {
@@ -4248,6 +4251,54 @@ function renderMonthlyStats(sessions) {
 }
 
 // ---------------------------------------------------------------------------
+// Hall breakdown
+// ---------------------------------------------------------------------------
+function renderHallBreakdown(sessions) {
+  const card = document.getElementById('hall-breakdown-card');
+  const el = document.getElementById('hall-breakdown-stats');
+  if (!card || !el) return;
+  const withHall = sessions.filter(s => s.hall_name);
+  if (withHall.length < 3) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+
+  const byHall = {};
+  for (const s of withHall) {
+    const h = s.hall_name;
+    if (!byHall[h]) byHall[h] = { total: 0, wins: 0, pnl: 0, games: 0 };
+    byHall[h].total++;
+    byHall[h].pnl += (s.diff_yen || 0);
+    byHall[h].games += (s.games_total || 0);
+    if ((s.diff_yen || 0) > 0) byHall[h].wins++;
+  }
+
+  const entries = Object.entries(byHall).sort((a, b) => b[1].pnl - a[1].pnl);
+  const maxAbs = Math.max(...entries.map(([, v]) => Math.abs(v.pnl)), 1);
+
+  el.innerHTML = entries.map(([hall, d]) => {
+    const pct = Math.round(Math.abs(d.pnl) / maxAbs * 100);
+    const isPos = d.pnl >= 0;
+    const barColor = isPos ? 'var(--success)' : 'var(--danger)';
+    const wr = Math.round(d.wins / d.total * 100);
+    const avgPnl = Math.round(d.pnl / d.total);
+    const sign = d.pnl >= 0 ? '+' : '';
+    const hEnc = encodeURIComponent(hall);
+    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
+        <span style="font-size:.82rem;font-weight:700;flex:1;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${hEnc}')),150)">${esc(hall)}</span>
+        <span style="font-size:.82rem;font-weight:800;color:${barColor};flex-shrink:0">${sign}${(d.pnl/10000).toFixed(1)}万</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
+          <div class="anim-bar" style="width:${pct}%;height:100%;background:${barColor};border-radius:2px"></div>
+        </div>
+        <span style="font-size:.63rem;color:var(--text3);flex-shrink:0">${d.total}回 ${wr}% avg${sign}${(avgPnl/1000).toFixed(1)}k</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ---------------------------------------------------------------------------
 // Seat analysis
 // ---------------------------------------------------------------------------
 function renderSeatAnalysis(sessions) {
@@ -5738,8 +5789,14 @@ async function loadTodayRecommendation() {
   body.style.display = 'none';
 
   try {
-    const data = await apiFetch('/api/hall/today_recommendation?days=30');
+    const [data, hallSummary] = await Promise.all([
+      apiFetch('/api/hall/today_recommendation?days=30'),
+      apiFetch('/api/sessions/hall_summary').catch(() => []),
+    ]);
     const halls = data.halls || [];
+    // build a map: hall_name → personal stats
+    const myStats = {};
+    (hallSummary || []).forEach(s => { myStats[s.hall_name] = s; });
 
     loading.style.display = 'none';
     body.style.display = 'block';
@@ -5779,6 +5836,7 @@ async function loadTodayRecommendation() {
           &nbsp;/&nbsp; 勝率 <strong>${top.win_rate}%</strong>
           &nbsp;/&nbsp; ${top.data_days}日分データ
         </div>
+        ${(() => { const m = myStats[top.hall_name]; if (!m || !m.total) return ''; const mc = m.total_pnl >= 0 ? 'var(--success)' : 'var(--danger)'; const ms = m.total_pnl >= 0 ? '+' : ''; return `<div style="margin-top:5px;font-size:.72rem;padding:4px 8px;background:rgba(255,255,255,.05);border-radius:6px;display:inline-flex;align-items:center;gap:6px"><span style="color:var(--text3)">あなたの実績</span><span style="color:var(--text2);font-weight:700">${m.wins}勝${m.losses}敗</span><span style="color:${mc};font-weight:700">${ms}${(m.total_pnl/10000).toFixed(1)}万</span><span style="color:var(--text3)">(${m.total}回)</span></div>`; })()}
         ${top.reasons.length ? `<div style="margin-top:6px;font-size:.74rem;color:var(--warning)">${top.reasons.map(r => '⚡ ' + esc(r)).join('&nbsp;&nbsp;')}</div>` : ''}
         <div style="display:flex;gap:8px;margin-top:10px">
           <button onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${topEnc}')),150)" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:.72rem;padding:6px 0;cursor:pointer">🏪 詳細を見る</button>
@@ -5811,6 +5869,19 @@ async function loadTodayRecommendation() {
       if (h.reasons.some(r => r.includes('末尾'))) tags.push(`<span style="background:rgba(251,191,36,.15);color:var(--warning);font-size:.6rem;padding:1px 5px;border-radius:4px">末尾${tail}強</span>`);
       if (h.reasons.some(r => r.includes('曜日'))) tags.push(`<span style="background:rgba(139,92,246,.15);color:#a78bfa;font-size:.6rem;padding:1px 5px;border-radius:4px">${esc(dow)}曜強</span>`);
 
+      // 個人実績バッジ
+      const my = myStats[h.hall_name];
+      let myBadge = '';
+      if (my && my.total >= 1) {
+        const myCol = my.total_pnl >= 0 ? 'var(--success)' : 'var(--danger)';
+        const mySign = my.total_pnl >= 0 ? '+' : '';
+        myBadge = `<div style="font-size:.6rem;color:var(--text3);margin-top:2px">
+          実績: <span style="color:var(--text2);font-weight:700">${my.wins}勝${my.losses}敗</span>
+          <span style="color:${myCol};font-weight:700;margin-left:3px">${mySign}${(my.total_pnl/10000).toFixed(1)}万</span>
+          <span style="color:var(--text3);margin-left:3px">(${my.total}回)</span>
+        </div>`;
+      }
+
       const hEnc = encodeURIComponent(h.hall_name);
       html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);${isStale ? 'opacity:.6' : ''}">
         <div style="width:22px;height:22px;border-radius:50%;background:${rankColor}20;color:${rankColor};font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i + 1}</div>
@@ -5820,6 +5891,7 @@ async function loadTodayRecommendation() {
             <div class="anim-bar" style="width:${scorePct}%;height:100%;background:${rankColors[i]||'var(--primary-h)'};border-radius:2px"></div>
           </div>
           <div style="display:flex;gap:4px;flex-wrap:wrap">${tags.join('')}</div>
+          ${myBadge}
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:.82rem;font-weight:700;color:${diffColor}">${diffSign}${h.avg_diff}枚</div>

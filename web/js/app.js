@@ -4964,20 +4964,26 @@ async function loadTodayBriefing(hall) {
     }).join('') || '';
 
     const streakRows = d.streak_seats?.length
-      ? d.streak_seats.map(s =>
-          `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0">
-             <span style="color:var(--text1)">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
-             <span style="color:var(--success);font-weight:700">🔥 ${s.streak}連勝 / 平均${sign(s.avg_diff)}枚</span>
-           </div>`
-        ).join('')
+      ? d.streak_seats.map(s => {
+          const stMEnc = encodeURIComponent(s.machine), stHEnc = encodeURIComponent(hall);
+          return `<div style="display:flex;align-items:center;gap:5px;font-size:.75rem;padding:3px 0">
+             <span style="color:var(--text1);flex:1">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
+             <span style="color:var(--success);font-weight:700;white-space:nowrap">🔥 ${s.streak}連勝 / ${sign(s.avg_diff)}枚</span>
+             <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${stMEnc}'),decodeURIComponent('${stHEnc}'))"
+               style="font-size:.6rem;padding:2px 5px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
+           </div>`;
+        }).join('')
       : '';
 
-    const hrRows = d.high_rate_machines?.map(m =>
-      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:2px 0">
-         <span>${esc(m.machine)}</span>
+    const hrRows = d.high_rate_machines?.map(m => {
+      const hrMEnc = encodeURIComponent(m.machine), hrHEnc = encodeURIComponent(hall);
+      return `<div style="display:flex;align-items:center;gap:5px;font-size:.75rem;padding:2px 0">
+         <span style="flex:1">${esc(m.machine)}</span>
          <span style="color:${m.high_rate>=25?'var(--success)':m.high_rate>=15?'var(--warning)':'var(--text3)'}">高設定率${m.high_rate}%</span>
-       </div>`
-    ).join('') || '';
+         <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${hrMEnc}'),decodeURIComponent('${hrHEnc}'))"
+           style="font-size:.6rem;padding:2px 5px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
+       </div>`;
+    }).join('') || '';
 
     body.innerHTML = `${eventBanner}${dowRow}
       <div style="margin-bottom:8px">

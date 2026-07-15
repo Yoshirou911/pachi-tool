@@ -64,24 +64,36 @@ HEADERS = {
 }
 
 
+def _load_saved_cookie() -> str:
+    """DBに保存済みのcf_clearance Cookieを取得"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        row = conn.execute(
+            "SELECT value FROM scrape_settings WHERE key='cf_cookie_str'"
+        ).fetchone()
+        conn.close()
+        return row[0] if row and row[0] else ""
+    except Exception:
+        return ""
+
+
 def _make_session(cookie_str: str = ""):
-    """
-    curl_cffi セッション（CF自動突破）を返す。
-    curl_cffi が未インストールなら cloudscraper にフォールバック。
-    cookie_str が指定された場合はそのCookieも追加注入する。
-    """
+    """curl_cffi セッションを返す。DB保存Cookie → Playwright自動取得の順で試みる。"""
+    # Cookie未指定の場合はDB保存Cookieを優先使用
+    if not cookie_str:
+        cookie_str = _load_saved_cookie()
+        if cookie_str:
+            print("  [curl_cffi + DB保存Cookie使用]")
+
     if _USE_CURL_CFFI:
-        # curl_cffi: Chrome120 の TLS フィンガープリントで CF を自動突破
         session = cf_requests.Session(impersonate="chrome120")
         session.headers.update(HEADERS)
-        # 追加Cookieがあれば注入（後方互換用）
         if cookie_str:
             for part in cookie_str.split(";"):
                 part = part.strip()
                 if "=" in part:
                     k, v = part.split("=", 1)
                     session.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
-            print("  [curl_cffi + Cookie注入済み]")
         else:
             print("  [curl_cffi: CF自動突破モード]")
         return session
@@ -92,19 +104,6 @@ def _make_session(cookie_str: str = ""):
     scraper = _cs_mod.create_scraper(
         browser={"browser": "chrome", "platform": "windows", "mobile": False}
     )
-    # DB保存のCookieを使用
-    if not cookie_str:
-        try:
-            conn = sqlite3.connect(DB_PATH)
-            row = conn.execute(
-                "SELECT value FROM scrape_settings WHERE key='cf_cookie_str'"
-            ).fetchone()
-            conn.close()
-            if row and row[0]:
-                cookie_str = row[0]
-                print("  [cloudscraper + DB保存Cookie使用]")
-        except Exception:
-            pass
     if cookie_str:
         for part in cookie_str.split(";"):
             part = part.strip()
@@ -350,7 +349,7 @@ class CloudflareBlockedError(Exception):
 
 
 def _get(session, url: str, retry: int = 2) -> Optional[BeautifulSoup]:
-    """GETしてBeautifulSoupを返す。CF検知時は CloudflareBlockedError を raise。"""
+    """GETしてBeautifulSoupを返す。CF検知時はPlaywrightでCookie更新してリトライ。"""
     for attempt in range(retry + 1):
         try:
             if _USE_CURL_CFFI:
@@ -358,7 +357,6 @@ def _get(session, url: str, retry: int = 2) -> Optional[BeautifulSoup]:
             else:
                 resp = session.get(url, headers=HEADERS, timeout=30)
 
-            # Cloudflare challenge/block 検知
             cf_blocked = (
                 resp.status_code in (403, 503) or
                 ("Just a moment" in resp.text and "cf_clearance" in resp.text) or
@@ -366,9 +364,20 @@ def _get(session, url: str, retry: int = 2) -> Optional[BeautifulSoup]:
                 "Enable JavaScript and cookies to continue" in resp.text
             )
             if cf_blocked:
-                if _USE_CURL_CFFI and attempt < retry:
-                    print(f"  [CF検知 リトライ {attempt+1}/{retry}]")
-                    time.sleep(5)
+                if attempt < retry:
+                    print(f"  [CF検知 {attempt+1}/{retry}] Playwrightでクッキー更新中...")
+                    try:
+                        from scraper.cf_bypass import refresh_and_save_cookie
+                        new_cookie = refresh_and_save_cookie(headless=True)
+                        if new_cookie and _USE_CURL_CFFI:
+                            for part in new_cookie.split(";"):
+                                part = part.strip()
+                                if "=" in part:
+                                    k, v = part.split("=", 1)
+                                    session.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
+                    except Exception as e:
+                        print(f"  [CF] Playwright更新失敗: {e}")
+                    time.sleep(3)
                     continue
                 raise CloudflareBlockedError(f"Cloudflare blocked (HTTP {resp.status_code})")
             if resp.status_code != 200:

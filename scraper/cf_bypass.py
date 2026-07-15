@@ -108,10 +108,38 @@ def get_cf_clearance(url: str = "https://ana-slo.com/", headless: bool = True) -
     return result
 
 
+def get_chrome_cookie_str(domain: str = "ana-slo.com") -> str:
+    """インストール済みChromeからana-slo.comのCookieを直接読み取る。
+    rookiepy が必要: pip install rookiepy
+    Chrome を閉じていなくてもOK（コピーして復号）。
+    """
+    try:
+        import rookiepy
+        cookies = rookiepy.chrome(domains=[domain])
+        if not cookies:
+            print(f"  [Chrome Cookie] {domain} のCookieなし")
+            return ""
+        parts = [f"{c['name']}={c['value']}" for c in cookies if c.get("value")]
+        cookie_str = "; ".join(parts)
+        cf = next((c["value"] for c in cookies if c["name"] == "cf_clearance"), "")
+        print(f"  [Chrome Cookie] {len(cookies)}件取得 / cf_clearance={'あり' if cf else 'なし'}")
+        return cookie_str
+    except ImportError:
+        print("  [Chrome Cookie] rookiepy 未インストール: pip install rookiepy")
+        return ""
+    except Exception as e:
+        print(f"  [Chrome Cookie] 取得エラー: {e}")
+        return ""
+
+
 def refresh_and_save_cookie(headless: bool = True) -> str:
-    """cf_clearance を取得してDBとローカル変数に保存。cookie_str を返す。"""
-    result = get_cf_clearance(headless=headless)
-    cookie_str = result.get("cookie_str", "")
+    """cf_clearance を取得してDBに保存。優先順: Chrome直読み → Playwright。"""
+    # 1st: Chrome の Cookie を直接読み取る（一番確実）
+    cookie_str = get_chrome_cookie_str("ana-slo.com")
+    if not cookie_str:
+        # 2nd: Playwright でブラウザ起動して取得
+        result = get_cf_clearance(headless=headless)
+        cookie_str = result.get("cookie_str", "")
     if cookie_str:
         try:
             from scraper.anaslo import init_db

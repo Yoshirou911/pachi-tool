@@ -39,6 +39,17 @@ HALLS = [
 ]
 
 
+def refresh_cookie() -> bool:
+    """ChromeからCookieを取得してDBに保存。成功したらTrue。"""
+    try:
+        from scraper.cf_bypass import refresh_and_save_cookie
+        cookie = refresh_and_save_cookie(headless=True)
+        return bool(cookie)
+    except Exception as e:
+        print(f"[Cookie更新] エラー: {e}")
+        return False
+
+
 def scrape_all(days: int = 5) -> int:
     """全ホールをスクレイプしてローカルDBに保存。成功件数を返す。"""
     from scraper.anaslo import scrape_hall
@@ -117,6 +128,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if not args.upload_only:
+        print("=== Cookie自動取得 ===")
+        ok = refresh_cookie()
+        if not ok:
+            print("[警告] Cookieの取得に失敗しました。Chrome で ana-slo.com を一度開いてから再実行してください。")
+
         print(f"=== スクレイプ開始 ({args.days}日分) ===")
         scrape_all(days=args.days)
 

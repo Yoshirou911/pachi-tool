@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS opportunity_profiles (
     catalog_key                TEXT,
     machine_name               TEXT NOT NULL,
     condition_label            TEXT NOT NULL DEFAULT '条件未設定',
+    exchange_type              TEXT NOT NULL DEFAULT 'unknown',
+    funding_mode               TEXT NOT NULL DEFAULT 'any',
+    reset_status               TEXT NOT NULL DEFAULT 'unknown',
     metric_name                TEXT NOT NULL DEFAULT '現在ゲーム数',
     unit_label                 TEXT NOT NULL DEFAULT 'G',
     start_threshold            REAL NOT NULL,
@@ -103,6 +106,9 @@ def init_db() -> None:
             "estimated_play_minutes": "INTEGER",
             "catalog_key": "TEXT",
             "condition_label": "TEXT NOT NULL DEFAULT '条件未設定'",
+            "exchange_type": "TEXT NOT NULL DEFAULT 'unknown'",
+            "funding_mode": "TEXT NOT NULL DEFAULT 'any'",
+            "reset_status": "TEXT NOT NULL DEFAULT 'unknown'",
             "source_urls_json": "TEXT NOT NULL DEFAULT '[]'",
             "curve_json": "TEXT NOT NULL DEFAULT '[]'",
             "discrepancy_note": "TEXT NOT NULL DEFAULT ''",
@@ -131,13 +137,17 @@ def _deserialize_profile(row: sqlite3.Row | dict | None) -> Optional[dict]:
 
 def save_profile(data: dict) -> dict:
     columns = (
-        "catalog_key", "machine_name", "condition_label", "metric_name", "unit_label", "start_threshold",
+        "catalog_key", "machine_name", "condition_label", "exchange_type", "funding_mode", "reset_status",
+        "metric_name", "unit_label", "start_threshold",
         "ceiling_threshold", "expected_value_yen", "estimated_play_minutes", "worst_case_investment_yen",
         "stop_rule", "source_name", "source_url", "source_urls_json", "curve_json",
         "verified_on", "confidence", "discrepancy_note", "notes",
     )
     values = dict(data)
     values["condition_label"] = data.get("condition_label") or "条件未設定"
+    values["exchange_type"] = data.get("exchange_type") or "unknown"
+    values["funding_mode"] = data.get("funding_mode") or "any"
+    values["reset_status"] = data.get("reset_status") or "unknown"
     for key in ("source_name", "source_url", "discrepancy_note", "notes"):
         values[key] = data.get(key) or ""
     source_urls = data.get("source_urls") or ([data["source_url"]] if data.get("source_url") else [])
@@ -188,12 +198,16 @@ def seed_catalog(path: Path | None = None) -> int:
         if row:
             values = dict(profile)
             values["condition_label"] = profile.get("condition_label") or "条件未設定"
+            values["exchange_type"] = profile.get("exchange_type") or "unknown"
+            values["funding_mode"] = profile.get("funding_mode") or "any"
+            values["reset_status"] = profile.get("reset_status") or "unknown"
             for field in ("source_name", "source_url", "discrepancy_note", "notes"):
                 values[field] = profile.get(field) or ""
             values["source_urls_json"] = json.dumps(profile.get("source_urls", []), ensure_ascii=False)
             values["curve_json"] = json.dumps(profile.get("curve_points", []), ensure_ascii=False)
             columns = (
-                "machine_name", "condition_label", "metric_name", "unit_label", "start_threshold",
+                "machine_name", "condition_label", "exchange_type", "funding_mode", "reset_status",
+                "metric_name", "unit_label", "start_threshold",
                 "ceiling_threshold", "expected_value_yen", "estimated_play_minutes", "worst_case_investment_yen",
                 "stop_rule", "source_name", "source_url", "source_urls_json", "curve_json",
                 "verified_on", "confidence", "discrepancy_note", "notes",
@@ -382,6 +396,89 @@ def assess_candidate(candidate: dict, profile: dict | None, risk_capacity_yen: i
         "ev_per_hour_yen": ev_per_hour,
         "matched_curve_value": curve_point.get("value") if curve_point else None,
     }
+
+
+def assess_quick_decision(
+    profile: dict | None,
+    current_value: float,
+    risk_capacity_yen: int,
+    exchange_type: str,
+    funding_mode: str,
+    reset_status: str,
+    minutes_until_close: int,
+) -> dict:
+    """現場入力とルール条件を照合し、閉店時間を含めて安全側に判定する。"""
+    if not profile:
+        return {
+            "judgment": "unknown", "reason": "一致する狙い目ルールがありません",
+            "actionable": False, "priority": -1000, "warnings": [],
+        }
+
+    mismatches: list[str] = []
+    profile_exchange = profile.get("exchange_type") or "unknown"
+    profile_funding = profile.get("funding_mode") or "any"
+    profile_reset = profile.get("reset_status") or "unknown"
+    if profile_exchange == "unknown":
+        mismatches.append("ルールの交換条件が未登録")
+    elif profile_exchange != exchange_type:
+        mismatches.append("交換条件がルールと不一致")
+    if profile_funding not in {"any", funding_mode}:
+        mismatches.append("現金／持ちメダル条件が不一致")
+    if reset_status == "unknown":
+        mismatches.append("据え置き／リセット状況が未確認")
+    elif profile_reset == "unknown":
+        mismatches.append("ルールのリセット条件が未登録")
+    elif profile_reset not in {"any", reset_status}:
+        mismatches.append("リセット条件がルールと不一致")
+    if mismatches:
+        return {
+            "judgment": "condition_mismatch", "reason": "・".join(mismatches),
+            "actionable": False, "priority": -60, "warnings": [],
+        }
+
+    assessment = assess_candidate(
+        {"current_value": current_value}, profile, max(0, int(risk_capacity_yen)),
+    )
+    assessment["warnings"] = []
+    assessment["minutes_until_close"] = minutes_until_close
+    assessment["estimated_play_minutes"] = profile.get("estimated_play_minutes")
+
+    verified_on = profile.get("verified_on")
+    if verified_on:
+        try:
+            age_days = (date.today() - date.fromisoformat(verified_on)).days
+            assessment["source_age_days"] = age_days
+            if age_days > 180 and assessment.get("actionable"):
+                assessment.update({
+                    "judgment": "verify", "reason": "情報確認から180日を超えています",
+                    "actionable": False, "priority": -45,
+                })
+        except ValueError:
+            assessment["warnings"].append("確認日の形式が不正です")
+
+    if minutes_until_close <= 0:
+        assessment.update({
+            "judgment": "closing_risk", "reason": "閉店時刻を過ぎています",
+            "actionable": False, "priority": -30,
+        })
+        return assessment
+
+    estimated_minutes = profile.get("estimated_play_minutes")
+    required_minutes = int(estimated_minutes) + 30 if estimated_minutes else 120
+    assessment["required_minutes_with_buffer"] = required_minutes
+    if assessment.get("judgment") == "target" and minutes_until_close < required_minutes:
+        detail = (
+            f"消化目安{int(estimated_minutes)}分＋余裕30分に対し、閉店まで{minutes_until_close}分"
+            if estimated_minutes else
+            f"消化時間が未登録のため、閉店2時間以内は見送り（残り{minutes_until_close}分）"
+        )
+        assessment.update({
+            "judgment": "closing_risk", "reason": detail,
+            "actionable": False, "priority": -30,
+        })
+    elif assessment.get("judgment") == "target" and not estimated_minutes:
+        assessment["warnings"].append("消化時間未登録：閉店リスクは安全側の120分基準")
+    return assessment
 
 
 def get_dashboard(month: str) -> dict:

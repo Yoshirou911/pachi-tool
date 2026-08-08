@@ -1121,6 +1121,29 @@
 
         <div id="opp-alert" class="opp-alert" style="display:none"></div>
 
+        <div class="card opp-quick-card">
+          <div class="card-title card-title-row"><span>10秒判定</span><span class="opp-live-badge">現場用</span></div>
+          <p class="hint" style="margin-bottom:12px">台の条件を選び、現在値を入れるだけで資金・閉店リスクまで判定します。</p>
+          <form id="opp-quick-form">
+            <div class="form-row-2col">
+              <div><label class="form-label">機種</label><select id="opp-quick-machine" class="form-select" required><option value="">機種を選択</option></select></div>
+              <div><label class="form-label">条件別ルール</label><select id="opp-quick-profile" class="form-select" required disabled><option value="">機種を先に選択</option></select></div>
+            </div>
+            <div class="form-row">
+              <label id="opp-quick-current-label" class="form-label">現在値</label>
+              <input id="opp-quick-current" class="form-input form-input-lg" type="number" min="0" step="1" inputmode="numeric" required placeholder="例：650">
+            </div>
+            <div class="opp-quick-conditions">
+              <div><label class="form-label">交換条件</label><select id="opp-quick-exchange" class="form-select"><option value="equivalent">等価</option><option value="56">5.6枚</option><option value="other">その他</option></select></div>
+              <div><label class="form-label">投資方法</label><select id="opp-quick-funding" class="form-select"><option value="cash">現金</option><option value="medals">持ちメダル</option></select></div>
+              <div><label class="form-label">台の状態</label><select id="opp-quick-reset" class="form-select"><option value="normal">通常・据え置き</option><option value="reset_confirmed">リセット確定</option><option value="unknown">不明</option></select></div>
+              <div><label class="form-label">閉店時刻</label><input id="opp-quick-close" class="form-input" type="time" value="22:45" required></div>
+            </div>
+            <button class="btn btn-primary btn-full opp-quick-submit" type="submit">この台を判定</button>
+          </form>
+          <div id="opp-quick-result" class="opp-quick-result" aria-live="polite"></div>
+        </div>
+
         <div class="card opp-budget-card">
           <div class="card-title card-title-row">
             <span>月間リスク管理</span><span id="opp-budget-status" class="required-note">未設定</span>
@@ -1168,6 +1191,11 @@
           <form id="opp-profile-form" style="margin-top:16px">
             <div class="form-row"><label class="form-label">機種</label><input id="opp-rule-machine" class="form-input" list="opp-machine-datalist" required autocomplete="off"></div>
             <div class="form-row"><label class="form-label">適用条件</label><input id="opp-condition" class="form-input" value="通常・等価" placeholder="例：リセット確定・5.6枚現金" required></div>
+            <div class="opp-quick-conditions opp-rule-conditions">
+              <div><label class="form-label">交換条件</label><select id="opp-rule-exchange" class="form-select"><option value="equivalent">等価</option><option value="56">5.6枚</option><option value="other">その他</option><option value="unknown">未確認</option></select></div>
+              <div><label class="form-label">投資方法</label><select id="opp-rule-funding" class="form-select"><option value="any">どちらでも</option><option value="cash">現金</option><option value="medals">持ちメダル</option></select></div>
+              <div><label class="form-label">台の状態</label><select id="opp-rule-reset" class="form-select"><option value="normal">通常・据え置き</option><option value="reset_confirmed">リセット確定</option><option value="any">どちらでも</option><option value="unknown">未確認</option></select></div>
+            </div>
             <div class="form-row-2col">
               <div><label class="form-label">判定指標</label><input id="opp-metric" class="form-input" value="現在ゲーム数" required></div>
               <div><label class="form-label">単位</label><input id="opp-unit" class="form-input" value="G" required></div>

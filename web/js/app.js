@@ -55,6 +55,7 @@ const api = {
   getDaitoAnalysis: () => apiFetch('/api/hall/daito'),
   getMachineRanking: (hall) => apiFetch(`/api/hall/machine_ranking?hall_name=${encodeURIComponent(hall)}`),
   getOpportunityDashboard: (month) => apiFetch(`/api/opportunity/dashboard?month=${encodeURIComponent(month)}`),
+  quickAssessOpportunity: (body) => apiFetch('/api/opportunity/quick-assess', { method: 'POST', body: JSON.stringify(body) }),
   createOpportunityProfile: (body) => apiFetch('/api/opportunity/profiles', { method: 'POST', body: JSON.stringify(body) }),
   deleteOpportunityProfile: (id) => apiFetch(`/api/opportunity/profiles/${id}`, { method: 'DELETE' }),
   createOpportunityCandidate: (body) => apiFetch('/api/opportunity/candidates', { method: 'POST', body: JSON.stringify(body) }),
@@ -3732,6 +3733,7 @@ function renderPinnedSeatsCard() {
 // Opportunity hunting page
 // ---------------------------------------------------------------------------
 let opportunityState = { profiles: [], candidates: [], recent_results: [], summary: null };
+let opportunityQuickResult = null;
 
 function currentMonthValue() {
   const now = new Date();
@@ -3747,6 +3749,117 @@ function opportunityMoney(value, signed = false) {
   if (value == null) return '--';
   const sign = signed && value > 0 ? '+' : '';
   return `${sign}${Number(value).toLocaleString()}円`;
+}
+
+function minutesUntilClosing(timeValue) {
+  const match = /^(\d{2}):(\d{2})$/.exec(timeValue || '');
+  if (!match) return 0;
+  const now = new Date();
+  const close = new Date(now);
+  close.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return Math.max(0, Math.ceil((close.getTime() - now.getTime()) / 60000));
+}
+
+function syncQuickConditions(profile) {
+  if (!profile) return;
+  if (['equivalent', '56', 'other'].includes(profile.exchange_type)) {
+    document.getElementById('opp-quick-exchange').value = profile.exchange_type;
+  }
+  if (['cash', 'medals'].includes(profile.funding_mode)) {
+    document.getElementById('opp-quick-funding').value = profile.funding_mode;
+  }
+  if (profile.reset_status === 'reset_confirmed') {
+    document.getElementById('opp-quick-reset').value = 'reset_confirmed';
+  } else if (profile.reset_status === 'normal') {
+    document.getElementById('opp-quick-reset').value = 'normal';
+  }
+}
+
+function updateOpportunityQuickProfileSelect(syncConditions = true) {
+  const machine = document.getElementById('opp-quick-machine').value;
+  const select = document.getElementById('opp-quick-profile');
+  const previous = Number(select.value);
+  const profiles = opportunityState.profiles.filter(profile => profile.machine_name === machine);
+  select.innerHTML = profiles.length
+    ? profiles.map(profile => `<option value="${profile.id}">${esc(profile.condition_label || profileTitle(profile))}</option>`).join('')
+    : '<option value="">登録済みルールなし</option>';
+  select.disabled = profiles.length === 0;
+  if (profiles.some(profile => profile.id === previous)) select.value = String(previous);
+  const profile = profiles.find(item => item.id === Number(select.value)) || profiles[0];
+  if (syncConditions) syncQuickConditions(profile);
+  document.getElementById('opp-quick-current-label').textContent = profile
+    ? `${profile.metric_name}（${profile.unit_label}）`
+    : '現在値';
+  document.getElementById('opp-quick-result').innerHTML = '';
+  opportunityQuickResult = null;
+}
+
+function autoSelectOpportunityQuickProfile() {
+  const machine = document.getElementById('opp-quick-machine').value;
+  const exchange = document.getElementById('opp-quick-exchange').value;
+  const funding = document.getElementById('opp-quick-funding').value;
+  const reset = document.getElementById('opp-quick-reset').value;
+  const select = document.getElementById('opp-quick-profile');
+  const matches = opportunityState.profiles.filter(profile =>
+    profile.machine_name === machine &&
+    profile.exchange_type === exchange &&
+    ['any', funding].includes(profile.funding_mode) &&
+    ['any', reset].includes(profile.reset_status)
+  );
+  if (matches.length && !matches.some(profile => profile.id === Number(select.value))) {
+    select.value = String(matches[0].id);
+  }
+  const profile = opportunityState.profiles.find(item => item.id === Number(select.value));
+  document.getElementById('opp-quick-current-label').textContent = profile
+    ? `${profile.metric_name}（${profile.unit_label}）`
+    : '現在値';
+  document.getElementById('opp-quick-result').innerHTML = matches.length
+    ? ''
+    : '<div class="opp-quick-inline-warning">この条件に一致する検証済みルールはありません</div>';
+  opportunityQuickResult = null;
+}
+
+function populateOpportunityQuickMachines() {
+  const select = document.getElementById('opp-quick-machine');
+  const machineNames = [...new Set(opportunityState.profiles.map(profile => profile.machine_name))].sort();
+  const saved = localStorage.getItem('pachi_quick_machine');
+  const current = select.value;
+  select.innerHTML = machineNames.length
+    ? machineNames.map(machine => `<option value="${esc(machine)}">${esc(machine)}</option>`).join('')
+    : '<option value="">ルール登録済み機種なし</option>';
+  select.value = machineNames.includes(current) ? current : (machineNames.includes(saved) ? saved : (machineNames[0] || ''));
+  updateOpportunityQuickProfileSelect(true);
+}
+
+function renderOpportunityQuickResult(result) {
+  const el = document.getElementById('opp-quick-result');
+  const labels = {
+    target: '着席候補', wait: 'まだ浅い', verify: '要確認', unknown: '判定不能',
+    insufficient_funds: '資金不足', condition_mismatch: '条件不一致', closing_risk: '閉店リスク',
+  };
+  const expected = result.expected_value_yen == null ? '--' : opportunityMoney(result.expected_value_yen, true);
+  const warnings = (result.warnings || []).map(warning => `<li>${esc(warning)}</li>`).join('');
+  const saveButton = result.actionable
+    ? '<button class="btn btn-secondary btn-full" type="button" data-opp-quick-save>候補台として保存</button>'
+    : '';
+  el.innerHTML = `
+    <div class="opp-quick-result-head">
+      <div><small>${esc(result.machine_name)}・${esc(result.condition_label)}</small><strong>${esc(labels[result.judgment] || result.judgment)}</strong></div>
+      <span class="opp-quick-signal opp-quick-signal-${esc(result.judgment)}">${result.actionable ? '候補' : '停止'}</span>
+    </div>
+    <p class="opp-quick-reason">${esc(result.reason)}</p>
+    <div class="opp-quick-metrics">
+      <div><small>現在</small><strong>${Number(result.current_value).toLocaleString()}${esc(result.unit_label)}</strong></div>
+      <div><small>開始</small><strong>${Number(result.start_threshold).toLocaleString()}${esc(result.unit_label)}</strong></div>
+      <div><small>期待値</small><strong>${expected}</strong></div>
+      <div><small>必要資金</small><strong>${opportunityMoney(result.worst_case_investment_yen)}</strong></div>
+      <div><small>閉店まで</small><strong>${result.minutes_until_close}分</strong></div>
+      <div><small>許容資金</small><strong>${opportunityMoney(result.risk_capacity_yen)}</strong></div>
+    </div>
+    ${warnings ? `<ul class="opp-quick-warnings">${warnings}</ul>` : ''}
+    <div class="opp-quick-stop"><b>やめどき</b>${esc(result.stop_rule || '未登録')}</div>
+    ${result.discrepancy_note ? `<div class="opp-discrepancy">数値差の扱い：${esc(result.discrepancy_note)}</div>` : ''}
+    ${saveButton}`;
 }
 
 function profileTitle(profile) {
@@ -3922,6 +4035,7 @@ async function loadOpportunityPage() {
     opportunityState = await api.getOpportunityDashboard(monthEl.value);
     document.getElementById('opp-machine-datalist').innerHTML = state.machines.map(machine => `<option value="${esc(machine)}">`).join('');
     renderOpportunitySummary(opportunityState.summary);
+    populateOpportunityQuickMachines();
     renderOpportunityProfiles(opportunityState.profiles);
     renderOpportunityCandidates(opportunityState.candidates);
     renderOpportunityResults(opportunityState.recent_results || []);
@@ -3943,6 +4057,19 @@ async function loadOpportunityPage() {
 }
 
 document.getElementById('opp-month').addEventListener('change', loadOpportunityPage);
+document.getElementById('opp-quick-machine').addEventListener('change', event => {
+  localStorage.setItem('pachi_quick_machine', event.target.value);
+  updateOpportunityQuickProfileSelect(true);
+});
+document.getElementById('opp-quick-profile').addEventListener('change', () => updateOpportunityQuickProfileSelect(true));
+['opp-quick-exchange', 'opp-quick-funding', 'opp-quick-reset'].forEach(id => {
+  document.getElementById(id).addEventListener('change', autoSelectOpportunityQuickProfile);
+});
+const savedQuickClose = localStorage.getItem('pachi_quick_close');
+if (savedQuickClose) document.getElementById('opp-quick-close').value = savedQuickClose;
+document.getElementById('opp-quick-close').addEventListener('change', event => {
+  localStorage.setItem('pachi_quick_close', event.target.value);
+});
 document.getElementById('opp-machine').addEventListener('change', updateOpportunityProfileSelect);
 document.getElementById('opp-machine').addEventListener('input', () => {
   if (state.machines.includes(document.getElementById('opp-machine').value.trim())) updateOpportunityProfileSelect();
@@ -3962,12 +4089,40 @@ document.getElementById('opp-budget-form').addEventListener('submit', async even
   } catch (error) { showToast(error.message, 'error'); }
 });
 
+document.getElementById('opp-quick-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const submit = event.submitter;
+  if (submit) submit.disabled = true;
+  try {
+    const request = {
+      month: document.getElementById('opp-month').value || currentMonthValue(),
+      machine_name: document.getElementById('opp-quick-machine').value,
+      profile_id: Number(document.getElementById('opp-quick-profile').value),
+      current_value: Number(document.getElementById('opp-quick-current').value),
+      exchange_type: document.getElementById('opp-quick-exchange').value,
+      funding_mode: document.getElementById('opp-quick-funding').value,
+      reset_status: document.getElementById('opp-quick-reset').value,
+      minutes_until_close: minutesUntilClosing(document.getElementById('opp-quick-close').value),
+    };
+    const response = await api.quickAssessOpportunity(request);
+    opportunityQuickResult = { ...response, ...request };
+    renderOpportunityQuickResult(opportunityQuickResult);
+  } catch (error) {
+    showToast(error.message, 'error');
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+});
+
 document.getElementById('opp-profile-form').addEventListener('submit', async event => {
   event.preventDefault();
   try {
     await api.createOpportunityProfile({
       machine_name: document.getElementById('opp-rule-machine').value.trim(),
       condition_label: document.getElementById('opp-condition').value.trim(),
+      exchange_type: document.getElementById('opp-rule-exchange').value,
+      funding_mode: document.getElementById('opp-rule-funding').value,
+      reset_status: document.getElementById('opp-rule-reset').value,
       metric_name: document.getElementById('opp-metric').value.trim(),
       unit_label: document.getElementById('opp-unit').value.trim(),
       start_threshold: Number(document.getElementById('opp-start').value),
@@ -3988,6 +4143,9 @@ document.getElementById('opp-profile-form').addEventListener('submit', async eve
     document.getElementById('opp-unit').value = 'G';
     document.getElementById('opp-condition').value = '通常・等価';
     document.getElementById('opp-confidence').value = 'verified';
+    document.getElementById('opp-rule-exchange').value = 'equivalent';
+    document.getElementById('opp-rule-funding').value = 'any';
+    document.getElementById('opp-rule-reset').value = 'normal';
     await loadOpportunityPage();
   } catch (error) { showToast(error.message, 'error'); }
 });
@@ -4011,6 +4169,22 @@ document.getElementById('opp-candidate-form').addEventListener('submit', async e
 });
 
 document.getElementById('page-opportunity').addEventListener('click', async event => {
+  const quickSaveButton = event.target.closest('[data-opp-quick-save]');
+  if (quickSaveButton && opportunityQuickResult?.actionable) {
+    try {
+      await api.createOpportunityCandidate({
+        machine_name: opportunityQuickResult.machine_name,
+        current_value: opportunityQuickResult.current_value,
+        profile_id: opportunityQuickResult.profile_id,
+        notes: `10秒判定・閉店まで${opportunityQuickResult.minutes_until_close}分`,
+      });
+      showToast('候補台として保存しました');
+      opportunityQuickResult = null;
+      document.getElementById('opp-quick-result').innerHTML = '';
+      await loadOpportunityPage();
+    } catch (error) { showToast(error.message, 'error'); }
+    return;
+  }
   const resultButton = event.target.closest('[data-opp-result]');
   if (resultButton) {
     document.querySelector(`[data-opp-result-form="${resultButton.dataset.oppResult}"]`)?.classList.toggle('open');

@@ -1,0 +1,19 @@
+{
+  "name": "PACHI TOOL Mobile",
+  "short_name": "PACHI TOOL",
+  "description": "期待値早見表・10秒判定・資金管理をオフラインで使えるフィールドツール",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#060b14",
+  "theme_color": "#07101f",
+  "lang": "ja",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

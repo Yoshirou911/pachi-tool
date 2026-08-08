@@ -9,6 +9,10 @@ env/
 # SQLite (DATA_DIR上のファイルは除外; machines/は含める)
 data/sessions.db
 data/hall_reports.db
+data/opportunities.db
+data/logs/
+build/
+dist/
 
 # OS
 .DS_Store

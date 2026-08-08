@@ -8,12 +8,34 @@ const API = window.location.hostname === 'localhost' || window.location.hostname
 // ---------------------------------------------------------------------------
 // API クライアント
 // ---------------------------------------------------------------------------
-async function apiFetch(path, opts = {}) {
+// サーバー側で PACHI_ACCESS_TOKEN を設定した場合のみ要求されるアクセスキー。
+// 未設定のサーバー（ローカル/デスクトップ版）に対しては何も送らず、従来どおり動く。
+const TOKEN_KEY = 'pachi_access_token';
+function getStoredToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
+}
+function setStoredToken(token) {
+  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
+}
+
+async function apiFetch(path, opts = {}, _retried = false) {
   const url = API + path;
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
+  let res;
+  try {
+    const headers = opts.body ? { 'Content-Type': 'application/json', ...(opts.headers || {}) } : (opts.headers || {});
+    const token = getStoredToken();
+    if (token) headers['X-Pachi-Token'] = token;
+    res = await fetch(url, { ...opts, headers });
+  } catch {
+    throw new Error('サーバーに接続できません。起動状態とネットワークを確認してください');
+  }
+  if (res.status === 401 && !_retried) {
+    const entered = window.prompt('アクセスキーを入力してください');
+    if (entered) {
+      setStoredToken(entered);
+      return apiFetch(path, opts, true);
+    }
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || res.statusText);
@@ -32,6 +54,13 @@ const api = {
   getHalls: () => apiFetch('/api/halls'),
   getDaitoAnalysis: () => apiFetch('/api/hall/daito'),
   getMachineRanking: (hall) => apiFetch(`/api/hall/machine_ranking?hall_name=${encodeURIComponent(hall)}`),
+  getOpportunityDashboard: (month) => apiFetch(`/api/opportunity/dashboard?month=${encodeURIComponent(month)}`),
+  createOpportunityProfile: (body) => apiFetch('/api/opportunity/profiles', { method: 'POST', body: JSON.stringify(body) }),
+  deleteOpportunityProfile: (id) => apiFetch(`/api/opportunity/profiles/${id}`, { method: 'DELETE' }),
+  createOpportunityCandidate: (body) => apiFetch('/api/opportunity/candidates', { method: 'POST', body: JSON.stringify(body) }),
+  updateOpportunityCandidate: (id, body) => apiFetch(`/api/opportunity/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  createOpportunityResult: (id, body) => apiFetch(`/api/opportunity/candidates/${id}/result`, { method: 'POST', body: JSON.stringify(body) }),
+  updateOpportunityBudget: (body) => apiFetch('/api/opportunity/budget', { method: 'PUT', body: JSON.stringify(body) }),
 };
 
 // ---------------------------------------------------------------------------
@@ -73,11 +102,87 @@ const state = {
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
-function switchTab(tabId) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+const sidebarToggle = document.getElementById('sidebar-toggle');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+const mainNavigation = document.getElementById('main-navigation');
+const desktopSidebar = window.matchMedia('(min-width: 900px)');
+const navBackButton = document.getElementById('nav-back');
+const navForwardButton = document.getElementById('nav-forward');
+let navigationEntries = ['estimate'];
+let navigationIndex = 0;
+
+function updateNavigationButtons() {
+  navBackButton.disabled = navigationIndex <= 0;
+  navForwardButton.disabled = navigationIndex >= navigationEntries.length - 1;
+}
+
+function recordNavigation(tabId) {
+  if (navigationEntries[navigationIndex] === tabId) return;
+  navigationEntries = navigationEntries.slice(0, navigationIndex + 1);
+  navigationEntries.push(tabId);
+  navigationIndex = navigationEntries.length - 1;
+}
+
+function sidebarIsOpen() {
+  return desktopSidebar.matches
+    ? !document.body.classList.contains('sidebar-closed')
+    : document.body.classList.contains('sidebar-open');
+}
+
+function updateSidebarA11y() {
+  const isOpen = sidebarIsOpen();
+  sidebarToggle.setAttribute('aria-expanded', String(isOpen));
+  sidebarToggle.setAttribute('aria-label', isOpen ? 'メニューを閉じる' : 'メニューを開く');
+  mainNavigation.toggleAttribute('inert', !isOpen);
+  mainNavigation.setAttribute('aria-hidden', String(!isOpen));
+}
+
+function setSidebar(open) {
+  if (desktopSidebar.matches) {
+    document.body.classList.remove('sidebar-open');
+    document.body.classList.toggle('sidebar-closed', !open);
+    localStorage.setItem('pachi_sidebar_closed', String(!open));
+  } else {
+    document.body.classList.remove('sidebar-closed');
+    document.body.classList.toggle('sidebar-open', open);
+  }
+  updateSidebarA11y();
+}
+
+function initializeSidebar() {
+  const open = desktopSidebar.matches
+    ? localStorage.getItem('pachi_sidebar_closed') !== 'true'
+    : false;
+  setSidebar(open);
+}
+
+sidebarToggle.addEventListener('click', () => setSidebar(!sidebarIsOpen()));
+sidebarBackdrop.addEventListener('click', () => setSidebar(false));
+desktopSidebar.addEventListener('change', initializeSidebar);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && sidebarIsOpen()) setSidebar(false);
+});
+initializeSidebar();
+
+function switchTab(tabId, options = {}) {
+  const { record = true, resetHistory = false } = options;
+  if (!document.getElementById(`page-${tabId}`)) return;
+  if (resetHistory) {
+    navigationEntries = [tabId];
+    navigationIndex = 0;
+  } else if (record) {
+    recordNavigation(tabId);
+  }
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const active = b.dataset.tab === tabId;
+    b.classList.toggle('active', active);
+    if (active) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${tabId}`));
   window.scrollTo(0, 0);
   localStorage.setItem('pachi_last_tab', tabId);
+  if (!desktopSidebar.matches) setSidebar(false);
   if (tabId === 'session') loadSessions();
   if (tabId === 'hall') {
     const last = localStorage.getItem('pachi_last_hall_tab') || 'compare';
@@ -86,7 +191,30 @@ function switchTab(tabId) {
   if (tabId === 'map') loadMapPage();
   if (tabId === 'ai') loadAiPage();
   if (tabId === 'machines') loadMachinesPage();
+  if (tabId === 'opportunity') loadOpportunityPage();
+  updateNavigationButtons();
 }
+
+function navigateHistory(direction) {
+  const nextIndex = navigationIndex + direction;
+  if (nextIndex < 0 || nextIndex >= navigationEntries.length) return;
+  navigationIndex = nextIndex;
+  switchTab(navigationEntries[navigationIndex], { record: false });
+}
+
+navBackButton.addEventListener('click', () => navigateHistory(-1));
+navForwardButton.addEventListener('click', () => navigateHistory(1));
+document.addEventListener('keydown', event => {
+  if (!event.altKey) return;
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    navigateHistory(-1);
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    navigateHistory(1);
+  }
+});
+updateNavigationButtons();
 
 function switchHallTab(htabId) {
   document.querySelectorAll('.hall-sub-btn').forEach(b => b.classList.toggle('active', b.dataset.htab === htabId));
@@ -236,6 +364,54 @@ const estResult = document.getElementById('est-result');
 const estSaveBtn = document.getElementById('est-save-btn');
 const estSaveForm = document.getElementById('est-save-form');
 const estResetBtn = document.getElementById('est-reset-btn');
+const estReadyText = document.getElementById('est-ready-text');
+const estReadyBar = document.getElementById('est-ready-bar');
+
+function getEstimateReadiness() {
+  const machineReady = Boolean(state.currentMachine && state.currentProfile);
+  const games = Number.parseInt(estGames.value, 10) || 0;
+  const startedFrom = Number.parseInt(document.getElementById('est-started-from')?.value, 10) || 0;
+  const observedGames = games - startedFrom;
+
+  if (!machineReady) return { ready: false, progress: 0, text: 'まず機種を選択してください' };
+  if (games <= 0) return { ready: false, progress: 50, text: '総ゲーム数を入力してください' };
+  if (startedFrom > games) return { ready: false, progress: 65, text: '引き継ぎG数が総G数を超えています' };
+
+  const invalidCount = [...estCountsList.querySelectorAll('.count-input')].find(input => {
+    const value = Number.parseInt(input.value, 10) || 0;
+    return value < 0 || value > observedGames;
+  });
+  if (invalidCount) {
+    return { ready: false, progress: 80, text: `${invalidCount.dataset.el}の回数を確認してください` };
+  }
+
+  const entered = [...estCountsList.querySelectorAll('.count-input')]
+    .filter(input => (Number.parseInt(input.value, 10) || 0) > 0).length;
+  const suffix = entered ? `・カウント${entered}項目` : '・事前分布のみ';
+  return {
+    ready: true,
+    progress: 100,
+    text: `${state.currentMachine}・実観測${observedGames.toLocaleString()}G${suffix}`,
+  };
+}
+
+function updateEstimateReadiness() {
+  const status = getEstimateReadiness();
+  estRunBtn.disabled = !status.ready;
+  if (estReadyText) {
+    estReadyText.textContent = status.text;
+    estReadyText.style.color = status.ready ? 'var(--success)' :
+      status.progress >= 65 ? 'var(--warning)' : 'var(--text2)';
+  }
+  if (estReadyBar) estReadyBar.style.width = `${status.progress}%`;
+
+  const steps = document.querySelectorAll('.flow-step');
+  steps.forEach((step, index) => {
+    const active = index === 0 ? !state.currentMachine : index === 1 ? !status.ready : status.ready;
+    step.classList.toggle('active', active);
+  });
+  return status;
+}
 
 async function loadMachineSelect() {
   try {
@@ -351,6 +527,17 @@ document.getElementById('est-seat-number')?.addEventListener('input', async func
   }
 });
 
+let _machineInputTimer;
+estMachine.addEventListener('input', () => {
+  clearTimeout(_machineInputTimer);
+  const name = estMachine.value.trim();
+  // datalist はモバイルブラウザによって change の発火タイミングが異なるため、
+  // 有効な完全一致候補は input からも確定する。
+  if (name && state.machines.includes(name) && name !== state.currentMachine) {
+    _machineInputTimer = setTimeout(() => estMachine.dispatchEvent(new Event('change')), 120);
+  }
+});
+
 estMachine.addEventListener('change', async () => {
   const name = estMachine.value.trim();
   if (name && state.machines && !state.machines.includes(name)) return; // 無効な入力は無視
@@ -360,15 +547,14 @@ estMachine.addEventListener('change', async () => {
   if (!name) {
     estCountsList.innerHTML = '<p class="hint">機種を選択するとカウント入力欄が表示されます</p>';
     estResetBtn.style.display = 'none';
-    estRunBtn.disabled = true;
     state.currentProfile = null;
     document.getElementById('est-confirm-section').style.display = 'none';
+    updateEstimateReadiness();
     return;
   }
   try {
     state.currentProfile = await api.getMachine(name);
     renderCountInputs(state.currentProfile);
-    estRunBtn.disabled = false;
     estResetBtn.style.display = 'block';
     document.getElementById('est-confirm-section').style.display = 'block';
     updateConfirmBadge();
@@ -377,13 +563,17 @@ estMachine.addEventListener('change', async () => {
     renderCdCounts(state.currentProfile);
     // 保存したドラフトを復元
     restoreDraft(name);
+    updateDerivedCountState(null);
     // 直近セッション表示
     loadRecentSessions(name);
     // 事前分布品質バッジ更新
     loadPriorQuality();
     // 機械割目安テーブル表示
     renderKwHint(state.currentProfile);
+    updateEstimateReadiness();
   } catch (e) {
+    state.currentProfile = null;
+    updateEstimateReadiness();
     showToast('機種データ取得失敗: ' + e.message, 'error');
   }
 });
@@ -524,7 +714,7 @@ async function loadRecentSessions(machineName) {
 function renderCountInputs(profile) {
   estCountsList.innerHTML = profile.elements.map(el => `
     <div class="count-row" data-element="${esc(el.name)}">
-      <span class="count-name">${esc(el.name)}</span>
+      <span class="count-name">${esc(el.name)}${el.name.includes('合算') ? '<small>BB/RB入力時は自動除外</small>' : ''}</span>
       <div class="count-stepper">
         <button class="count-btn" data-dir="-1">−</button>
         <input class="count-input" type="number" min="0" value="0"
@@ -542,19 +732,42 @@ function renderCountInputs(profile) {
       const cur = parseInt(input.value) || 0;
       const next = Math.max(0, cur + parseInt(btn.dataset.dir));
       input.value = next;
+      updateDerivedCountState(input);
       saveDraft();
+      updateEstimateReadiness();
       autoEstimate();
     });
   });
 
   // 直接入力
   estCountsList.querySelectorAll('.count-input').forEach(input => {
-    input.addEventListener('input', () => { saveDraft(); autoEstimate(); });
+    input.addEventListener('input', () => {
+      updateDerivedCountState(input);
+      saveDraft();
+      updateEstimateReadiness();
+      autoEstimate();
+    });
   });
 }
 
+function updateDerivedCountState(changedInput) {
+  const combined = [...estCountsList.querySelectorAll('.count-input')]
+    .find(input => input.dataset.el?.includes('合算'));
+  if (!combined) return;
+  const components = [...estCountsList.querySelectorAll('.count-input')]
+    .filter(input => input !== combined && /BB|RB|BIG|REG/.test(input.dataset.el || ''));
+  const hasComponentCounts = components.some(input => (Number.parseInt(input.value, 10) || 0) > 0);
+  if (hasComponentCounts && changedInput !== combined) combined.value = 0;
+  combined.disabled = hasComponentCounts;
+  combined.closest('.count-row')?.classList.toggle('count-row-muted', hasComponentCounts);
+}
+
 // ゲーム数変更でも自動推測
-estGames.addEventListener('input', () => { saveDraft(); autoEstimate(); });
+estGames.addEventListener('input', () => { saveDraft(); updateEstimateReadiness(); autoEstimate(); });
+document.getElementById('est-started-from')?.addEventListener('input', () => {
+  updateEstimateReadiness();
+  autoEstimate();
+});
 estHall.addEventListener('change', () => {
   state.currentHall = estHall.value;
   autoEstimate();
@@ -565,8 +778,10 @@ estDom.addEventListener('input', autoEstimate);
 estEvent.addEventListener('change', autoEstimate);
 
 let _autoTimer;
+let _estimateRequestId = 0;
 function autoEstimate() {
   clearTimeout(_autoTimer);
+  if (!getEstimateReadiness().ready) return;
   _autoTimer = setTimeout(runEstimate, 600);
 }
 
@@ -639,14 +854,19 @@ document.querySelectorAll('.note-tag').forEach(btn => {
 });
 
 async function runEstimate() {
-  if (!state.currentMachine) return;
+  const readiness = updateEstimateReadiness();
+  if (!readiness.ready) return;
   const counts = getCountValues();
   const games = parseInt(estGames.value) || 0;
   const startedFrom = parseInt(document.getElementById('est-started-from')?.value) || 0;
   const seatNum = parseInt(document.getElementById('est-seat-number')?.value) || null;
   const weekday = estWeekday.value !== '' ? parseInt(estWeekday.value) : null;
   const dom = estDom.value ? parseInt(estDom.value) : null;
+  const requestId = ++_estimateRequestId;
 
+  const originalText = estRunBtn.textContent;
+  estRunBtn.disabled = true;
+  estRunBtn.textContent = '推定中…';
   try {
     const result = await api.estimate({
       machine_name: state.currentMachine,
@@ -660,6 +880,7 @@ async function runEstimate() {
       ...(state.minSetting ? { min_setting: state.minSetting } : {}),
       ...(seatNum ? { seat_number: seatNum } : {}),
     });
+    if (requestId !== _estimateRequestId) return;
     state.lastEstimate = { result, machine: state.currentMachine, games, startedFrom, counts };
     // 推測履歴を積む（最大20件）
     if (result.expected_setting) {
@@ -668,7 +889,12 @@ async function runEstimate() {
     }
     renderEstimateResult(result);
   } catch (e) {
-    showToast('推測エラー: ' + e.message, 'error');
+    if (requestId === _estimateRequestId) showToast('推測エラー: ' + e.message, 'error');
+  } finally {
+    if (requestId === _estimateRequestId) {
+      estRunBtn.textContent = originalText;
+      updateEstimateReadiness();
+    }
   }
 }
 
@@ -803,11 +1029,11 @@ function renderEstimateResult(r) {
     const sorted = Object.entries(r.element_powers).sort((a,b) => b[1]-a[1]);
     const maxPow = sorted[0]?.[1] || 1;
     const corrWarning = r.correlated_elements?.length
-      ? `<div style="color:#f97316;font-size:.7rem;margin-top:6px">相関要素あり（二重計上の可能性）: ${r.correlated_elements.map(([a,b]) => `${a}↔${b}`).join(', ')}</div>`
+      ? `<div style="color:#fb923c;font-size:.7rem;margin-top:7px;line-height:1.45">相関の強い組み合わせが${r.correlated_elements.length}件あります。合算値と内訳の重複入力に注意してください。</div>`
       : '';
     powerEl.style.display = 'block';
     powerEl.innerHTML = `<div style="font-size:.68rem;color:var(--text3);margin-bottom:5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">要素別識別力</div>
-      ${sorted.map(([name, pow]) => {
+      ${sorted.slice(0, 3).map(([name, pow]) => {
         const pct = Math.round(pow / maxPow * 100);
         const col = pct >= 70 ? 'var(--success)' : pct >= 40 ? 'var(--warning)' : 'var(--text3)';
         return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
@@ -945,7 +1171,7 @@ function renderEstimateResult(r) {
   fetchAiEstimateComment(r);
 
   // スクロール
-  setTimeout(() => estResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
+  setTimeout(() => estResult.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
 }
 
 async function fetchAiEstimateComment(r) {
@@ -3502,6 +3728,331 @@ function renderPinnedSeatsCard() {
   card.style.display = 'block';
 }
 
+// ---------------------------------------------------------------------------
+// Opportunity hunting page
+// ---------------------------------------------------------------------------
+let opportunityState = { profiles: [], candidates: [], recent_results: [], summary: null };
+
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function nullableNumber(id) {
+  const raw = document.getElementById(id)?.value;
+  return raw === '' || raw == null ? null : Number(raw);
+}
+
+function opportunityMoney(value, signed = false) {
+  if (value == null) return '--';
+  const sign = signed && value > 0 ? '+' : '';
+  return `${sign}${Number(value).toLocaleString()}円`;
+}
+
+function profileTitle(profile) {
+  return `${profile.metric_name} ${Number(profile.start_threshold).toLocaleString()}${profile.unit_label}〜`;
+}
+
+function safeExternalUrl(raw) {
+  try {
+    const url = new URL(raw);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function updateOpportunityProfileSelect() {
+  const machine = document.getElementById('opp-machine').value.trim();
+  const select = document.getElementById('opp-profile');
+  const profiles = opportunityState.profiles.filter(profile => profile.machine_name === machine);
+  select.innerHTML = profiles.length
+    ? `<option value="">ルールを選択</option>${profiles.map(profile =>
+        `<option value="${profile.id}">${esc(profile.condition_label || '条件未設定')}・${esc(profileTitle(profile))}</option>`
+      ).join('')}`
+    : '<option value="">登録済みルールなし</option>';
+  select.disabled = profiles.length === 0;
+  document.getElementById('opp-rule-machine').value = machine;
+  updateOpportunityCurrentLabel();
+}
+
+function updateOpportunityCurrentLabel() {
+  const select = document.getElementById('opp-profile');
+  const profile = opportunityState.profiles.find(item => item.id === Number(select.value));
+  document.getElementById('opp-current-label').textContent = profile
+    ? `${profile.metric_name}（${profile.unit_label}）`
+    : '現在値';
+}
+
+function renderOpportunitySummary(summary) {
+  const status = document.getElementById('opp-budget-status');
+  status.textContent = summary.configured ? '設定済み' : '未設定';
+  status.className = summary.configured ? 'optional-note' : 'required-note';
+  document.getElementById('opp-current-bankroll').textContent = summary.configured ? opportunityMoney(summary.current_bankroll) : '--';
+  document.getElementById('opp-remaining-loss').textContent = summary.configured ? opportunityMoney(summary.remaining_loss_yen) : '--';
+  const net = document.getElementById('opp-net-profit');
+  net.textContent = opportunityMoney(summary.net_profit_yen, true);
+  net.className = summary.net_profit_yen >= 0 ? 'opp-money-up' : 'opp-money-down';
+  document.getElementById('opp-plays').textContent = `${summary.plays}回`;
+  if (summary.configured) {
+    document.getElementById('opp-bankroll').value = summary.starting_bankroll;
+    document.getElementById('opp-loss-limit').value = summary.loss_limit_yen;
+  }
+}
+
+function renderOpportunityProfiles(profiles) {
+  const el = document.getElementById('opp-profile-list');
+  if (!profiles.length) {
+    el.innerHTML = '<p class="hint center">狙い目ルールはまだありません</p>';
+    return;
+  }
+  const labels = { official: '公式', verified: '確認済み', reference: '参考', unverified: '未確認' };
+  el.innerHTML = `<div style="font-size:.65rem;color:var(--text3);margin-bottom:5px">登録済みルール（${profiles.length}条件）</div>` + profiles.map(profile => {
+    const curves = Array.isArray(profile.curve_points) ? profile.curve_points : [];
+    const sources = (Array.isArray(profile.source_urls) ? profile.source_urls : [profile.source_url])
+      .map(safeExternalUrl).filter(Boolean);
+    const curveRows = curves.map(point => `
+      <div class="opp-curve-row">
+        <span>${Number(point.value).toLocaleString()}${esc(profile.unit_label)}</span>
+        <strong class="${point.ev_yen >= 0 ? 'opp-money-up' : 'opp-money-down'}">${opportunityMoney(point.ev_yen, true)}</strong>
+        <span>${point.worst_case_yen == null ? '--' : opportunityMoney(point.worst_case_yen)}</span>
+      </div>`).join('');
+    const sourceLinks = sources.map((url, index) =>
+      `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">出典${index + 1}</a>`
+    ).join('');
+    return `<div class="opp-profile-row">
+      <div class="opp-profile-body">
+        <div class="opp-profile-head">
+          <div>
+            <div class="opp-profile-name">${esc(profile.machine_name)}</div>
+            <div class="opp-condition">${esc(profile.condition_label || '条件未設定')}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" type="button" data-opp-delete-profile="${profile.id}">無効化</button>
+        </div>
+        <div class="opp-profile-meta">${esc(profileTitle(profile))}・${esc(labels[profile.confidence] || profile.confidence)}・確認 ${esc(profile.verified_on || '未設定')}・必要資金目安 ${opportunityMoney(profile.worst_case_investment_yen)}</div>
+        ${curves.length ? `<details class="opp-curve"><summary>期待値表を見る（${curves.length}点）</summary><div class="opp-curve-head"><span>現在値</span><span>期待値</span><span>必要資金目安</span></div>${curveRows}</details>` : ''}
+        ${profile.discrepancy_note ? `<div class="opp-discrepancy">数値差の扱い：${esc(profile.discrepancy_note)}</div>` : ''}
+        ${sourceLinks ? `<div class="opp-source-links">${sourceLinks}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function opportunityJudgmentLabel(judgment) {
+  return {
+    target: '狙い候補', wait: '待ち', verify: '要検証', unknown: '判定不能',
+    insufficient_funds: '資金不足',
+  }[judgment] || judgment;
+}
+
+function renderOpportunityCandidates(candidates) {
+  const el = document.getElementById('opp-candidate-list');
+  document.getElementById('opp-open-count').textContent = `${candidates.length}台`;
+  if (!candidates.length) {
+    el.innerHTML = '<p class="hint center">候補台はまだありません</p>';
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  el.innerHTML = candidates.map(candidate => {
+    const expected = candidate.expected_value_yen == null ? '未算出' : opportunityMoney(candidate.expected_value_yen);
+    const location = [candidate.hall_name, candidate.seat_number ? `${candidate.seat_number}番台` : ''].filter(Boolean).join('・') || '店舗・台番未登録';
+    const current = `${Number(candidate.current_value).toLocaleString()}${esc(candidate.unit_label || '')}`;
+    const source = candidate.source_name ? `・根拠 ${esc(candidate.source_name)}` : '';
+    return `<div class="opp-candidate" data-candidate-id="${candidate.id}">
+      <div class="opp-candidate-top">
+        <span class="opp-rank">${candidate.rank}</span>
+        <div class="opp-candidate-main">
+          <div class="opp-candidate-name">${esc(candidate.machine_name)}</div>
+          <div class="opp-candidate-meta">${esc(candidate.condition_label || '条件未設定')}・${esc(location)}${source}</div>
+        </div>
+        <span class="opp-judgment opp-judgment-${esc(candidate.judgment)}">${esc(opportunityJudgmentLabel(candidate.judgment))}</span>
+      </div>
+      <div class="opp-candidate-data">
+        <span>現在 <strong>${current}</strong></span>
+        <span>開始 <strong>${candidate.start_threshold == null ? '--' : Number(candidate.start_threshold).toLocaleString() + esc(candidate.unit_label || '')}</strong></span>
+        <span>期待値 <strong>${expected}</strong></span>
+        <span>時間効率 <strong>${candidate.ev_per_hour_yen == null ? '--' : opportunityMoney(candidate.ev_per_hour_yen) + '/h'}</strong></span>
+        <span>必要資金目安 <strong>${opportunityMoney(candidate.worst_case_investment_yen)}</strong></span>
+      </div>
+      <div class="opp-reason">${esc(candidate.reason)}${candidate.stop_rule ? `・やめどき：${esc(candidate.stop_rule)}` : ''}</div>
+      <div class="opp-actions">
+        <button class="btn btn-secondary btn-sm" type="button" data-opp-result="${candidate.id}">実戦結果を入力</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-opp-skip="${candidate.id}">見送り</button>
+      </div>
+      <form class="opp-result-form" data-opp-result-form="${candidate.id}">
+        <div class="form-row-2col">
+          <div><label class="form-label">投資（円）</label><input name="investment_yen" class="form-input" type="number" min="0" step="1000" required></div>
+          <div><label class="form-label">回収（円）</label><input name="returns_yen" class="form-input" type="number" min="0" step="1000" required></div>
+        </div>
+        <div class="form-row-2col">
+          <div><label class="form-label">実戦日</label><input name="played_on" class="form-input" type="date" value="${today}" required></div>
+          <div><label class="form-label">時間（分）</label><input name="played_minutes" class="form-input" type="number" min="0" max="1440"></div>
+        </div>
+        <div class="form-row"><label class="form-label">メモ</label><input name="notes" class="form-input" placeholder="当選契機・終了状況など"></div>
+        <button class="btn btn-primary btn-full" type="submit">結果を保存</button>
+      </form>
+    </div>`;
+  }).join('');
+}
+
+function renderOpportunityResults(results) {
+  const el = document.getElementById('opp-result-list');
+  if (!results.length) {
+    el.innerHTML = '<p class="hint center">実戦結果はまだありません</p>';
+    return;
+  }
+  el.innerHTML = results.map(result => {
+    const netClass = result.net_profit_yen >= 0 ? 'opp-money-up' : 'opp-money-down';
+    return `<div class="opp-result-row">
+      <div class="opp-result-body">
+        <div class="opp-result-name">${esc(result.machine_name)}${result.seat_number ? `・${result.seat_number}番台` : ''}</div>
+        <div class="opp-result-meta">${esc(result.played_on)}・投資 ${opportunityMoney(result.investment_yen)}・回収 ${opportunityMoney(result.returns_yen)}・${result.played_minutes || 0}分</div>
+      </div>
+      <strong class="${netClass}">${opportunityMoney(result.net_profit_yen, true)}</strong>
+    </div>`;
+  }).join('');
+}
+
+async function loadOpportunityPage() {
+  const monthEl = document.getElementById('opp-month');
+  if (!monthEl.value) monthEl.value = currentMonthValue();
+  const list = document.getElementById('opp-candidate-list');
+  if (!opportunityState.summary) list.innerHTML = loadingHtml(3);
+  try {
+    opportunityState = await api.getOpportunityDashboard(monthEl.value);
+    document.getElementById('opp-machine-datalist').innerHTML = state.machines.map(machine => `<option value="${esc(machine)}">`).join('');
+    renderOpportunitySummary(opportunityState.summary);
+    renderOpportunityProfiles(opportunityState.profiles);
+    renderOpportunityCandidates(opportunityState.candidates);
+    renderOpportunityResults(opportunityState.recent_results || []);
+    updateOpportunityProfileSelect();
+
+    const alert = document.getElementById('opp-alert');
+    if (!opportunityState.summary.configured) {
+      alert.textContent = '先に運用資金と月間損失上限を設定してください。資金未設定では狙い候補を出しません。';
+      alert.style.display = 'block';
+    } else if (!opportunityState.profiles.length) {
+      alert.textContent = '狙い目ルールが未登録です。出典と確認日を含むルールを登録してください。';
+      alert.style.display = 'block';
+    } else {
+      alert.style.display = 'none';
+    }
+  } catch (error) {
+    list.innerHTML = `<p class="hint center">読み込み失敗: ${esc(error.message)}</p>`;
+  }
+}
+
+document.getElementById('opp-month').addEventListener('change', loadOpportunityPage);
+document.getElementById('opp-machine').addEventListener('change', updateOpportunityProfileSelect);
+document.getElementById('opp-machine').addEventListener('input', () => {
+  if (state.machines.includes(document.getElementById('opp-machine').value.trim())) updateOpportunityProfileSelect();
+});
+document.getElementById('opp-profile').addEventListener('change', updateOpportunityCurrentLabel);
+
+document.getElementById('opp-budget-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api.updateOpportunityBudget({
+      month: document.getElementById('opp-month').value,
+      starting_bankroll: Number(document.getElementById('opp-bankroll').value),
+      loss_limit_yen: Number(document.getElementById('opp-loss-limit').value),
+    });
+    showToast('月間資金を保存しました');
+    await loadOpportunityPage();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('opp-profile-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api.createOpportunityProfile({
+      machine_name: document.getElementById('opp-rule-machine').value.trim(),
+      condition_label: document.getElementById('opp-condition').value.trim(),
+      metric_name: document.getElementById('opp-metric').value.trim(),
+      unit_label: document.getElementById('opp-unit').value.trim(),
+      start_threshold: Number(document.getElementById('opp-start').value),
+      ceiling_threshold: nullableNumber('opp-ceiling'),
+      expected_value_yen: nullableNumber('opp-expected'),
+      estimated_play_minutes: nullableNumber('opp-estimated-minutes'),
+      worst_case_investment_yen: nullableNumber('opp-worst'),
+      stop_rule: document.getElementById('opp-stop-rule').value.trim(),
+      source_name: document.getElementById('opp-source-name').value.trim(),
+      source_url: document.getElementById('opp-source-url').value.trim(),
+      verified_on: document.getElementById('opp-verified-on').value || null,
+      confidence: document.getElementById('opp-confidence').value,
+      notes: '',
+    });
+    showToast('狙い目ルールを保存しました');
+    event.target.reset();
+    document.getElementById('opp-metric').value = '現在ゲーム数';
+    document.getElementById('opp-unit').value = 'G';
+    document.getElementById('opp-condition').value = '通常・等価';
+    document.getElementById('opp-confidence').value = 'verified';
+    await loadOpportunityPage();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('opp-candidate-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api.createOpportunityCandidate({
+      machine_name: document.getElementById('opp-machine').value.trim(),
+      hall_name: document.getElementById('opp-hall').value.trim(),
+      seat_number: nullableNumber('opp-seat'),
+      current_value: Number(document.getElementById('opp-current-value').value),
+      profile_id: Number(document.getElementById('opp-profile').value),
+      notes: '',
+    });
+    document.getElementById('opp-current-value').value = '';
+    document.getElementById('opp-seat').value = '';
+    showToast('候補台を追加しました');
+    await loadOpportunityPage();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('page-opportunity').addEventListener('click', async event => {
+  const resultButton = event.target.closest('[data-opp-result]');
+  if (resultButton) {
+    document.querySelector(`[data-opp-result-form="${resultButton.dataset.oppResult}"]`)?.classList.toggle('open');
+    return;
+  }
+  const skipButton = event.target.closest('[data-opp-skip]');
+  if (skipButton) {
+    try {
+      await api.updateOpportunityCandidate(Number(skipButton.dataset.oppSkip), { status: 'skipped' });
+      showToast('候補台を見送りにしました');
+      await loadOpportunityPage();
+    } catch (error) { showToast(error.message, 'error'); }
+    return;
+  }
+  const deleteButton = event.target.closest('[data-opp-delete-profile]');
+  if (deleteButton) {
+    try {
+      await api.deleteOpportunityProfile(Number(deleteButton.dataset.oppDeleteProfile));
+      showToast('ルールを無効化しました');
+      await loadOpportunityPage();
+    } catch (error) { showToast(error.message, 'error'); }
+  }
+});
+
+document.getElementById('page-opportunity').addEventListener('submit', async event => {
+  const form = event.target.closest('[data-opp-result-form]');
+  if (!form) return;
+  event.preventDefault();
+  const formData = new FormData(form);
+  try {
+    await api.createOpportunityResult(Number(form.dataset.oppResultForm), {
+      played_on: formData.get('played_on'),
+      investment_yen: Number(formData.get('investment_yen')),
+      returns_yen: Number(formData.get('returns_yen')),
+      played_minutes: Number(formData.get('played_minutes') || 0),
+      notes: String(formData.get('notes') || ''),
+    });
+    showToast('実戦結果を保存しました');
+    await loadOpportunityPage();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
@@ -3593,6 +4144,7 @@ async function init() {
   if (!document.getElementById('est-dom').value) {
     document.getElementById('est-dom').value = String(today.getDate());
   }
+  updateEstimateReadiness();
 
   // 前回のドラフトを復元
   try {
@@ -4569,7 +5121,7 @@ async function loadMachineSeatRankingInline(hall, machineName, rowEl) {
 init().then(() => {
   // 最後に見たタブを復元（デフォルトは estimate）
   const lastTab = localStorage.getItem('pachi_last_tab');
-  if (lastTab && lastTab !== 'estimate') switchTab(lastTab);
+  if (lastTab && lastTab !== 'estimate') switchTab(lastTab, { record: false, resetHistory: true });
 });
 
 // ---------------------------------------------------------------------------

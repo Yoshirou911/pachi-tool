@@ -7,21 +7,31 @@ pachi-tool FastAPI バックエンド。
 from __future__ import annotations
 
 import json
+import logging
+import os
+import secrets
 import sqlite3
 import threading
 import time
-from datetime import date
+from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import csv
 import io
 
-from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("pachi_tool")
 
 # ---------------------------------------------------------------------------
 # 簡易インメモリキャッシュ（TTLベース）
@@ -78,27 +88,50 @@ from records.models import (
     update_session,
 )
 from value.ev import compute_ev
+from opportunity.models import (
+    deactivate_profile as deactivate_opportunity_profile,
+    get_dashboard as get_opportunity_dashboard,
+    get_profile as get_opportunity_profile,
+    save_budget as save_opportunity_budget,
+    save_candidate as save_opportunity_candidate,
+    save_profile as save_opportunity_profile,
+    save_result as save_opportunity_result,
+    set_candidate_status as set_opportunity_candidate_status,
+)
 
 MACHINES_DIR = _MACHINES_DIR or Path(__file__).parent.parent / "data" / "machines"
 WEB_DIR = Path(__file__).parent.parent / "web"
 
+
+def _get_machine_path(machine_name: str) -> Path:
+    """機種名を安全にJSONファイルへ解決する。ディレクトリ越境は許可しない。"""
+    if not machine_name or Path(machine_name).name != machine_name:
+        raise HTTPException(400, "機種名が不正です")
+    base = MACHINES_DIR.resolve()
+    path = (base / f"{machine_name}.json").resolve()
+    try:
+        path.relative_to(base)
+    except ValueError:
+        raise HTTPException(400, "機種名が不正です")
+    return path
+
 # ---------------------------------------------------------------------------
-app = FastAPI(title="pachi-tool", version="0.2.0", docs_url="/api/docs")
+# アクセス制御
+# ---------------------------------------------------------------------------
+# PACHI_ACCESS_TOKEN が設定されている環境（本番デプロイ等）でのみ、/api/* への
+# アクセスにヘッダートークンを要求する。未設定（ローカル開発・デスクトップ版）
+# の場合は従来どおり誰でもアクセスできる — 挙動を変えない。
+_ACCESS_TOKEN = os.environ.get("PACHI_ACCESS_TOKEN", "")
+_TOKEN_HEADER = "x-pachi-token"
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: フロントは同一オリジン（StaticFilesで配信）なので本来クロスオリジンは
+# 不要。開発などで別オリジンから叩きたい場合のみ CORS_ALLOW_ORIGINS
+# (カンマ区切り) で明示的に許可する。未設定時はワイルドカードにしない。
+_cors_origins = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
 
-init_db()
-
-
-@app.on_event("startup")
-async def _startup() -> None:
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
     """起動時の初期化: キャッシュウォームアップ + 夜間スクレイプスケジューラ起動"""
-    import threading
 
     def _init() -> None:
         # デフォルトホールをDBへシード（DBが空の場合のみ）
@@ -114,6 +147,63 @@ async def _startup() -> None:
         _start_scrape_scheduler()
 
     threading.Thread(target=_init, daemon=True).start()
+    yield
+    # シャットダウン処理: スケジューラ/バックグラウンドスレッドはdaemon=Trueなので
+    # プロセス終了時に自動で片付く。明示的な後始末は現状不要。
+
+
+# ---------------------------------------------------------------------------
+app = FastAPI(title="pachi-tool", version="0.2.0", docs_url="/api/docs", lifespan=_lifespan)
+
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.middleware("http")
+async def _require_access_token(request: Request, call_next):
+    if _ACCESS_TOKEN and request.url.path.startswith("/api/"):
+        supplied = request.headers.get(_TOKEN_HEADER, "")
+        if not secrets.compare_digest(supplied, _ACCESS_TOKEN):
+            return JSONResponse({"detail": "アクセスキーが必要です"}, status_code=401)
+    return await call_next(request)
+
+
+init_db()
+
+
+def _init_auxiliary_databases() -> None:
+    """空のDATA_DIRでも分析APIが安全に起動できるよう、各スクレイパーの表を作る。"""
+    initializers = []
+    try:
+        from scraper.anaslo import init_db as init_anaslo_db
+        initializers.append(init_anaslo_db)
+    except ImportError:
+        pass
+    try:
+        from scraper.minrepo import init_db as init_minrepo_db
+        initializers.append(init_minrepo_db)
+    except ImportError:
+        pass
+    try:
+        from scraper.events import get_conn as init_event_db
+        initializers.append(init_event_db)
+    except ImportError:
+        pass
+
+    for initializer in initializers:
+        try:
+            conn = initializer()
+            conn.close()
+        except Exception as exc:
+            logger.warning(f"[DB初期化] {initializer.__module__}: {exc}")
+
+
+_init_auxiliary_databases()
 
 
 # ---------------------------------------------------------------------------
@@ -169,27 +259,27 @@ def _run_nightly_scrape() -> None:
     """全対象ホールのスクレイプを順番に実行（夜間バッチ用）"""
     global _SCRAPE_RUNNING
     if _SCRAPE_RUNNING:
-        print("[スクレイプ] 前回の実行がまだ進行中のためスキップ")
+        logger.info("[スクレイプ] 前回の実行がまだ進行中のためスキップ")
         return
     _SCRAPE_RUNNING = True
     try:
         halls = _get_active_halls()
         # ① アナスロ（台番BB/RB）
         from scraper.anaslo import scrape_hall
-        print(f"[アナスロ] 夜間バッチ開始: {len(halls)}店舗")
+        logger.info(f"[アナスロ] 夜間バッチ開始: {len(halls)}店舗")
         for h in halls:
             hname = h["hall_name"] if isinstance(h, dict) else h
             pref = h.get("prefecture", "大阪府") if isinstance(h, dict) else "大阪府"
             try:
                 scrape_hall(hname, prefecture=pref, max_days=5, unlimited=True)
             except Exception as e:
-                print(f"[アナスロ] {hname} エラー: {e}")
+                logger.warning(f"[アナスロ] {hname} エラー: {e}")
             time.sleep(30)
-        print("[アナスロ] 夜間バッチ完了")
+        logger.info("[アナスロ] 夜間バッチ完了")
         # ② みんレポ（機種別差枚）
         _run_minrepo_nightly(halls, days=3)
     except Exception as e:
-        print(f"[スクレイプ] バッチエラー: {e}")
+        logger.warning(f"[スクレイプ] バッチエラー: {e}")
     finally:
         _SCRAPE_RUNNING = False
 
@@ -212,11 +302,11 @@ def _start_scrape_scheduler() -> None:
             try:
                 from scraper.events import scrape_all_halls
                 halls = _get_active_halls()
-                print(f"[イベント] 自動取得開始: {len(halls)}店舗")
+                logger.info(f"[イベント] 自動取得開始: {len(halls)}店舗")
                 scrape_all_halls(halls)
-                print("[イベント] 自動取得完了")
+                logger.info("[イベント] 自動取得完了")
             except Exception as e:
-                print(f"[イベント] 自動取得エラー: {e}")
+                logger.warning(f"[イベント] 自動取得エラー: {e}")
 
         _SCHEDULER.add_job(
             _run_event_scrape,
@@ -225,9 +315,9 @@ def _start_scrape_scheduler() -> None:
             replace_existing=True,
         )
         _SCHEDULER.start()
-        print("[スクレイプ] スケジューラー起動: みんレポ04:00/イベント12:00(JST)")
+        logger.info("[スクレイプ] スケジューラー起動: みんレポ04:00/イベント12:00(JST)")
     except Exception as e:
-        print(f"[スクレイプ] スケジューラー起動失敗: {e}")
+        logger.warning(f"[スクレイプ] スケジューラー起動失敗: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -236,16 +326,16 @@ def _start_scrape_scheduler() -> None:
 
 class EstimateRequest(BaseModel):
     machine_name: str
-    games_total: int = 0
-    started_from: int = 0  # 宵越しなど引き継ぎG数。実観測G数 = games_total - started_from
+    games_total: int = Field(default=0, ge=0)
+    started_from: int = Field(default=0, ge=0)  # 宵越しなど引き継ぎG数。実観測G数 = games_total - started_from
     element_counts: dict[str, int] = Field(default_factory=dict)
     prior: Optional[dict[str, float]] = None
     hall_name: str = ""
-    weekday: Optional[int] = None
+    weekday: Optional[int] = Field(default=None, ge=0, le=6)
     is_event_day: bool = False
-    day_of_month: Optional[int] = None
-    min_setting: Optional[int] = None  # 確定演出による下限設定 (e.g. 4 → 設4以上確定)
-    seat_number: Optional[int] = None  # 台番（同台の過去セッションを事前に反映）
+    day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
+    min_setting: Optional[int] = Field(default=None, ge=1, le=6)  # 確定演出による下限設定 (e.g. 4 → 設4以上確定)
+    seat_number: Optional[int] = Field(default=None, ge=1)  # 台番（同台の過去セッションを事前に反映）
 
 
 class EstimateResponse(BaseModel):
@@ -273,30 +363,86 @@ class SessionCreate(BaseModel):
     date: str = Field(default_factory=lambda: date.today().isoformat())
     machine_name: str
     hall_name: str = ""
-    seat_number: Optional[int] = None
+    seat_number: Optional[int] = Field(default=None, ge=1)
     is_corner: bool = False
-    games_total: int = 0
-    investment: int = 0
-    returns: int = 0
+    games_total: int = Field(default=0, ge=0)
+    investment: int = Field(default=0, ge=0)
+    returns: int = Field(default=0, ge=0)
     diff_coins: int = 0
     is_event_day: bool = False
-    started_from: int = 0
+    started_from: int = Field(default=0, ge=0)
     element_counts: dict[str, int] = Field(default_factory=dict)
     posterior: Optional[dict[str, float]] = None
     notes: str = ""
 
 
 class SessionUpdate(BaseModel):
-    games_total: Optional[int] = None
-    investment: Optional[int] = None
-    returns: Optional[int] = None
+    games_total: Optional[int] = Field(default=None, ge=0)
+    investment: Optional[int] = Field(default=None, ge=0)
+    returns: Optional[int] = Field(default=None, ge=0)
     diff_coins: Optional[int] = None
     element_counts: Optional[dict[str, int]] = None
     posterior: Optional[dict[str, float]] = None
     notes: Optional[str] = None
-    seat_number: Optional[int] = None
+    seat_number: Optional[int] = Field(default=None, ge=1)
     is_corner: Optional[bool] = None
     is_event_day: Optional[bool] = None
+
+
+class OpportunityCurvePoint(BaseModel):
+    value: float = Field(ge=0)
+    ev_yen: int
+    minutes: Optional[int] = Field(default=None, ge=1, le=1440)
+    worst_case_yen: Optional[int] = Field(default=None, ge=0)
+
+
+class OpportunityProfileCreate(BaseModel):
+    machine_name: str = Field(min_length=1, max_length=120)
+    condition_label: str = Field(default="条件未設定", min_length=1, max_length=120)
+    metric_name: str = Field(default="現在ゲーム数", min_length=1, max_length=40)
+    unit_label: str = Field(default="G", min_length=1, max_length=12)
+    start_threshold: float = Field(ge=0)
+    ceiling_threshold: Optional[float] = Field(default=None, ge=0)
+    expected_value_yen: Optional[int] = Field(default=None, ge=0)
+    estimated_play_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
+    worst_case_investment_yen: Optional[int] = Field(default=None, ge=0)
+    stop_rule: str = Field(min_length=1, max_length=300)
+    source_name: str = Field(default="", max_length=120)
+    source_url: str = Field(default="", max_length=500)
+    source_urls: list[str] = Field(default_factory=list, max_length=10)
+    curve_points: list[OpportunityCurvePoint] = Field(default_factory=list, max_length=50)
+    verified_on: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    confidence: Literal["official", "verified", "reference", "unverified"] = "unverified"
+    notes: str = Field(default="", max_length=500)
+    discrepancy_note: str = Field(default="", max_length=1000)
+
+
+class OpportunityCandidateCreate(BaseModel):
+    machine_name: str = Field(min_length=1, max_length=120)
+    hall_name: str = Field(default="", max_length=120)
+    seat_number: Optional[int] = Field(default=None, ge=1)
+    current_value: float = Field(ge=0)
+    profile_id: Optional[int] = Field(default=None, ge=1)
+    observed_at: Optional[str] = Field(default=None, max_length=30)
+    notes: str = Field(default="", max_length=500)
+
+
+class OpportunityCandidateStatus(BaseModel):
+    status: Literal["open", "skipped"]
+
+
+class OpportunityResultCreate(BaseModel):
+    played_on: str = Field(default_factory=lambda: date.today().isoformat(), pattern=r"^\d{4}-\d{2}-\d{2}$")
+    investment_yen: int = Field(default=0, ge=0)
+    returns_yen: int = Field(default=0, ge=0)
+    played_minutes: int = Field(default=0, ge=0, le=1440)
+    notes: str = Field(default="", max_length=500)
+
+
+class OpportunityBudgetUpdate(BaseModel):
+    month: str = Field(pattern=r"^\d{4}-\d{2}$")
+    starting_bankroll: int = Field(ge=0)
+    loss_limit_yen: int = Field(ge=0)
 
 
 # ---------------------------------------------------------------------------
@@ -325,12 +471,79 @@ def get_machine(machine_name: str) -> dict:
     cached = _cache_get(ckey)
     if cached is not None:
         return cached
-    path = MACHINES_DIR / f"{machine_name}.json"
+    path = _get_machine_path(machine_name)
     if not path.exists():
         raise HTTPException(404, f"機種が見つかりません: {machine_name}")
-    result = json.loads(path.read_text(encoding="utf-8"))
+    result = json.loads(path.read_text(encoding="utf-8-sig"))
+    # API表示側も、コアローダーが補正した確率を返す。
+    profile = MachineProfile.from_dict(result)
+    normalized = {el.name: el.probabilities for el in profile.elements}
+    for element in result.get("elements", []):
+        if element.get("name") in normalized:
+            element["p"] = dict(normalized[element["name"]])
+            element.pop("one_over", None)
     _cache_set(ckey, result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Opportunity hunting
+# ---------------------------------------------------------------------------
+
+@app.get("/api/opportunity/dashboard", tags=["opportunity"])
+def opportunity_dashboard(month: str = Query(default_factory=lambda: date.today().strftime("%Y-%m"), pattern=r"^\d{4}-\d{2}$")) -> dict:
+    """当月資金、候補台、根拠ルールをまとめて返す。"""
+    return get_opportunity_dashboard(month)
+
+
+@app.post("/api/opportunity/profiles", tags=["opportunity"])
+def create_opportunity_profile(body: OpportunityProfileCreate) -> dict:
+    if body.ceiling_threshold is not None and body.ceiling_threshold < body.start_threshold:
+        raise HTTPException(422, "天井値は開始ライン以上にしてください")
+    return save_opportunity_profile(body.model_dump())
+
+
+@app.delete("/api/opportunity/profiles/{profile_id}", tags=["opportunity"])
+def delete_opportunity_profile(profile_id: int) -> dict:
+    if not get_opportunity_profile(profile_id):
+        raise HTTPException(404, "狙い目ルールが見つかりません")
+    deactivate_opportunity_profile(profile_id)
+    return {"ok": True}
+
+
+@app.post("/api/opportunity/candidates", tags=["opportunity"])
+def create_opportunity_candidate(body: OpportunityCandidateCreate) -> dict:
+    if body.profile_id:
+        profile = get_opportunity_profile(body.profile_id)
+        if not profile:
+            raise HTTPException(404, "狙い目ルールが見つかりません")
+        if profile["machine_name"] != body.machine_name:
+            raise HTTPException(422, "機種と狙い目ルールが一致しません")
+    return save_opportunity_candidate(body.model_dump())
+
+
+@app.patch("/api/opportunity/candidates/{candidate_id}", tags=["opportunity"])
+def update_opportunity_candidate(candidate_id: int, body: OpportunityCandidateStatus) -> dict:
+    if not set_opportunity_candidate_status(candidate_id, body.status):
+        raise HTTPException(404, "候補台が見つかりません")
+    return {"ok": True}
+
+
+@app.post("/api/opportunity/candidates/{candidate_id}/result", tags=["opportunity"])
+def create_opportunity_result(candidate_id: int, body: OpportunityResultCreate) -> dict:
+    try:
+        return save_opportunity_result(candidate_id, body.model_dump())
+    except KeyError:
+        raise HTTPException(404, "候補台が見つかりません")
+    except sqlite3.IntegrityError:
+        raise HTTPException(409, "この候補台には実戦結果が登録済みです")
+
+
+@app.put("/api/opportunity/budget", tags=["opportunity"])
+def update_opportunity_budget(body: OpportunityBudgetUpdate) -> dict:
+    if body.loss_limit_yen > body.starting_bankroll:
+        raise HTTPException(422, "月間損失上限は運用資金以下にしてください")
+    return save_opportunity_budget(body.month, body.starting_bankroll, body.loss_limit_yen)
 
 
 # ---------------------------------------------------------------------------
@@ -345,12 +558,12 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
     hall_name を渡すと、店傾向データを事前分布に自動反映。
     prior を明示した場合はそちらを優先。
     """
-    path = MACHINES_DIR / f"{req.machine_name}.json"
+    path = _get_machine_path(req.machine_name)
     if not path.exists():
         raise HTTPException(404, f"機種データが見つかりません: {req.machine_name}")
 
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         profile = MachineProfile.from_dict(data)
     except Exception as e:
         raise HTTPException(422, f"機種データ読み込みエラー: {e}")
@@ -372,7 +585,9 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
             prior = None
 
     # 宵越し補正: 実観測G数 = 総G数 − 引き継ぎG数
-    observed_games = max(0, req.games_total - req.started_from)
+    if req.started_from > req.games_total:
+        raise HTTPException(422, "引き継ぎG数は総ゲーム数以下で指定してください")
+    observed_games = req.games_total - req.started_from
     obs = Observation(total_games=observed_games, counts=req.element_counts)
     estimator = SettingEstimator(profile)
 
@@ -383,14 +598,13 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
 
     # 確定演出による下限設定制約 (e.g. min_setting=4 → 設1,2,3を0にして再正規化)
     if req.min_setting is not None:
-        min_s = str(req.min_setting)
         filtered = {s: p for s, p in posterior.items() if int(s) >= req.min_setting}
         total = sum(filtered.values())
         if total > 1e-12:
             posterior = {s: p / total for s, p in filtered.items()}
-        # 設定が全て除外された場合は制約を無視（データ不整合時の安全弁）
-        else:
-            posterior = estimator.estimate(obs, prior=prior)
+        # else: 設定が全て除外された場合は制約を無視（データ不整合時の安全弁）。
+        # posterior はフィルタ前の値のまま = estimator.estimate(obs, prior=prior) と同一なので
+        # 再計算せずそのまま使う。
 
     ev_result = compute_ev(posterior, machine_name=req.machine_name)
 
@@ -442,11 +656,11 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
             needed = int(30 / max_p) if max_p > 0 else 10000
             max_needed = max(max_needed, needed)
         recommended_games = max_needed
-        if observed_games < max_needed:
+        if observed_games < max_needed * 0.5:
+            sample_warning = f"サンプル不足（{observed_games}G / 推奨{max_needed}G）"
+        elif observed_games < max_needed:
             pct = int(observed_games / max_needed * 100)
             sample_warning = f"現在{observed_games}G（推奨{max_needed}Gの{pct}%）— サンプル不足のため推測精度が低い可能性があります"
-        elif observed_games < max_needed * 0.5:
-            sample_warning = f"サンプル不足（{observed_games}G / 推奨{max_needed}G）"
 
     # 信用区間・識別力・相関チェック
     ci_lo, ci_hi = estimator.credible_interval(posterior, prob=0.90)
@@ -481,6 +695,8 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
 
 @app.post("/api/sessions", tags=["sessions"])
 def create_session(body: SessionCreate) -> dict:
+    if body.started_from > body.games_total:
+        raise HTTPException(422, "引き継ぎG数は総ゲーム数以下で指定してください")
     s = Session(
         date=body.date,
         machine_name=body.machine_name,
@@ -498,6 +714,7 @@ def create_session(body: SessionCreate) -> dict:
         notes=body.notes,
     )
     sid = save_session(s)
+    _cache_invalidate_prefix("halls_list:")
     return {"id": sid, "message": "保存しました"}
 
 
@@ -600,6 +817,8 @@ def import_sessions_csv(body: CsvImportBody) -> dict:
             imported += 1
         except Exception:
             skipped += 1
+    if imported:
+        _cache_invalidate_prefix("halls_list:")
     return {"imported": imported, "skipped": skipped}
 
 
@@ -966,32 +1185,35 @@ def get_estimation_accuracy(
 
 class ChangeDetectRequest(BaseModel):
     machine_name: str
-    early_games: int
-    late_games: int
+    early_games: int = Field(ge=1)
+    late_games: int = Field(ge=1)
     early_counts: dict[str, int] = Field(default_factory=dict)
     late_counts: dict[str, int] = Field(default_factory=dict)
     prior: Optional[dict[str, float]] = None
-    change_prior: float = 0.10
+    change_prior: float = Field(default=0.10, gt=0, lt=1)
 
 
 @app.post("/api/setting_change", tags=["estimate"])
 def setting_change(req: ChangeDetectRequest) -> dict:
     """前半/後半の2区間カウントから設定変更確率を推定する。"""
-    path = MACHINES_DIR / f"{req.machine_name}.json"
+    path = _get_machine_path(req.machine_name)
     if not path.exists():
         raise HTTPException(404, f"機種データが見つかりません: {req.machine_name}")
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         profile = MachineProfile.from_dict(data)
     except Exception as e:
         raise HTTPException(422, str(e))
 
     obs_early = Observation(req.early_games, req.early_counts)
     obs_late  = Observation(req.late_games, req.late_counts)
-    result = detect_setting_change(
-        profile, obs_early, obs_late,
-        prior=req.prior, change_prior=req.change_prior,
-    )
+    try:
+        result = detect_setting_change(
+            profile, obs_early, obs_late,
+            prior=req.prior, change_prior=req.change_prior,
+        )
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     return {
         "change_prob": result.change_prob,
         "log_bf": result.log_bf,
@@ -1014,15 +1236,30 @@ def _get_reports_conn() -> Optional[sqlite3.Connection]:
         return None
     conn = sqlite3.connect(HALL_REPORTS_DB)
     conn.row_factory = sqlite3.Row
-    # 初回接続時にインデックスを作成（既存なら無視）
-    conn.executescript("""
-        CREATE INDEX IF NOT EXISTS idx_hdm_hall_date ON hall_day_machine(hall_name, report_date);
-        CREATE INDEX IF NOT EXISTS idx_hdm_hall_machine ON hall_day_machine(hall_name, machine_name);
-        CREATE INDEX IF NOT EXISTS idx_hds_hall_date ON hall_day_seat(hall_name, report_date);
-        CREATE INDEX IF NOT EXISTS idx_hds_hall_machine ON hall_day_seat(hall_name, machine_name, seat_number);
-        CREATE INDEX IF NOT EXISTS idx_hds_bb_prob ON hall_day_seat(bb_prob) WHERE bb_prob IS NOT NULL;
-        CREATE INDEX IF NOT EXISTS idx_he_hall_date ON hall_event(hall_name, event_date);
-    """)
+    # 古い/部分生成DBでも、存在する表にだけインデックスを作る。
+    existing_tables = {
+        row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    }
+    index_sql = {
+        "hall_day_machine": [
+            "CREATE INDEX IF NOT EXISTS idx_hdm_hall_date ON hall_day_machine(hall_name, report_date)",
+            "CREATE INDEX IF NOT EXISTS idx_hdm_hall_machine ON hall_day_machine(hall_name, machine_name)",
+        ],
+        "hall_day_seat": [
+            "CREATE INDEX IF NOT EXISTS idx_hds_hall_date ON hall_day_seat(hall_name, report_date)",
+            "CREATE INDEX IF NOT EXISTS idx_hds_hall_machine ON hall_day_seat(hall_name, machine_name, seat_number)",
+            "CREATE INDEX IF NOT EXISTS idx_hds_bb_prob ON hall_day_seat(bb_prob) WHERE bb_prob IS NOT NULL",
+        ],
+    }
+    for table_name, statements in index_sql.items():
+        if table_name not in existing_tables:
+            continue
+        for statement in statements:
+            try:
+                conn.execute(statement)
+            except sqlite3.OperationalError:
+                # 旧スキーマに列がない場合でも読み取り可能なAPIは継続する。
+                pass
     return conn
 
 
@@ -1328,16 +1565,16 @@ def _run_scrape(hall_name: str, days: int):
 
 def _run_minrepo_nightly(hall_list: list, days: int = 2) -> None:
     """夜間バッチ：みんレポを全ホール取得（直近days日分、取得済みはスキップ）"""
-    print(f"[みんレポ] 夜間バッチ開始: {len(hall_list)}店舗")
+    logger.info(f"[みんレポ] 夜間バッチ開始: {len(hall_list)}店舗")
     for h in hall_list:
         hname = h["hall_name"] if isinstance(h, dict) else h
         try:
             _run_scrape(hname, days=days)
-            print(f"[みんレポ] {hname} 完了")
+            logger.info(f"[みんレポ] {hname} 完了")
         except Exception as e:
-            print(f"[みんレポ] {hname} エラー: {e}")
+            logger.warning(f"[みんレポ] {hname} エラー: {e}")
         time.sleep(3)
-    print("[みんレポ] 夜間バッチ完了")
+    logger.info("[みんレポ] 夜間バッチ完了")
 
 
 @app.post("/api/hall/scrape", tags=["hall"])
@@ -1540,7 +1777,7 @@ def trigger_nightly_scrape(
                             _set_hall(hname, "failed", error=str(e)[:80])
                         time.sleep(30)
                 except Exception as e:
-                    print(f"[アナスロ] 全体エラー: {e}")
+                    logger.warning(f"[アナスロ] 全体エラー: {e}")
 
             # ② みんレポ
             for h in hall_list:
@@ -2164,7 +2401,6 @@ def get_hot_days(
     if cached is not None:
         return cached
     import math
-    from datetime import date, timedelta
     conn = _get_reports_conn()
     if not conn:
         return {"hot_days": [], "hall_stats": {}}
@@ -4182,7 +4418,7 @@ except ImportError:
 class ChatRequest(BaseModel):
     message: str
     hall_name: str = "ベガスベガス大東店"
-    history: list = []
+    history: list = Field(default_factory=list)
 
 
 @app.post("/api/ai/chat")

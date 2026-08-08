@@ -21,7 +21,17 @@
   <!-- Header -->
   <header class="app-header">
     <div class="header-inner">
-      <span class="logo">PACHI TOOL</span>
+      <div class="header-brand">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button"
+                aria-label="メニューを開く" aria-controls="main-navigation" aria-expanded="false">
+          <span class="menu-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+        </button>
+        <div class="history-nav" aria-label="画面の移動履歴">
+          <button id="nav-back" class="history-btn" type="button" aria-label="一つ前の画面に戻る" title="戻る（Alt + ←）" disabled>←</button>
+          <button id="nav-forward" class="history-btn" type="button" aria-label="一つ先の画面に進む" title="進む（Alt + →）" disabled>→</button>
+        </div>
+        <span class="logo">PACHI TOOL</span>
+      </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="header-date" style="font-size:.72rem;color:var(--text3)"></span>
         <span id="header-status" class="status-badge"></span>
@@ -29,33 +39,43 @@
     </div>
   </header>
 
-  <!-- Tab bar -->
-  <nav class="tab-bar">
+  <!-- Collapsible side navigation -->
+  <nav id="main-navigation" class="tab-bar" aria-label="メインメニュー">
+    <div class="sidebar-heading">
+      <span>メニュー</span>
+      <small>NAVIGATION</small>
+    </div>
     <button class="tab-btn active" data-tab="estimate">
       <span class="tab-icon">🔍</span>
-      <span class="tab-label">推測</span>
+      <span class="tab-copy"><span class="tab-label">設定推測</span><small>実戦データから判定</small></span>
     </button>
     <button class="tab-btn" data-tab="session">
       <span class="tab-icon">📝</span>
-      <span class="tab-label">収支</span>
+      <span class="tab-copy"><span class="tab-label">収支記録</span><small>遊技結果を管理</small></span>
     </button>
     <button class="tab-btn" data-tab="hall">
       <span class="tab-icon">📊</span>
-      <span class="tab-label">店傾向</span>
+      <span class="tab-copy"><span class="tab-label">店舗傾向</span><small>ホールデータを分析</small></span>
     </button>
     <button class="tab-btn" data-tab="map">
       <span class="tab-icon">🗺️</span>
-      <span class="tab-label">マップ</span>
+      <span class="tab-copy"><span class="tab-label">店舗マップ</span><small>周辺店舗を確認</small></span>
     </button>
     <button class="tab-btn" data-tab="machines">
       <span class="tab-icon">🎮</span>
-      <span class="tab-label">機種</span>
+      <span class="tab-copy"><span class="tab-label">機種一覧</span><small>スペックを比較</small></span>
+    </button>
+    <button class="tab-btn" data-tab="opportunity">
+      <span class="tab-icon">🎯</span>
+      <span class="tab-copy"><span class="tab-label">期待値狙い</span><small>候補台と資金を管理</small></span>
     </button>
     <button class="tab-btn" data-tab="ai">
       <span class="tab-icon">🤖</span>
-      <span class="tab-label">AI</span>
+      <span class="tab-copy"><span class="tab-label">AI分析</span><small>データを詳しく相談</small></span>
     </button>
+    <div class="sidebar-help">項目を選ぶと画面が切り替わります</div>
   </nav>
+  <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="メニューを閉じる"></button>
 
   <!-- Pages -->
   <main class="page-container">
@@ -63,6 +83,23 @@
     <!-- ======================== 推測ページ ======================== -->
     <section id="page-estimate" class="page active">
       <div class="page-inner">
+
+        <div class="page-heading">
+          <div>
+            <span class="page-eyebrow">SETTING ESTIMATE</span>
+            <h1>設定推測</h1>
+            <p>機種と実戦データから、設定期待度と続行判断を算出します。</p>
+          </div>
+          <span class="page-number">01</span>
+        </div>
+
+        <div class="flow-guide" aria-label="設定推測の手順">
+          <span class="flow-step active"><b>1</b> 台を選ぶ</span>
+          <span class="flow-line"></span>
+          <span class="flow-step"><b>2</b> 実績を入力</span>
+          <span class="flow-line"></span>
+          <span class="flow-step"><b>3</b> 結果を確認</span>
+        </div>
 
         <!-- 今日の注目情報 -->
         <div id="today-hot-card" style="display:none;background:linear-gradient(135deg,rgba(124,127,245,.12) 0%,rgba(34,211,238,.07) 100%);border:1px solid rgba(124,127,245,.25);border-radius:12px;padding:12px 14px">
@@ -80,7 +117,11 @@
         </div>
 
         <!-- Machine & Hall selector -->
-        <div class="card">
+        <div class="card setup-card">
+          <div class="card-title card-title-row">
+            <span>1. 台と条件</span>
+            <span class="required-note">機種は必須</span>
+          </div>
           <div class="form-row" style="position:relative">
             <label class="form-label">機種</label>
             <input type="text" id="est-machine" class="form-input" list="est-machine-datalist"
@@ -122,14 +163,15 @@
         </div>
 
         <!-- Session timer -->
-        <div id="session-timer-bar" style="display:flex;align-items:center;gap:10px;padding:8px 0">
+        <div id="session-timer-bar" class="session-timer-bar">
           <button id="timer-toggle" class="btn btn-sm btn-ghost">⏱ タイマー開始</button>
           <span id="timer-display" style="font-variant-numeric:tabular-nums;font-weight:700;color:var(--text2);font-size:.9rem;display:none">00:00:00</span>
           <button id="timer-reset" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger)">リセット</button>
         </div>
 
         <!-- Games total -->
-        <div class="card">
+        <div class="card play-data-card">
+          <div class="card-title">2. 実戦データ</div>
           <div class="form-row">
             <label class="form-label">総ゲーム数 (G)</label>
             <input type="number" id="est-games" class="form-input form-input-lg"
@@ -154,7 +196,10 @@
 
         <!-- Element counts -->
         <div class="card" id="est-counts-card">
-          <div class="card-title">カウント入力</div>
+          <div class="card-title card-title-row">
+            <span>3. カウント入力</span>
+            <span class="optional-note">入力できる項目だけでOK</span>
+          </div>
           <div id="est-counts-list">
             <p class="hint">機種を選択するとカウント入力欄が表示されます</p>
           </div>
@@ -179,9 +224,15 @@
         </div>
 
         <!-- Estimate button -->
-        <button id="est-run-btn" class="btn btn-primary btn-full" disabled style="padding:15px;font-size:.95rem;letter-spacing:.02em">
-          設定を推測する
-        </button>
+        <div class="estimate-action">
+          <div class="estimate-readiness">
+            <span id="est-ready-text">機種とゲーム数を入力してください</span>
+            <div class="readiness-track"><span id="est-ready-bar"></span></div>
+          </div>
+          <button id="est-run-btn" class="btn btn-primary btn-full" disabled>
+            設定を推測する
+          </button>
+        </div>
 
         <!-- Results -->
         <div id="est-result" class="card result-card" style="display:none">
@@ -341,6 +392,11 @@
     <section id="page-session" class="page">
       <div class="page-inner">
 
+        <div class="page-heading">
+          <div><span class="page-eyebrow">PLAY RECORDS</span><h1>収支・実戦記録</h1><p>実戦結果を振り返り、推測精度の学習にも活用します。</p></div>
+          <span class="page-number">02</span>
+        </div>
+
         <!-- 日別収支チャート -->
         <div class="card" id="daily-chart-card" style="display:none">
           <div class="card-title">📊 日別収支</div>
@@ -484,6 +540,11 @@
     <!-- ======================== 店傾向ページ ======================== -->
     <section id="page-hall" class="page">
       <div class="page-inner">
+
+        <div class="page-heading">
+          <div><span class="page-eyebrow">HALL INSIGHTS</span><h1>店傾向</h1><p>店舗・曜日・機種・台番の傾向を比較します。</p></div>
+          <span class="page-number">03</span>
+        </div>
 
         <!-- サブタブ -->
         <div class="hall-sub-tabs">
@@ -1015,6 +1076,10 @@
     <!-- ======================== マップページ ======================== -->
     <section id="page-map" class="page">
       <div class="page-inner" style="padding:0">
+        <div class="page-heading map-page-heading">
+          <div><span class="page-eyebrow">HALL MAP</span><h1>店舗マップ</h1><p>取得済みデータから近隣店舗の強さを俯瞰します。</p></div>
+          <span class="page-number">04</span>
+        </div>
         <div style="padding:12px 16px 8px;background:var(--bg1)">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
             <span style="font-size:.78rem;color:var(--text2)">データ取得済み店舗の強度マップ</span>
@@ -1034,6 +1099,10 @@
     <!-- ======================== 機種ページ ======================== -->
     <section id="page-machines" class="page">
       <div class="page-inner">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">MACHINE LIBRARY</span><h1>機種データ</h1><p>登録済みの設定差・機械割を検索できます。</p></div>
+          <span class="page-number">05</span>
+        </div>
         <div class="card">
           <input type="text" id="machine-search" class="form-input"
                  placeholder="機種名で検索...">
@@ -1042,9 +1111,106 @@
       </div>
     </section>
 
+    <!-- ======================== 期待値狙いページ ======================== -->
+    <section id="page-opportunity" class="page">
+      <div class="page-inner">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">OPPORTUNITY DESK</span><h1>期待値狙い</h1><p>根拠・資金・実戦結果を一つにつなぎ、着席判断を厳格化します。</p></div>
+          <span class="page-number">06</span>
+        </div>
+
+        <div id="opp-alert" class="opp-alert" style="display:none"></div>
+
+        <div class="card opp-budget-card">
+          <div class="card-title card-title-row">
+            <span>月間リスク管理</span><span id="opp-budget-status" class="required-note">未設定</span>
+          </div>
+          <div class="opp-summary-grid">
+            <div class="opp-summary-item"><small>現在資金</small><strong id="opp-current-bankroll">--</strong></div>
+            <div class="opp-summary-item"><small>残り損失枠</small><strong id="opp-remaining-loss">--</strong></div>
+            <div class="opp-summary-item"><small>当月収支</small><strong id="opp-net-profit">--</strong></div>
+            <div class="opp-summary-item"><small>実戦数</small><strong id="opp-plays">--</strong></div>
+          </div>
+          <form id="opp-budget-form" class="opp-form-grid" style="margin-top:14px">
+            <div><label class="form-label">対象月</label><input id="opp-month" class="form-input" type="month" required></div>
+            <div><label class="form-label">運用資金（円）</label><input id="opp-bankroll" class="form-input" type="number" min="0" step="1000" required></div>
+            <div><label class="form-label">損失上限（円）</label><input id="opp-loss-limit" class="form-input" type="number" min="0" step="1000" required></div>
+            <button class="btn btn-secondary" type="submit">資金設定を保存</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-title card-title-row"><span>候補台を登録</span><span class="required-note">ルール必須</span></div>
+          <form id="opp-candidate-form">
+            <div class="form-row-2col">
+              <div><label class="form-label">機種</label><input id="opp-machine" class="form-input" list="opp-machine-datalist" placeholder="機種を選択" required autocomplete="off"><datalist id="opp-machine-datalist"></datalist></div>
+              <div><label class="form-label">狙い目ルール</label><select id="opp-profile" class="form-select" required><option value="">機種を先に選択</option></select></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">店舗</label><input id="opp-hall" class="form-input" list="hall-datalist" placeholder="任意"></div>
+              <div><label class="form-label">台番号</label><input id="opp-seat" class="form-input" type="number" min="1" placeholder="任意"></div>
+            </div>
+            <div class="form-row">
+              <label id="opp-current-label" class="form-label">現在値</label>
+              <input id="opp-current-value" class="form-input form-input-lg" type="number" min="0" step="1" inputmode="numeric" required>
+            </div>
+            <button class="btn btn-primary btn-full" type="submit">候補へ追加して判定</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-title card-title-row"><span>候補台ランキング</span><span id="opp-open-count" class="optional-note">0台</span></div>
+          <div id="opp-candidate-list"><p class="hint center">候補台はまだありません</p></div>
+        </div>
+
+        <details class="card opp-rule-editor">
+          <summary><span>狙い目ルールを登録</span><small>出典・確認日・必要資金まで登録します</small></summary>
+          <form id="opp-profile-form" style="margin-top:16px">
+            <div class="form-row"><label class="form-label">機種</label><input id="opp-rule-machine" class="form-input" list="opp-machine-datalist" required autocomplete="off"></div>
+            <div class="form-row"><label class="form-label">適用条件</label><input id="opp-condition" class="form-input" value="通常・等価" placeholder="例：リセット確定・5.6枚現金" required></div>
+            <div class="form-row-2col">
+              <div><label class="form-label">判定指標</label><input id="opp-metric" class="form-input" value="現在ゲーム数" required></div>
+              <div><label class="form-label">単位</label><input id="opp-unit" class="form-input" value="G" required></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">開始ライン</label><input id="opp-start" class="form-input" type="number" min="0" step="1" required></div>
+              <div><label class="form-label">天井・上限</label><input id="opp-ceiling" class="form-input" type="number" min="0" step="1" placeholder="不明なら空欄"></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">期待値（円）</label><input id="opp-expected" class="form-input" type="number" min="0" step="100" placeholder="不明なら空欄"></div>
+              <div><label class="form-label">想定消化時間（分）</label><input id="opp-estimated-minutes" class="form-input" type="number" min="1" max="1440" placeholder="時間効率の計算用"></div>
+            </div>
+            <div class="form-row"><label class="form-label">必要資金目安（円）</label><input id="opp-worst" class="form-input" type="number" min="0" step="1000" required></div>
+            <div class="form-row"><label class="form-label">やめどき</label><input id="opp-stop-rule" class="form-input" placeholder="例：AT終了後、前兆を確認して終了" required></div>
+            <div class="form-row-2col">
+              <div><label class="form-label">情報源名</label><input id="opp-source-name" class="form-input" placeholder="公式サイト・資料名" required></div>
+              <div><label class="form-label">情報源URL</label><input id="opp-source-url" class="form-input" type="url" placeholder="https://..."></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">確認日</label><input id="opp-verified-on" class="form-input" type="date" required></div>
+              <div><label class="form-label">信頼度</label><select id="opp-confidence" class="form-select"><option value="verified">複数情報で確認済み</option><option value="official">公式情報</option><option value="reference">参考情報</option><option value="unverified">未確認</option></select></div>
+            </div>
+            <p class="hint" style="margin-bottom:12px">「公式情報」「複数情報で確認済み」かつ確認日・必要資金目安があるルールだけが着席候補になります。目安は損失上限の判定用で、実際の最大投資を保証しません。</p>
+            <button class="btn btn-primary btn-full" type="submit">ルールを保存</button>
+          </form>
+          <div id="opp-profile-list" style="margin-top:16px"></div>
+        </details>
+
+        <div class="card">
+          <div class="card-title">直近の実戦結果</div>
+          <div id="opp-result-list"><p class="hint center">実戦結果はまだありません</p></div>
+        </div>
+      </div>
+    </section>
+
     <!-- ======================== AIページ ======================== -->
     <section id="page-ai" class="page">
       <div class="page-inner">
+
+        <div class="page-heading">
+          <div><span class="page-eyebrow">AI ANALYST</span><h1>AI分析</h1><p>蓄積データを横断し、狙い目と根拠を文章で整理します。</p></div>
+          <span class="page-number">07</span>
+        </div>
 
         <!-- AI ヘッダーバナー -->
         <div class="card" id="ai-status-card" style="background:linear-gradient(135deg,rgba(99,102,241,0.18) 0%,rgba(6,182,212,0.10) 100%);border-color:rgba(99,102,241,0.25)">

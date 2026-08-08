@@ -41,7 +41,7 @@ def load_machine_kw(machine_name: str) -> tuple[dict[str, float], str]:
     path = MACHINES_DIR / f"{machine_name}.json"
     if path.exists():
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
             kw = data.get("machine_kw")
             if kw and isinstance(kw, dict):
                 return {str(k): float(v) for k, v in kw.items()}, "machine_data"

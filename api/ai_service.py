@@ -475,7 +475,7 @@ def _load_machine_theory(machine_name: str) -> str:
     if not path.exists():
         return ""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         settings = data.get("settings", [])
         elements = data.get("elements", [])
         kw = data.get("machine_kw", {})

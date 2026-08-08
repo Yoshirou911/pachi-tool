@@ -296,7 +296,7 @@ def _load_machine_theory(machine_name: str) -> Optional[dict]:
         all_data = []
         for f in all_files:
             try:
-                data = json.loads(f.read_text(encoding="utf-8"))
+                data = json.loads(f.read_text(encoding="utf-8-sig"))
                 all_data.append(data)
             except Exception:
                 continue

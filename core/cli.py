@@ -51,7 +51,7 @@ def load_profile(machine_name: str) -> MachineProfile | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         return MachineProfile.from_dict(data)
     except Exception as e:
         print(red(f"エラー: {e}"))

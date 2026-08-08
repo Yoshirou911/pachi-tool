@@ -57,6 +57,8 @@ def detect_setting_change(
     """
     estimator = SettingEstimator(profile)
     settings = list(profile.settings)
+    if not 0.0 < change_prior < 1.0:
+        raise ValueError("設定変更の事前確率は0より大きく1未満で指定してください")
 
     # 前半・後半・合計それぞれの事後分布
     post_early = estimator.estimate(obs_early, prior=prior)
@@ -75,8 +77,17 @@ def detect_setting_change(
     # H1: 前半 s1、後半 s2 → L1 = Σ_{s1} Σ_{s2} P(early|s1) * P(late|s2) * p(s1) * p(s2)
     # ただし s1 ≠ s2 のときのみ「変更」とする
 
-    log_prior = {s: math.log(prior[s] / sum(prior.values())) if prior else -math.log(len(settings))
-                 for s in settings}
+    if prior:
+        prior_values = {s: float(prior.get(s, 0.0)) for s in settings}
+        if any(not math.isfinite(v) or v < 0 for v in prior_values.values()):
+            raise ValueError("事前分布には0以上の有限値を指定してください")
+        prior_total = sum(prior_values.values())
+        if prior_total <= 0:
+            raise ValueError("事前分布の合計は0より大きくしてください")
+        normalized_prior = {s: prior_values[s] / prior_total for s in settings}
+    else:
+        normalized_prior = {s: 1.0 / len(settings) for s in settings}
+    log_prior = {s: math.log(max(normalized_prior[s], 1e-12)) for s in settings}
 
     def log_likelihood(obs: Observation, setting: str) -> float:
         el_map = {el.name: el for el in profile.elements}
@@ -84,8 +95,10 @@ def detect_setting_change(
         N = obs.total_games
         for name, k in obs.counts.items():
             el = el_map.get(name)
-            if el is None or k <= 0:
+            if el is None:
                 continue
+            if k > N:
+                raise ValueError(f"要素 '{name}' の回数 {k} が 0..{N} の範囲外です")
             p = el.probabilities[setting]
             ll += k * math.log(p) + (N - k) * math.log(1 - p)
         return ll
@@ -106,14 +119,23 @@ def detect_setting_change(
             ll = log_prior[s1] + log_prior[s2] + log_likelihood(obs_early, s1) + log_likelihood(obs_late, s2)
             log_liks_h1.append(ll)
     log_marg_h1 = _logsumexp(log_liks_h1) if log_liks_h1 else -1e10
+    # H1 は「設定が変わった」ことを条件とするため、s1 != s2 の事前確率で正規化する。
+    distinct_pair_prob = 1.0 - sum(p * p for p in normalized_prior.values())
+    if distinct_pair_prob <= 0:
+        raise ValueError("設定変更モデルを計算できる事前分布ではありません")
+    log_marg_h1 -= math.log(distinct_pair_prob)
 
     # ベイズ因子 BF = P(data|H1) / P(data|H0)
     log_bf = (log_marg_h1 - log_marg_h0) / math.log(10)  # log10
 
     # 変更確率 P(H1|data) = BF * prior_odds / (1 + BF * prior_odds)
     prior_odds = change_prior / (1 - change_prior)
-    bayes_odds = math.exp(log_marg_h1 - log_marg_h0) * prior_odds
-    change_prob = bayes_odds / (1 + bayes_odds)
+    log_bayes_odds = (log_marg_h1 - log_marg_h0) + math.log(prior_odds)
+    if log_bayes_odds >= 0:
+        change_prob = 1.0 / (1.0 + math.exp(-log_bayes_odds))
+    else:
+        odds = math.exp(log_bayes_odds)
+        change_prob = odds / (1.0 + odds)
     change_prob = max(0.0, min(1.0, change_prob))
 
     if change_prob >= 0.60:
@@ -149,7 +171,7 @@ if __name__ == "__main__":
     ROOT = Path(__file__).parent.parent
     sys.path.insert(0, str(ROOT))
 
-    data = json.loads((ROOT / "data/machines/ゴーゴージャグラー.json").read_text(encoding="utf-8"))
+    data = json.loads((ROOT / "data/machines/ゴーゴージャグラー.json").read_text(encoding="utf-8-sig"))
     profile = MachineProfile.from_dict(data)
 
     # デモ: 前半は低設定挙動、後半は高設定挙動（変更を模擬）

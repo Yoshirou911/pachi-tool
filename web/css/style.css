@@ -977,6 +977,28 @@ tr[style*="cursor: pointer"]:active { background: rgba(124,127,245,.12) !importa
   padding: 11px 13px; border: 1px solid rgba(251,191,36,.28); border-radius: 11px;
   background: rgba(251,191,36,.08); color: #fde68a; font-size: .76rem; line-height: 1.55;
 }
+.opp-guide-card { border-color: rgba(16,185,129,.25); background: linear-gradient(145deg, rgba(16,185,129,.055), rgba(10,15,30,.95) 40%); }
+.opp-guide-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.opp-guide-summary > div { padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,.025); }
+.opp-guide-summary small { display: block; margin-bottom: 3px; color: var(--text3); font-size: .58rem; }
+.opp-guide-summary strong { display: block; color: var(--text); font-size: .82rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.opp-guide-controls { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(180px, .6fr); gap: 8px; margin-bottom: 10px; }
+.opp-guide-table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 11px; background: rgba(3,7,18,.38); }
+.opp-guide-table { width: 100%; border-collapse: collapse; min-width: 680px; }
+.opp-guide-table th { padding: 8px 10px; color: var(--text3); background: rgba(255,255,255,.025); font-size: .57rem; font-weight: 700; text-align: left; white-space: nowrap; }
+.opp-guide-table td { padding: 10px; border-top: 1px solid var(--border); color: var(--text2); font-size: .67rem; vertical-align: middle; font-variant-numeric: tabular-nums; }
+.opp-guide-table tbody tr:hover { background: rgba(124,127,245,.045); }
+.opp-guide-table td > strong, .opp-guide-table td > small { display: block; }
+.opp-guide-table td > small { margin-top: 3px; color: var(--text3); font-size: .56rem; line-height: 1.35; }
+.opp-guide-machine { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: .7rem; }
+.opp-guide-current { color: var(--text); font-size: .76rem; white-space: nowrap; }
+.opp-guide-signal { display: inline-flex; justify-content: center; min-width: 62px; padding: 5px 7px; border-radius: 99px; border: 1px solid var(--border); font-size: .6rem; font-weight: 900; white-space: nowrap; }
+.opp-guide-signal-target { color: #6ee7b7; background: rgba(16,185,129,.12); border-color: rgba(16,185,129,.3); }
+.opp-guide-signal-caution { color: #fde68a; background: rgba(251,191,36,.1); border-color: rgba(251,191,36,.25); }
+.opp-guide-signal-verify { color: #c4b5fd; background: rgba(139,92,246,.1); border-color: rgba(139,92,246,.25); }
+.opp-guide-signal-funds { color: #fda4af; background: rgba(244,63,94,.1); border-color: rgba(244,63,94,.25); }
+.opp-guide-signal-wait { color: #93c5fd; background: rgba(96,165,250,.1); border-color: rgba(96,165,250,.25); }
+.opp-guide-note { margin-top: 9px; color: var(--text3); font-size: .58rem; line-height: 1.55; }
 .opp-quick-card { border-color: rgba(124,127,245,.34); background: linear-gradient(145deg, rgba(124,127,245,.08), rgba(10,15,30,.92) 42%); }
 .opp-live-badge { padding: 3px 8px; border-radius: 99px; color: #a7f3d0; background: rgba(16,185,129,.11); border: 1px solid rgba(16,185,129,.25); font-size: .61rem; font-weight: 800; }
 .opp-quick-conditions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
@@ -1133,6 +1155,20 @@ tr[style*="cursor: pointer"]:active { background: rgba(124,127,245,.12) !importa
   .tab-label { font-size: .79rem; }
   .optional-note { display: none; }
   .opp-summary-grid { grid-template-columns: 1fr 1fr; }
+  .opp-guide-summary { grid-template-columns: 1fr 1fr 1fr; }
+  .opp-guide-controls { grid-template-columns: 1fr; }
+  .opp-guide-table-wrap { overflow: visible; border: 0; background: transparent; }
+  .opp-guide-table { min-width: 0; }
+  .opp-guide-table thead { display: none; }
+  .opp-guide-table, .opp-guide-table tbody, .opp-guide-table tr, .opp-guide-table td { display: block; width: 100%; }
+  .opp-guide-table tr { margin-bottom: 9px; padding: 10px; border: 1px solid var(--border); border-radius: 11px; background: rgba(3,7,18,.4); }
+  .opp-guide-table tr:last-child { margin-bottom: 0; }
+  .opp-guide-table td { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 9px; padding: 5px 0; border: 0; align-items: center; }
+  .opp-guide-table td::before { content: attr(data-label); color: var(--text3); font-size: .56rem; }
+  .opp-guide-table td[colspan] { display: block; }
+  .opp-guide-table td[colspan]::before { display: none; }
+  .opp-guide-machine { max-width: none; }
+  .opp-guide-table .btn { width: 100%; }
   .opp-quick-conditions { grid-template-columns: 1fr 1fr; }
   .opp-quick-metrics { grid-template-columns: 1fr 1fr; }
   .opp-form-grid { grid-template-columns: 1fr; }

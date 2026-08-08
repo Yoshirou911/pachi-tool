@@ -1121,6 +1121,32 @@
 
         <div id="opp-alert" class="opp-alert" style="display:none"></div>
 
+        <div class="card opp-guide-card">
+          <div class="card-title card-title-row">
+            <span>打つ・見送る早見表</span><span id="opp-guide-count" class="opp-live-badge">0件</span>
+          </div>
+          <p class="hint" style="margin-bottom:12px">機種ごとの狙い目ラインと期待値を一覧表示。行の「10秒判定」から実際の台を最終確認できます。</p>
+          <div class="opp-guide-summary">
+            <div><small>打つ候補</small><strong id="opp-guide-ready-count">0条件</strong></div>
+            <div><small>最大期待値</small><strong id="opp-guide-max-ev">--</strong></div>
+            <div><small>登録機種</small><strong id="opp-guide-machine-count">0機種</strong></div>
+          </div>
+          <div class="opp-guide-controls">
+            <input id="opp-guide-search" class="form-input" type="search" placeholder="機種名・条件で絞り込み" autocomplete="off">
+            <select id="opp-guide-mode" class="form-select">
+              <option value="targets">狙い目ラインだけ</option>
+              <option value="all">全ゲーム数の期待値</option>
+            </select>
+          </div>
+          <div class="opp-guide-table-wrap">
+            <table class="opp-guide-table">
+              <thead><tr><th>判定</th><th>機種・条件</th><th>現在値</th><th>期待値</th><th>必要資金</th><th></th></tr></thead>
+              <tbody id="opp-guide-body"><tr><td colspan="6" class="hint center">読み込み中...</td></tr></tbody>
+            </table>
+          </div>
+          <p class="opp-guide-note">「打つ候補」は登録条件・期待値・現在の資金枠だけを見た目安です。交換率、持ちメダル、リセット、閉店時刻は10秒判定で確認してください。</p>
+        </div>
+
         <div class="card opp-quick-card">
           <div class="card-title card-title-row"><span>10秒判定</span><span class="opp-live-badge">現場用</span></div>
           <p class="hint" style="margin-bottom:12px">台の条件を選び、現在値を入れるだけで資金・閉店リスクまで判定します。</p>

@@ -3831,6 +3831,104 @@ function populateOpportunityQuickMachines() {
   updateOpportunityQuickProfileSelect(true);
 }
 
+function opportunityGuideJudgment(profile, point) {
+  const expected = point.ev_yen == null ? NaN : Number(point.ev_yen);
+  const worstCaseRaw = point.worst_case_yen == null ? profile.worst_case_investment_yen : point.worst_case_yen;
+  const worstCase = worstCaseRaw == null ? NaN : Number(worstCaseRaw);
+  const verifiedDate = profile.verified_on ? new Date(`${profile.verified_on}T00:00:00`) : null;
+  const ageDays = verifiedDate && !Number.isNaN(verifiedDate.getTime())
+    ? Math.floor((Date.now() - verifiedDate.getTime()) / 86400000)
+    : null;
+  if (!['official', 'verified'].includes(profile.confidence) || ageDays == null || ageDays > 180) {
+    return { code: 'verify', label: '要確認', reason: '情報の信頼度・確認日を再確認' };
+  }
+  if (!Number.isFinite(expected)) return { code: 'verify', label: '要確認', reason: '期待値が未登録' };
+  if (!Number.isFinite(worstCase)) return { code: 'verify', label: '要確認', reason: '必要資金が未登録' };
+  if (Number(point.value) < Number(profile.start_threshold) || expected < 0) {
+    return { code: 'wait', label: '見送り', reason: '狙い目ライン未満' };
+  }
+  const summary = opportunityState.summary || {};
+  if (!summary.configured) return { code: 'verify', label: '資金設定', reason: '先に月間資金を設定' };
+  if (worstCase > Number(summary.risk_capacity_yen || 0)) {
+    return { code: 'funds', label: '資金不足', reason: '必要資金が現在の許容枠を超過' };
+  }
+  if (expected < 1000) return { code: 'caution', label: '条件付き', reason: '期待値1,000円未満' };
+  return { code: 'target', label: '打つ候補', reason: '10秒判定で最終確認' };
+}
+
+function opportunityGuideRows(profiles, mode = 'targets') {
+  const rows = [];
+  profiles.forEach(profile => {
+    const curves = Array.isArray(profile.curve_points)
+      ? [...profile.curve_points].sort((a, b) => Number(a.value) - Number(b.value))
+      : [];
+    let points;
+    if (mode === 'all' && curves.length) {
+      points = curves;
+    } else {
+      const exact = curves.find(point => Number(point.value) === Number(profile.start_threshold));
+      const next = curves.find(point => Number(point.value) >= Number(profile.start_threshold));
+      points = [exact || next || {
+        value: profile.start_threshold,
+        ev_yen: profile.expected_value_yen,
+        worst_case_yen: profile.worst_case_investment_yen,
+      }];
+    }
+    points.forEach(point => rows.push({
+      profile,
+      point,
+      judgment: opportunityGuideJudgment(profile, point),
+    }));
+  });
+  const priority = { target: 0, caution: 1, verify: 2, funds: 3, wait: 4 };
+  return rows.sort((a, b) => {
+    if (mode === 'targets') {
+      return (priority[a.judgment.code] - priority[b.judgment.code]) ||
+        (Number(b.point.ev_yen || -Infinity) - Number(a.point.ev_yen || -Infinity));
+    }
+    return a.profile.machine_name.localeCompare(b.profile.machine_name, 'ja') ||
+      a.profile.id - b.profile.id || Number(a.point.value) - Number(b.point.value);
+  });
+}
+
+function renderOpportunityGuide() {
+  const body = document.getElementById('opp-guide-body');
+  if (!body) return;
+  const mode = document.getElementById('opp-guide-mode').value;
+  const search = document.getElementById('opp-guide-search').value.trim().toLowerCase();
+  const allRows = opportunityGuideRows(opportunityState.profiles || [], mode);
+  const rows = search
+    ? allRows.filter(({ profile }) => `${profile.machine_name} ${profile.condition_label || ''}`.toLowerCase().includes(search))
+    : allRows;
+  const targetCount = allRows.filter(row => row.judgment.code === 'target').length;
+  const finiteExpected = allRows
+    .map(row => row.point.ev_yen == null ? NaN : Number(row.point.ev_yen))
+    .filter(Number.isFinite);
+  const machineCount = new Set((opportunityState.profiles || []).map(profile => profile.machine_name)).size;
+  document.getElementById('opp-guide-count').textContent = `${rows.length}件`;
+  document.getElementById('opp-guide-ready-count').textContent = `${targetCount}条件`;
+  document.getElementById('opp-guide-max-ev').textContent = finiteExpected.length ? opportunityMoney(Math.max(...finiteExpected), true) : '--';
+  document.getElementById('opp-guide-machine-count').textContent = `${machineCount}機種`;
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="6" class="hint center">一致する期待値データがありません</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(({ profile, point, judgment }) => {
+    const expected = point.ev_yen == null ? NaN : Number(point.ev_yen);
+    const worstCase = point.worst_case_yen == null ? profile.worst_case_investment_yen : point.worst_case_yen;
+    const expectedText = Number.isFinite(expected) ? opportunityMoney(expected, true) : '--';
+    const currentText = `${Number(point.value).toLocaleString()}${esc(profile.unit_label || '')}`;
+    return `<tr class="opp-guide-row opp-guide-row-${judgment.code}">
+      <td data-label="判定"><span class="opp-guide-signal opp-guide-signal-${judgment.code}">${esc(judgment.label)}</span></td>
+      <td data-label="機種・条件"><strong class="opp-guide-machine">${esc(profile.machine_name)}</strong><small>${esc(profile.condition_label || '条件未設定')}</small></td>
+      <td data-label="現在値"><strong class="opp-guide-current">${currentText}</strong><small>開始 ${Number(profile.start_threshold).toLocaleString()}${esc(profile.unit_label || '')}</small></td>
+      <td data-label="期待値"><strong class="${expected >= 0 ? 'opp-money-up' : 'opp-money-down'}">${expectedText}</strong><small>${esc(judgment.reason)}</small></td>
+      <td data-label="必要資金"><strong>${opportunityMoney(worstCase)}</strong></td>
+      <td data-label="操作"><button class="btn btn-secondary btn-sm" type="button" data-opp-guide-profile="${profile.id}" data-opp-guide-value="${Number(point.value)}">10秒判定</button></td>
+    </tr>`;
+  }).join('');
+}
+
 function renderOpportunityQuickResult(result) {
   const el = document.getElementById('opp-quick-result');
   const labels = {
@@ -4036,6 +4134,7 @@ async function loadOpportunityPage() {
     document.getElementById('opp-machine-datalist').innerHTML = state.machines.map(machine => `<option value="${esc(machine)}">`).join('');
     renderOpportunitySummary(opportunityState.summary);
     populateOpportunityQuickMachines();
+    renderOpportunityGuide();
     renderOpportunityProfiles(opportunityState.profiles);
     renderOpportunityCandidates(opportunityState.candidates);
     renderOpportunityResults(opportunityState.recent_results || []);
@@ -4057,6 +4156,8 @@ async function loadOpportunityPage() {
 }
 
 document.getElementById('opp-month').addEventListener('change', loadOpportunityPage);
+document.getElementById('opp-guide-search').addEventListener('input', renderOpportunityGuide);
+document.getElementById('opp-guide-mode').addEventListener('change', renderOpportunityGuide);
 document.getElementById('opp-quick-machine').addEventListener('change', event => {
   localStorage.setItem('pachi_quick_machine', event.target.value);
   updateOpportunityQuickProfileSelect(true);
@@ -4169,6 +4270,23 @@ document.getElementById('opp-candidate-form').addEventListener('submit', async e
 });
 
 document.getElementById('page-opportunity').addEventListener('click', async event => {
+  const guideButton = event.target.closest('[data-opp-guide-profile]');
+  if (guideButton) {
+    const profile = opportunityState.profiles.find(item => item.id === Number(guideButton.dataset.oppGuideProfile));
+    if (profile) {
+      document.getElementById('opp-quick-machine').value = profile.machine_name;
+      localStorage.setItem('pachi_quick_machine', profile.machine_name);
+      updateOpportunityQuickProfileSelect(false);
+      document.getElementById('opp-quick-profile').value = String(profile.id);
+      syncQuickConditions(profile);
+      document.getElementById('opp-quick-current').value = guideButton.dataset.oppGuideValue;
+      document.getElementById('opp-quick-result').innerHTML = '';
+      opportunityQuickResult = null;
+      document.querySelector('.opp-quick-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => document.getElementById('opp-quick-current').focus(), 350);
+    }
+    return;
+  }
   const quickSaveButton = event.target.closest('[data-opp-quick-save]');
   if (quickSaveButton && opportunityQuickResult?.actionable) {
     try {

@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.9.1"
 RELEASE_DATE = "2026-08-09"
 RELEASE_CHANNEL = "開発版"
 
 PATCH_NOTES = [
+    {
+        "version": "1.9.1",
+        "released_on": "2026-08-09",
+        "title": "更新履歴を設定へ常設",
+        "items": [
+            "設定画面の上部に更新履歴を移動して見つけやすく改善",
+            "現在のバージョン・更新日・過去の変更をいつでも確認可能",
+            "ヘッダーのバージョン表示から更新履歴へ直接移動",
+        ],
+    },
     {
         "version": "1.9.0",
         "released_on": "2026-08-09",

@@ -8,7 +8,7 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.9.1';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 let releaseInfo = {
   version: APP_VERSION,
@@ -17,8 +17,8 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-09',
-    title: 'バージョン表示とパッチノート',
-    items: ['全端末で共通のバージョンを表示', '更新内容をアプリ内から確認', '未確認の更新をNEWで通知'],
+    title: '更新履歴を設定へ常設',
+    items: ['設定画面の上部からいつでも確認', '現在のバージョン・更新日・過去の変更を表示', 'ヘッダーから更新履歴へ直接移動'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -91,7 +91,7 @@ function renderVersionInfo() {
   byId('mobile-version-label').textContent = `v${releaseInfo.version}`;
   byId('mobile-version-button').classList.toggle('seen', seen);
   byId('settings-version-new').classList.toggle('seen', seen);
-  byId('settings-version-summary').textContent = `v${releaseInfo.version}・更新日 ${releaseDateLabel(releaseInfo.released_on)}`;
+  byId('settings-version-summary').textContent = `現在 v${releaseInfo.version}・更新日 ${releaseDateLabel(releaseInfo.released_on)}`;
   byId('mobile-release-current').innerHTML = `<strong>PACHI TOOL v${esc(releaseInfo.version)}</strong>${esc(releaseInfo.channel)}・${releaseDateLabel(releaseInfo.released_on)}公開`;
   byId('mobile-patch-notes').innerHTML = (releaseInfo.patch_notes || []).map(note => `
     <article class="patch-note">

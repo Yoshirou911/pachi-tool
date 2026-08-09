@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.3"
-RELEASE_DATE = "2026-08-09"
+APP_VERSION = "1.9.4"
+RELEASE_DATE = "2026-08-10"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "1.9.4",
+        "released_on": "2026-08-10",
+        "title": "どこからでもホーム・全機能へ移動",
+        "items": [
+            "スマホ版左上のPACHI TOOLをホームへ戻るボタンに変更",
+            "右上にどの画面でも開ける全機能メニューを追加",
+            "ハイエナ・狙い台捜索・共通機能をメニュー内で整理",
+        ],
+    },
     {
         "version": "1.9.3",
         "released_on": "2026-08-09",

@@ -91,7 +91,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v1.9.3';
+    document.getElementById('desktop-version-label').textContent = 'v1.9.4';
   }
 }
 

@@ -37,8 +37,8 @@ assert.match(html, /id="catalog-scope"/, '現在の対象機種を明示する')
 assert.match(html, /スマスロ攻略ホーム/, 'スマスロ専門ツールであることを明示する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=1\.9\.9/);
-assert.match(html, /app\.js\?v=1\.9\.9/);
+assert.match(html, /app\.css\?v=2\.0\.0/);
+assert.match(html, /app\.js\?v=2\.0\.0/);
 assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
 assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
 assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
@@ -48,8 +48,13 @@ assert.match(html, /着席前30秒チェック/, 'ゲーム数だけで判断し
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');
 assert.match(app, /catalog\.json\?v=\$\{APP_VERSION\}/, '機種追加時に古いカタログキャッシュを使わない');
+assert.match(app, /core\.mjs\?v=2\.0\.0/, '内部判定ロジックも更新時にキャッシュを破棄する');
 assert.match(app, /installation_snapshot/, '店舗の設置機種を使って巡回対象を絞る');
 assert.match(app, /start_threshold\) - 100/, 'ボーダー100G手前を通過ラインとして表示する');
+assert.match(html, /id="patrol-observation-form"/, '台番号別の巡回記録を入力できる');
+assert.match(html, /id="validation-summary"/, '期待値ボーダーを実戦結果で検証できる');
+assert.match(html, /id="sync-push-button"/, '端末間のサーバー同期を操作できる');
+assert.match(html, /id="result-hit-game"/, '当選ゲーム数を詳細記録できる');
 assert.match(html, /id="brand-home"[^>]*data-screen-target="home"/, '左上ブランドからホームへ戻れる');
 assert.match(html, /id="mobile-menu-button"/, '全画面共通のメニューボタンが必要');
 assert.match(html, /id="mobile-menu-overlay"/, '開閉できる全機能メニューが必要');

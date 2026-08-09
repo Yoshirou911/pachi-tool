@@ -76,11 +76,10 @@ def test_coverage_reports_each_data_layer(coverage_database):
     assert data["readiness"]["trend_label"] == "参考"
     assert data["readiness"]["trend_ready"] is True
     assert data["readiness"]["seat_ready"] is True
-    assert data["intraday"] == {
-        "records": 0,
-        "ready": False,
-        "note": "現在は日次確定データのみ。時間帯別の途中経過は未収集です。",
-    }
+    assert data["intraday"]["records"] == 0
+    assert data["intraday"]["days"] == 0
+    assert data["intraday"]["ready"] is False
+    assert "30件" in data["intraday"]["note"]
 
 
 def test_coverage_explains_empty_store(coverage_database):

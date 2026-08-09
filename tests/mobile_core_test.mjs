@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { assessQuick, buildGuideRows, buildPerformanceSeries, calculateSummary } from '../mobile/core.mjs';
+import { assessQuick, buildGuideRows, buildPerformanceSeries, buildValidationSummary, calculateSummary } from '../mobile/core.mjs';
 
 const profile = {
   id: 1,
@@ -67,6 +67,24 @@ const closing = assessQuick({
 });
 assert.equal(closing.judgment, 'closing_risk');
 
+const inputMismatch = assessQuick({
+  profile: {
+    ...profile,
+    input_fields: [{ id: 'counter', label: '確認したカウンター', required: true }],
+    requirements: [{ field: 'counter', operator: 'eq', value: 'at', message: 'AT間を確認してください' }],
+  },
+  currentValue: 600,
+  riskCapacityYen: 30000,
+  exchangeType: 'equivalent',
+  fundingMode: 'cash',
+  resetStatus: 'normal',
+  minutesUntilClose: 180,
+  extraInputs: { counter: 'cz' },
+  today: new Date('2026-08-09T12:00:00'),
+});
+assert.equal(inputMismatch.judgment, 'condition_mismatch');
+assert.match(inputMismatch.reason, /AT間/);
+
 const rows = buildGuideRows([profile], summary, 'all');
 assert.equal(rows.length, 3);
 assert.equal(rows.at(-1).assessment.judgment, 'target');
@@ -83,5 +101,13 @@ assert.deepEqual(performance.points.map(point => point.cumulative_expected_yen),
 
 const legacyPerformance = buildPerformanceSeries([{ investment_yen: 1000, returns_yen: 2000 }]);
 assert.equal(legacyPerformance.tracked_count, 0);
+
+const validation = buildValidationSummary(Array.from({ length: 10 }, () => ({
+  catalog_key: 'test-v1', machine_name: 'テスト台', expected_value_yen: 1000,
+  investment_yen: 5000, returns_yen: 6200, played_minutes: 60,
+})));
+assert.equal(validation[0].count, 10);
+assert.equal(validation[0].sample_level, 'watch');
+assert.equal(validation[0].gap_yen, 2000);
 
 console.log('mobile core tests passed');

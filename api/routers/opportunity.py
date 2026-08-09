@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -32,10 +32,12 @@ from opportunity.models import (
     get_budget_summary as get_opportunity_budget_summary,
     get_dashboard as get_opportunity_dashboard,
     get_profile as get_opportunity_profile,
+    load_mobile_sync,
     save_budget as save_opportunity_budget,
     save_candidate as save_opportunity_candidate,
     save_profile as save_opportunity_profile,
     save_result as save_opportunity_result,
+    save_mobile_sync,
     set_candidate_status as set_opportunity_candidate_status,
 )
 
@@ -93,6 +95,33 @@ class OpportunityBudgetUpdate(BaseModel):
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
     starting_bankroll: int = Field(ge=0)
     loss_limit_yen: int = Field(ge=0)
+
+
+class MobileSyncUpdate(BaseModel):
+    state: dict
+
+
+def _checked_sync_key(value: str) -> str:
+    key = value.strip()
+    if len(key) < 32 or len(key) > 128 or not all(char.isalnum() or char in "-_" for char in key):
+        raise HTTPException(422, "同期コードが不正です")
+    return key
+
+
+@router.put("/api/opportunity/sync", tags=["opportunity"])
+def update_mobile_sync(body: MobileSyncUpdate, x_sync_key: str = Header(...)) -> dict:
+    try:
+        return save_mobile_sync(_checked_sync_key(x_sync_key), body.state)
+    except ValueError as exc:
+        raise HTTPException(413, str(exc))
+
+
+@router.get("/api/opportunity/sync", tags=["opportunity"])
+def read_mobile_sync(x_sync_key: str = Header(...)) -> dict:
+    saved = load_mobile_sync(_checked_sync_key(x_sync_key))
+    if not saved:
+        raise HTTPException(404, "同期データがありません")
+    return saved
 
 
 class OpportunityQuickAssess(BaseModel):

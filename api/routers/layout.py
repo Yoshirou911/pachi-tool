@@ -113,11 +113,109 @@ class LayoutInput(BaseModel):
         return value
 
 
+class SeatResultRowInput(BaseModel):
+    seat_number: int = Field(ge=1, le=99999)
+    machine_name: str = Field(default="", max_length=120)
+    diff_coins: int = Field(ge=-100000, le=100000)
+    games: int | None = Field(default=None, ge=0, le=100000)
+
+
+class SeatResultImportInput(BaseModel):
+    hall_name: str = Field(min_length=1, max_length=120)
+    report_date: str
+    source_label: str = Field(default="現地入力", max_length=200)
+    source_url: str = Field(default="", max_length=1000)
+    rows: list[SeatResultRowInput] = Field(min_length=1, max_length=500)
+
+    @field_validator("report_date")
+    @classmethod
+    def _valid_report_date(cls, value: str) -> str:
+        date.fromisoformat(value)
+        return value
+
+    @field_validator("source_url")
+    @classmethod
+    def _safe_source_url(cls, value: str) -> str:
+        if value and not value.startswith(("https://", "http://")):
+            raise ValueError("source_url は http/https のURLにしてください")
+        return value
+
+    @field_validator("rows")
+    @classmethod
+    def _unique_result_seats(cls, value: list[SeatResultRowInput]) -> list[SeatResultRowInput]:
+        numbers = [row.seat_number for row in value]
+        if len(numbers) != len(set(numbers)):
+            raise ValueError("同じ日の同じ台番号を重複して登録できません")
+        return value
+
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
         (table_name,),
     ).fetchone() is not None
+
+
+def _ensure_seat_result_tables(conn: sqlite3.Connection) -> None:
+    """手入力結果と取込履歴を保存できる最低限のテーブルを保証する。"""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS hall_day_seat (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hall_name TEXT NOT NULL,
+            report_date TEXT NOT NULL,
+            machine_name TEXT NOT NULL,
+            seat_number INTEGER NOT NULL,
+            diff_coins INTEGER,
+            games INTEGER,
+            ev_pct REAL,
+            bb_prob REAL,
+            rb_prob REAL,
+            source TEXT DEFAULT 'manual',
+            source_url TEXT,
+            scraped_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(hall_name, report_date, machine_name, seat_number)
+        );
+        CREATE TABLE IF NOT EXISTS seat_result_import (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            hall_name TEXT NOT NULL,
+            report_date TEXT NOT NULL,
+            source_label TEXT NOT NULL DEFAULT '',
+            source_url TEXT NOT NULL DEFAULT '',
+            submitted_rows INTEGER NOT NULL DEFAULT 0,
+            inserted_rows INTEGER NOT NULL DEFAULT 0,
+            updated_rows INTEGER NOT NULL DEFAULT 0,
+            skipped_rows INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_seat_result_import_hall_date
+            ON seat_result_import(hall_name, report_date);
+        """
+    )
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(hall_day_seat)").fetchall()}
+    if "source" not in columns:
+        # 既存行は由来不明として扱い、手入力で上書きしない。
+        conn.execute("ALTER TABLE hall_day_seat ADD COLUMN source TEXT DEFAULT 'unknown'")
+    if "source_url" not in columns:
+        conn.execute("ALTER TABLE hall_day_seat ADD COLUMN source_url TEXT")
+    conn.commit()
+
+
+def _layout_machine_by_seat(conn: sqlite3.Connection, hall_name: str, report_date: str) -> dict[int, str]:
+    row = conn.execute(
+        """SELECT id FROM hall_layout WHERE hall_name=? AND valid_from<=?
+           AND (valid_to IS NULL OR valid_to>=?) ORDER BY valid_from DESC LIMIT 1""",
+        (hall_name, report_date, report_date),
+    ).fetchone()
+    if not row:
+        return {}
+    return {
+        int(item[0]): item[1]
+        for item in conn.execute(
+            "SELECT seat_number, machine_name FROM hall_layout_seat WHERE layout_id=?",
+            (row[0],),
+        ).fetchall()
+        if item[1]
+    }
 
 
 def _daily_source_rows(conn: sqlite3.Connection, hall_name: str, start: date, end: date) -> tuple[list[dict], str]:
@@ -368,6 +466,119 @@ def save_layout(body: LayoutInput) -> dict:
         return _serialize_layout(conn, row)
     finally:
         conn.close()
+
+
+@router.post("/api/layouts/seat_results", tags=["layout"])
+def import_seat_results(body: SeatResultImportInput) -> dict:
+    """現地入力またはCSVの台番号別結果を保存する。公開取得データは上書きしない。"""
+    conn = init_layout_db()
+    conn.row_factory = sqlite3.Row
+    _ensure_seat_result_tables(conn)
+    manual_sources = {"manual", "manual_csv", "field_entry"}
+    machine_by_seat = _layout_machine_by_seat(conn, body.hall_name, body.report_date)
+    inserted = 0
+    updated = 0
+    skipped = 0
+    skipped_seats: list[int] = []
+    unresolved_seats: list[int] = []
+    try:
+        for item in body.rows:
+            existing = conn.execute(
+                """SELECT machine_name, source FROM hall_day_seat
+                   WHERE hall_name=? AND report_date=? AND seat_number=?""",
+                (body.hall_name, body.report_date, item.seat_number),
+            ).fetchall()
+            if any((row["source"] or "unknown") not in manual_sources for row in existing):
+                skipped += 1
+                skipped_seats.append(item.seat_number)
+                continue
+            machine_name = item.machine_name.strip() or machine_by_seat.get(item.seat_number, "")
+            if not machine_name:
+                unresolved_seats.append(item.seat_number)
+                continue
+            was_manual = bool(existing)
+            if existing:
+                conn.execute(
+                    "DELETE FROM hall_day_seat WHERE hall_name=? AND report_date=? AND seat_number=?",
+                    (body.hall_name, body.report_date, item.seat_number),
+                )
+            conn.execute(
+                """INSERT INTO hall_day_seat
+                   (hall_name,report_date,machine_name,seat_number,diff_coins,games,source,source_url)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    body.hall_name,
+                    body.report_date,
+                    machine_name,
+                    item.seat_number,
+                    item.diff_coins,
+                    item.games,
+                    "manual_csv" if len(body.rows) > 1 else "field_entry",
+                    body.source_url,
+                ),
+            )
+            if was_manual:
+                updated += 1
+            else:
+                inserted += 1
+        if unresolved_seats:
+            conn.rollback()
+            raise HTTPException(
+                400,
+                "機種名が未入力で、店内マップからも解決できない台があります: "
+                + ", ".join(map(str, unresolved_seats[:20])),
+            )
+        conn.execute(
+            """INSERT INTO seat_result_import
+               (hall_name,report_date,source_label,source_url,submitted_rows,inserted_rows,updated_rows,skipped_rows)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (
+                body.hall_name,
+                body.report_date,
+                body.source_label.strip() or "現地入力",
+                body.source_url,
+                len(body.rows),
+                inserted,
+                updated,
+                skipped,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {
+        "ok": True,
+        "hall_name": body.hall_name,
+        "report_date": body.report_date,
+        "submitted": len(body.rows),
+        "inserted": inserted,
+        "updated": updated,
+        "skipped": skipped,
+        "skipped_seats": skipped_seats,
+        "message": f"{inserted}件追加・{updated}件更新" + (f"・{skipped}件は公開データを優先" if skipped else ""),
+    }
+
+
+@router.get("/api/layouts/seat_results", tags=["layout"])
+def list_seat_results(
+    hall_name: str = Query(..., min_length=1),
+    report_date: str = Query(...),
+) -> dict:
+    """指定日の台番号結果を、現地での確認用に返す。"""
+    _parse_date(report_date, "report_date")
+    conn = init_layout_db()
+    conn.row_factory = sqlite3.Row
+    _ensure_seat_result_tables(conn)
+    try:
+        rows = conn.execute(
+            """SELECT seat_number,machine_name,diff_coins,games,source,source_url
+               FROM hall_day_seat WHERE hall_name=? AND report_date=? AND seat_number>0
+               ORDER BY seat_number""",
+            (hall_name, report_date),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {"hall_name": hall_name, "report_date": report_date, "count": len(rows), "rows": [dict(row) for row in rows]}
 
 
 def _generated_layout(seat_rows: list[sqlite3.Row], hall_name: str, valid_from: str) -> dict:

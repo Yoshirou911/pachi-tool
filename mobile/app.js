@@ -8,7 +8,7 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.8.1';
+const APP_VERSION = '1.8.2';
 const DB_NAME = 'pachi-tool-mobile';
 const STORE_NAME = 'app-state';
 const STATE_KEY = 'main';
@@ -626,6 +626,57 @@ async function saveFloorLayout(event) {
   }
 }
 
+function parseFloorResultCsv(text) {
+  const parseLine = line => {
+    const values = []; let value = ''; let quoted = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"' && quoted && line[i + 1] === '"') { value += '"'; i += 1; }
+      else if (char === '"') quoted = !quoted;
+      else if (char === ',' && !quoted) { values.push(value.trim()); value = ''; }
+      else value += char;
+    }
+    values.push(value.trim());
+    return values;
+  };
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim());
+  if (lines.length < 2) throw new Error('見出しと1件以上のデータが必要です');
+  const aliases = {
+    seat_number: ['seat_number', '台番号', '台番'], machine_name: ['machine_name', '機種名', '機種'],
+    diff_coins: ['diff_coins', '差枚'], games: ['games', 'g数', 'ゲーム数'],
+  };
+  const headers = parseLine(lines[0]).map(value => value.toLowerCase());
+  const indexes = Object.fromEntries(Object.entries(aliases).map(([key, values]) => [key, headers.findIndex(header => values.includes(header))]));
+  if (indexes.seat_number < 0 || indexes.diff_coins < 0) throw new Error('「台番号」と「差枚」列が必要です');
+  return lines.slice(1).map((line, index) => {
+    const cols = parseLine(line);
+    const seat = Number(cols[indexes.seat_number]);
+    const diff = Number(String(cols[indexes.diff_coins]).replace(/[+,枚]/g, ''));
+    const games = indexes.games >= 0 && cols[indexes.games] !== '' ? Number(String(cols[indexes.games]).replace(/[,Gg]/g, '')) : null;
+    if (!Number.isInteger(seat) || !Number.isFinite(diff) || (games != null && !Number.isFinite(games))) throw new Error(`${index + 2}行目の数値を確認してください`);
+    return { seat_number: seat, machine_name: indexes.machine_name >= 0 ? cols[indexes.machine_name] : '', diff_coins: diff, games };
+  });
+}
+
+async function saveFloorResults(rows, sourceLabel = '') {
+  const status = byId('floor-result-status');
+  status.textContent = `${rows.length}件を保存中...`;
+  const response = await fetch('/api/layouts/seat_results', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      hall_name: byId('floor-hall').value,
+      report_date: byId('floor-result-date').value || todayValue(),
+      source_label: sourceLabel || byId('floor-result-source').value.trim() || '現地入力',
+      rows,
+    }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.detail || `保存API ${response.status}`);
+  status.textContent = `${result.report_date}・${result.message}`;
+  showToast(result.message);
+  await loadFloorHeat();
+}
+
 async function runTargetSearch() {
   const visitDate = byId('target-visit-date').value;
   byId('target-map-date').value = visitDate;
@@ -813,6 +864,34 @@ byId('floor-form').addEventListener('submit', async event => {
 
 byId('floor-auto-layout').addEventListener('click', createAutoFloorSeats);
 byId('floor-editor-form').addEventListener('submit', saveFloorLayout);
+byId('floor-result-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = byId('floor-result-save');
+  button.disabled = true;
+  try {
+    await saveFloorResults([{
+      seat_number: Number(byId('floor-result-number').value),
+      machine_name: byId('floor-result-machine').value.trim(),
+      diff_coins: Number(byId('floor-result-diff').value),
+      games: byId('floor-result-games').value === '' ? null : Number(byId('floor-result-games').value),
+    }]);
+    ['floor-result-number', 'floor-result-machine', 'floor-result-diff', 'floor-result-games'].forEach(id => { byId(id).value = ''; });
+  } catch (error) { showToast(`保存できません：${error.message}`); }
+  finally { button.disabled = false; }
+});
+byId('floor-result-csv').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try { await saveFloorResults(parseFloorResultCsv(await file.text()), `CSV: ${file.name}`); }
+  catch (error) { showToast(`CSVを読めません：${error.message}`); }
+  finally { event.target.value = ''; }
+});
+byId('floor-result-template').addEventListener('click', () => {
+  const blob = new Blob(['台番号,機種名,差枚,G数\n501,スマスロ北斗の拳,1800,7200\n'], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = 'seat-results-template.csv'; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
 
 async function saveAnalysisPlan({ visitDate, storeName, machineName, seatNumber = '', notes }) {
   const duplicate = state.plans.some(plan => plan.visit_date === visitDate && plan.store_name === storeName && plan.machine_name === machineName && String(plan.machine_number || '') === String(seatNumber || ''));
@@ -1078,6 +1157,7 @@ async function initialize() {
     byId('trend-date').value = tomorrowValue();
     byId('floor-date').value = tomorrowValue();
     byId('floor-valid-from').value = todayValue();
+    byId('floor-result-date').value = todayValue();
     await loadTargetHallOptions();
     populateMachines();
     renderAll();

@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=1.8.1">
+  <link rel="stylesheet" href="./app.css?v=1.8.2">
   <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
@@ -176,6 +176,20 @@
       <div id="floor-map-meta" class="floor-map-meta"></div>
       <div class="floor-map-scroll"><div id="floor-map-canvas" class="floor-map-canvas"></div></div>
       <div id="floor-seat-detail" class="floor-seat-detail"></div>
+      <details class="settings-group floor-result-entry">
+        <summary><span><b>今日の台データを追加</b><small>1台ずつ入力・CSV一括取込</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <form id="floor-result-form">
+            <div class="two-col"><label>営業日<input id="floor-result-date" type="date" required></label><label>情報源<input id="floor-result-source" maxlength="200" value="現地入力"></label></div>
+            <div class="two-col"><label>台番号<input id="floor-result-number" type="number" min="1" inputmode="numeric" required placeholder="501"></label><label>差枚<input id="floor-result-diff" type="number" min="-100000" max="100000" inputmode="numeric" required placeholder="+1800"></label></div>
+            <label>機種名<input id="floor-result-machine" maxlength="120" placeholder="マップ登録済みなら省略可"></label>
+            <label>G数<input id="floor-result-games" type="number" min="0" max="100000" inputmode="numeric" placeholder="7200"></label>
+            <button id="floor-result-save" class="primary-button plan-button" type="submit">この1台を保存</button>
+          </form>
+          <div class="floor-import-actions"><label class="secondary-button">CSVを読み込む<input id="floor-result-csv" type="file" accept=".csv,text/csv" hidden></label><button id="floor-result-template" class="secondary-button" type="button">CSVひな形</button></div>
+          <p id="floor-result-status" class="fine-print">登録した結果は翌日以降のヒートマップに反映されます。公開取得済みデータは上書きしません。</p>
+        </div>
+      </details>
       <details class="settings-group floor-editor">
         <summary><span><b>店内マップを登録・修正</b><small>公式マップや現地確認を元に再構築</small></span><i>⌄</i></summary>
         <div class="settings-body">
@@ -346,6 +360,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=1.8.1"></script>
+  <script type="module" src="./app.js?v=1.8.2"></script>
 </body>
 </html>

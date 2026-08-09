@@ -207,6 +207,16 @@
           </form>
           <p class="target-search-disclaimer">仮配置は本物の座席位置ではありません。公式情報または現地確認前は「要確認」のまま保存してください。</p>
         </details>
+        <details class="card desktop-layout-editor" id="desktop-seat-result-panel">
+          <summary><span><b>台番号の実績を追加</b><small>現地入力またはCSV</small></span><i>＋</i></summary>
+          <form id="desktop-seat-result-form">
+            <div class="form-row-2col"><div><label class="form-label">営業日</label><input id="desktop-seat-result-date" class="form-input" type="date" required></div><div><label class="form-label">情報源</label><input id="desktop-seat-result-source" class="form-input" maxlength="200" value="現地入力" placeholder="例：現地データ"></div></div>
+            <div class="desktop-layout-range"><label>台番号<input id="desktop-seat-result-number" class="form-input" type="number" min="1" required placeholder="501"></label><label>機種名<input id="desktop-seat-result-machine" class="form-input" maxlength="120" placeholder="マップ登録済みなら省略可"></label><label>差枚<input id="desktop-seat-result-diff" class="form-input" type="number" min="-100000" max="100000" required placeholder="+1800"></label><label>G数<input id="desktop-seat-result-games" class="form-input" type="number" min="0" max="100000" placeholder="7200"></label></div>
+            <button id="desktop-seat-result-save" class="btn btn-primary" type="submit">この1台を保存</button>
+          </form>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><label class="btn btn-ghost" style="cursor:pointer">CSVを読み込む<input id="desktop-seat-result-csv" type="file" accept=".csv,text/csv" hidden></label><button id="desktop-seat-result-template" class="btn btn-ghost" type="button">CSVひな形</button></div>
+          <p id="desktop-seat-result-status" class="target-search-disclaimer">登録すると翌日以降の座席ヒートマップに反映されます。公開取得済みの行は上書きしません。</p>
+        </details>
       </div>
     </section>
 

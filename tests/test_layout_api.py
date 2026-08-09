@@ -132,3 +132,73 @@ def test_duplicate_seat_numbers_are_rejected(layout_database):
     }
     response = client.post("/api/layouts", json=payload)
     assert response.status_code == 422
+
+
+def test_manual_seat_result_is_resolved_from_layout_and_updates_heatmap(layout_database):
+    today = date.today()
+    visit = today + timedelta(days=1)
+    layout_payload = {
+        "hall_name": "テスト店",
+        "valid_from": (today - timedelta(days=10)).isoformat(),
+        "seats": [
+            {"seat_number": 501, "machine_name": "スマスロ北斗の拳", "x": 50, "y": 60},
+        ],
+    }
+    assert client.post("/api/layouts", json=layout_payload).status_code == 200
+
+    payload = {
+        "hall_name": "テスト店",
+        "report_date": today.isoformat(),
+        "source_label": "現地確認",
+        "rows": [{"seat_number": 501, "machine_name": "", "diff_coins": 1800, "games": 7200}],
+    }
+    saved = client.post("/api/layouts/seat_results", json=payload)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["inserted"] == 1
+
+    listed = client.get(
+        "/api/layouts/seat_results",
+        params={"hall_name": "テスト店", "report_date": today.isoformat()},
+    ).json()
+    assert listed["count"] == 1
+    assert listed["rows"][0]["machine_name"] == "スマスロ北斗の拳"
+
+    heat = client.get(
+        "/api/layouts/seat_heat",
+        params={"hall_name": "テスト店", "visit_date": visit.isoformat(), "days": 30},
+    ).json()
+    assert heat["status"] == "分析済み"
+    assert heat["seats"][0]["estimate"] == 1800
+
+    payload["rows"][0]["diff_coins"] = 900
+    updated = client.post("/api/layouts/seat_results", json=payload)
+    assert updated.status_code == 200
+    assert updated.json()["updated"] == 1
+
+
+def test_manual_import_does_not_overwrite_public_seat_result(layout_database):
+    report_date = date.today().isoformat()
+    conn = sqlite3.connect(layout_database)
+    conn.execute("ALTER TABLE hall_day_seat ADD COLUMN source TEXT DEFAULT 'unknown'")
+    conn.execute(
+        "INSERT INTO hall_day_seat VALUES (?,?,?,?,?,?,?,?)",
+        ("テスト店", report_date, "スマスロ北斗の拳", 501, 2200, 7000, "https://example.com", "anaslo"),
+    )
+    conn.commit()
+    conn.close()
+
+    response = client.post(
+        "/api/layouts/seat_results",
+        json={
+            "hall_name": "テスト店",
+            "report_date": report_date,
+            "source_label": "現地入力",
+            "rows": [{"seat_number": 501, "machine_name": "スマスロ北斗の拳", "diff_coins": -500, "games": 1000}],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["skipped"] == 1
+    conn = sqlite3.connect(layout_database)
+    value = conn.execute("SELECT diff_coins FROM hall_day_seat WHERE seat_number=501").fetchone()[0]
+    conn.close()
+    assert value == 2200

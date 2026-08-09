@@ -410,6 +410,10 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .floor-seat-detail { margin-top: 12px; }
 .seat-detail-card { border-color: rgba(167,139,250,.23); }
 .floor-editor { margin-top: 13px; }
+.floor-result-entry { margin-top: 13px; border-color: rgba(66, 221, 178, .22); }
+#floor-result-form { display: grid; gap: 10px; }
+.floor-import-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.floor-import-actions label { display: grid; place-items: center; margin: 0; cursor: pointer; }
 .manual-plan-group { margin-top: 22px; }
 
 #quick-result:not(:empty) { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }

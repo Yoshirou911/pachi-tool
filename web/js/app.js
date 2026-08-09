@@ -541,6 +541,85 @@ async function saveDesktopFloorLayout(event) {
   finally { button.disabled = false; }
 }
 
+function parseSeatResultCsv(text) {
+  const parseLine = line => {
+    const values = []; let value = ''; let quoted = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"' && quoted && line[i + 1] === '"') { value += '"'; i += 1; }
+      else if (char === '"') quoted = !quoted;
+      else if (char === ',' && !quoted) { values.push(value.trim()); value = ''; }
+      else value += char;
+    }
+    values.push(value.trim());
+    return values;
+  };
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim());
+  if (lines.length < 2) throw new Error('見出しと1件以上のデータが必要です');
+  const aliases = {
+    seat_number: ['seat_number', '台番号', '台番'], machine_name: ['machine_name', '機種名', '機種'],
+    diff_coins: ['diff_coins', '差枚'], games: ['games', 'g数', 'ゲーム数'],
+  };
+  const headers = parseLine(lines[0]).map(value => value.toLowerCase());
+  const indexOf = key => headers.findIndex(header => aliases[key].includes(header));
+  const indexes = Object.fromEntries(Object.keys(aliases).map(key => [key, indexOf(key)]));
+  if (indexes.seat_number < 0 || indexes.diff_coins < 0) throw new Error('「台番号」と「差枚」列が必要です');
+  return lines.slice(1).map((line, lineIndex) => {
+    const cols = parseLine(line);
+    const seat = Number(cols[indexes.seat_number]);
+    const diff = Number(String(cols[indexes.diff_coins]).replace(/[+,枚]/g, ''));
+    const games = indexes.games >= 0 && cols[indexes.games] !== '' ? Number(String(cols[indexes.games]).replace(/[,Gg]/g, '')) : null;
+    if (!Number.isInteger(seat) || !Number.isFinite(diff) || (games != null && !Number.isFinite(games))) throw new Error(`${lineIndex + 2}行目の数値を確認してください`);
+    return { seat_number: seat, machine_name: indexes.machine_name >= 0 ? cols[indexes.machine_name] : '', diff_coins: diff, games };
+  });
+}
+
+async function saveDesktopSeatResults(rows, sourceLabel) {
+  const status = document.getElementById('desktop-seat-result-status');
+  const body = {
+    hall_name: document.getElementById('desktop-floor-hall').value,
+    report_date: document.getElementById('desktop-seat-result-date').value || localDateValue(),
+    source_label: sourceLabel || document.getElementById('desktop-seat-result-source').value.trim() || '現地入力',
+    rows,
+  };
+  status.textContent = `${rows.length}件を保存中...`;
+  const result = await apiFetch('/api/layouts/seat_results', { method: 'POST', body: JSON.stringify(body) });
+  status.textContent = `${result.report_date}・${result.message}`;
+  showToast(result.message, 'success');
+  await loadDesktopFloorHeat();
+}
+
+document.getElementById('desktop-seat-result-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = document.getElementById('desktop-seat-result-save');
+  button.disabled = true;
+  try {
+    await saveDesktopSeatResults([{
+      seat_number: Number(document.getElementById('desktop-seat-result-number').value),
+      machine_name: document.getElementById('desktop-seat-result-machine').value.trim(),
+      diff_coins: Number(document.getElementById('desktop-seat-result-diff').value),
+      games: document.getElementById('desktop-seat-result-games').value === '' ? null : Number(document.getElementById('desktop-seat-result-games').value),
+    }]);
+    ['desktop-seat-result-number', 'desktop-seat-result-machine', 'desktop-seat-result-diff', 'desktop-seat-result-games'].forEach(id => { document.getElementById(id).value = ''; });
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { button.disabled = false; }
+});
+
+document.getElementById('desktop-seat-result-csv').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try { await saveDesktopSeatResults(parseSeatResultCsv(await file.text()), `CSV: ${file.name}`); }
+  catch (error) { showToast(error.message, 'error'); }
+  finally { event.target.value = ''; }
+});
+
+document.getElementById('desktop-seat-result-template').addEventListener('click', () => {
+  const blob = new Blob(['台番号,機種名,差枚,G数\n501,スマスロ北斗の拳,1800,7200\n'], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = 'seat-results-template.csv'; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
 document.getElementById('desktop-trend-form').addEventListener('submit', event => { event.preventDefault(); loadDesktopTrendProfile(); });
 document.getElementById('desktop-floor-form').addEventListener('submit', event => { event.preventDefault(); loadDesktopFloorHeat(); });
 document.getElementById('desktop-layout-auto').addEventListener('click', createDesktopAutoLayout);
@@ -548,6 +627,7 @@ document.getElementById('desktop-layout-form').addEventListener('submit', saveDe
 document.getElementById('desktop-trend-date').value = localDateValue(1);
 document.getElementById('desktop-floor-date').value = localDateValue(1);
 document.getElementById('desktop-layout-valid-from').value = localDateValue();
+document.getElementById('desktop-seat-result-date').value = localDateValue();
 
 document.querySelectorAll('.hall-sub-btn').forEach(btn => {
   btn.addEventListener('click', () => switchHallTab(btn.dataset.htab));

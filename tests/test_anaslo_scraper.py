@@ -54,3 +54,20 @@ def test_scrape_hall_records_access_block_instead_of_leaving_running_log(tmp_pat
     assert status == "cf_blocked"
     assert "HTTP 403" in error
     assert "テスト店" in error
+
+
+def test_seed_halls_adds_missing_defaults_without_overwriting_existing_settings(tmp_path, monkeypatch):
+    db_path = tmp_path / "reports.db"
+    monkeypatch.setattr(anaslo, "DB_PATH", db_path)
+    anaslo.upsert_hall_config("既存店", "兵庫県", "https://example.com/hall", enabled=False)
+
+    anaslo.seed_hall_configs([
+        {"hall_name": "既存店", "prefecture": "大阪府"},
+        {"hall_name": "キコーナ四條畷店", "prefecture": "大阪府"},
+    ])
+
+    configs = {row["hall_name"]: row for row in anaslo.get_hall_configs()}
+    assert configs["既存店"]["prefecture"] == "兵庫県"
+    assert configs["既存店"]["url_override"] == "https://example.com/hall"
+    assert configs["既存店"]["enabled"] is False
+    assert configs["キコーナ四條畷店"]["enabled"] is True

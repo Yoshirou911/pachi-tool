@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.5"
+APP_VERSION = "1.9.7"
 RELEASE_DATE = "2026-08-10"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "1.9.7",
+        "released_on": "2026-08-10",
+        "title": "現場確認ガイドと2機種を追加",
+        "items": [
+            "モンスターハンターライズとからくりサーカスの期待値条件を追加",
+            "着席前に履歴・台メニュー・リセット・交換条件を確認する30秒チェックを追加",
+            "判定結果に入力すべきゲーム数の種類と機種固有の注意点を表示",
+        ],
+    },
     {
         "version": "1.9.5",
         "released_on": "2026-08-10",

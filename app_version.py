@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.1"
+APP_VERSION = "1.9.2"
 RELEASE_DATE = "2026-08-09"
-RELEASE_CHANNEL = "開発版"
+RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "1.9.2",
+        "released_on": "2026-08-09",
+        "title": "四條畷のイベント予定を日次収集",
+        "items": [
+            "キコーナ四條畷店・キコーナ野崎店の公開イベント予定を自動蓄積",
+            "公開JSON-LDだけを使用し、取得元URLとランクを予定に表示",
+            "四條畷周辺3店舗のスマスロ設置機種スナップショットを更新",
+        ],
+    },
     {
         "version": "1.9.1",
         "released_on": "2026-08-09",

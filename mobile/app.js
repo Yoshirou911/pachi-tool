@@ -8,17 +8,17 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.9.1';
+const APP_VERSION = '1.9.2';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 let releaseInfo = {
   version: APP_VERSION,
   released_on: '2026-08-09',
-  channel: '開発版',
+  channel: '公開版',
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-09',
-    title: '更新履歴を設定へ常設',
-    items: ['設定画面の上部からいつでも確認', '現在のバージョン・更新日・過去の変更を表示', 'ヘッダーから更新履歴へ直接移動'],
+    title: '四條畷のイベント予定を日次収集',
+    items: ['キコーナ四條畷店・野崎店の予定を自動蓄積', '出典URLと公開ランクを予定に保存', '周辺3店舗の設置スマスロを更新'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';

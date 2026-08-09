@@ -44,6 +44,7 @@ async function apiFetch(path, opts = {}, _retried = false) {
 }
 
 const api = {
+  getVersion: () => apiFetch(`/api/version?ts=${Date.now()}`),
   getMachines: () => apiFetch('/api/machines'),
   getMachine: (name) => apiFetch(`/api/machines/${encodeURIComponent(name)}`),
   estimate: (body) => apiFetch('/api/estimate', { method: 'POST', body: JSON.stringify(body) }),
@@ -63,6 +64,52 @@ const api = {
   createOpportunityResult: (id, body) => apiFetch(`/api/opportunity/candidates/${id}/result`, { method: 'POST', body: JSON.stringify(body) }),
   updateOpportunityBudget: (body) => apiFetch('/api/opportunity/budget', { method: 'PUT', body: JSON.stringify(body) }),
 };
+
+const VERSION_SEEN_KEY = 'pachi-version-seen';
+let desktopReleaseInfo = null;
+
+function versionDateLabel(value) {
+  return String(value || '').replace(/-/g, '/');
+}
+
+function renderDesktopVersion() {
+  if (!desktopReleaseInfo) return;
+  const seen = localStorage.getItem(VERSION_SEEN_KEY) === desktopReleaseInfo.version;
+  document.getElementById('desktop-version-label').textContent = `v${desktopReleaseInfo.version}`;
+  document.getElementById('desktop-version-button').classList.toggle('seen', seen);
+  document.getElementById('desktop-release-current').innerHTML = `<strong>PACHI TOOL v${esc(desktopReleaseInfo.version)}</strong>${esc(desktopReleaseInfo.channel)}・${versionDateLabel(desktopReleaseInfo.released_on)}公開`;
+  document.getElementById('desktop-patch-notes').innerHTML = (desktopReleaseInfo.patch_notes || []).map(note => `
+    <article class="desktop-patch-note">
+      <div class="desktop-patch-note-head"><strong>v${esc(note.version)}</strong><time>${versionDateLabel(note.released_on)}</time></div>
+      <h3>${esc(note.title)}</h3>
+      <ul>${(note.items || []).map(item => `<li>${esc(item)}</li>`).join('')}</ul>
+    </article>`).join('');
+}
+
+async function loadDesktopVersion() {
+  try {
+    desktopReleaseInfo = await api.getVersion();
+    renderDesktopVersion();
+  } catch (_) {
+    document.getElementById('desktop-version-label').textContent = 'v1.9.0';
+  }
+}
+
+function openVersionNotes() {
+  document.getElementById('version-overlay').style.display = 'flex';
+  if (desktopReleaseInfo) localStorage.setItem(VERSION_SEEN_KEY, desktopReleaseInfo.version);
+  renderDesktopVersion();
+}
+
+function closeVersionNotes() {
+  document.getElementById('version-overlay').style.display = 'none';
+}
+
+document.getElementById('desktop-version-button').addEventListener('click', openVersionNotes);
+document.getElementById('version-close').addEventListener('click', closeVersionNotes);
+document.getElementById('version-overlay').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeVersionNotes();
+});
 
 // ---------------------------------------------------------------------------
 // Loading helpers
@@ -4805,7 +4852,7 @@ document.addEventListener('keydown', (e) => {
 // Init
 // ---------------------------------------------------------------------------
 async function init() {
-  await checkConnection();
+  await Promise.all([checkConnection(), loadDesktopVersion()]);
   await loadMachineSelect();
   await populateSessionFilters();
   _renderRecentHallsBar();

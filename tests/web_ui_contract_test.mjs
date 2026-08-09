@@ -24,6 +24,9 @@ assert.match(desktopHtml, /data-module-nav="target"/, '狙い台専用メニュ�
 assert.match(desktopJs, /navigationEntries = \['home'\]/, '画面履歴もホームから開始する');
 assert.match(desktopJs, /switchTab\('home', \{ record: false, resetHistory: true \}\)/, '再起動時もホームを表示する');
 assert.match(desktopCss, /\.home-mode-grid/, 'ホームのモード選択レイアウトが必要');
+assert.match(desktopHtml, /id="desktop-version-button"/, 'PC・ソフト版のヘッダーにバージョンを表示する');
+assert.match(desktopHtml, /id="version-overlay"/, 'PC・ソフト版にパッチノート画面が必要');
+assert.match(desktopJs, /api\/version/, '共通のバージョンAPIを利用する');
 
 for (const label of ['ハイエナ', '狙い台捜索']) {
   assert.match(desktopHtml, new RegExp(label), `PC・ソフト版に${label}が必要`);

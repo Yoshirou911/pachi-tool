@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 
 from api.deps import WEB_DIR, logger
 from api import scheduler
+from app_version import APP_VERSION
 from api.routers import (
     admin,
     ai,
@@ -37,6 +38,7 @@ from api.routers import (
     opportunity,
     scrape,
     sessions,
+    version,
 )
 from records.models import init_db
 
@@ -84,7 +86,7 @@ async def _lifespan(_app: FastAPI):
 
 
 # ---------------------------------------------------------------------------
-app = FastAPI(title="pachi-tool", version="0.2.0", docs_url="/api/docs", lifespan=_lifespan)
+app = FastAPI(title="pachi-tool", version=APP_VERSION, docs_url="/api/docs", lifespan=_lifespan)
 
 if _cors_origins:
     app.add_middleware(
@@ -160,6 +162,7 @@ app.include_router(map_router.router)
 app.include_router(layout.router)
 app.include_router(admin.router)
 app.include_router(ai.router)
+app.include_router(version.router)
 
 # ---------------------------------------------------------------------------
 # Static frontend

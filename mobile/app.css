@@ -66,6 +66,17 @@ body[data-module="target"] .topbar { border-bottom-color: rgba(167, 139, 250, .2
 .brand div { display: flex; flex-direction: column; gap: 1px; }
 .brand strong { font-size: .78rem; letter-spacing: .08em; }
 .brand small { color: var(--muted); font-size: .58rem; }
+.topbar-actions { display: flex; align-items: center; gap: 6px; }
+.version-button {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 29px; padding: 4px 8px;
+  color: var(--blue); background: rgba(120, 169, 255, .08); border: 1px solid rgba(120, 169, 255, .2);
+  border-radius: 999px; font-size: .59rem; font-weight: 900; cursor: pointer;
+}
+.version-button em, .new-badge {
+  padding: 2px 5px; color: #07111e; background: var(--yellow); border-radius: 999px;
+  font-size: .48rem; font-style: normal; font-weight: 950; letter-spacing: .03em;
+}
+.version-button.seen em, .new-badge.seen { display: none; }
 .status-badge, .count-badge {
   display: inline-flex;
   align-items: center;
@@ -488,6 +499,17 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .settings-body .help { margin: 12px 0; }
 .install-panel ol { margin: 12px 0 0; padding-left: 22px; color: var(--muted); font-size: .69rem; line-height: 2; }
 .danger-group { border-color: rgba(255, 113, 136, .12); }
+.release-notes-group { border-color: rgba(120, 169, 255, .22); }
+.release-current { margin: 13px 0; padding: 12px; border-radius: 12px; color: var(--text); background: rgba(120, 169, 255, .08); font-size: .67rem; line-height: 1.65; }
+.release-current strong { display: block; color: var(--blue); font-size: .88rem; }
+.patch-notes-list { display: grid; gap: 10px; }
+.patch-note { padding: 0 2px 12px; border-bottom: 1px solid var(--line); }
+.patch-note:last-child { padding-bottom: 0; border-bottom: 0; }
+.patch-note-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 5px; }
+.patch-note-head strong { font-size: .69rem; }
+.patch-note-head time { color: var(--muted-2); font-size: .55rem; white-space: nowrap; }
+.patch-note p { margin: 0 0 5px; color: var(--muted); font-size: .61rem; font-weight: 750; }
+.patch-note ul { margin: 0; padding-left: 17px; color: var(--muted-2); font-size: .59rem; line-height: 1.7; }
 
 .bottom-nav {
   position: fixed;

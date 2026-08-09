@@ -56,6 +56,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(app_icon),
+    version=str(project_root / "desktop" / "version_info.txt"),
 )
 coll = COLLECT(
     exe,

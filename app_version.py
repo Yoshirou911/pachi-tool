@@ -1,0 +1,60 @@
+"""PACHI TOOL の全クライアントで共有するリリース情報。"""
+from __future__ import annotations
+
+APP_VERSION = "1.9.0"
+RELEASE_DATE = "2026-08-09"
+RELEASE_CHANNEL = "開発版"
+
+PATCH_NOTES = [
+    {
+        "version": "1.9.0",
+        "released_on": "2026-08-09",
+        "title": "バージョン表示とパッチノート",
+        "items": [
+            "ソフト版・ブラウザ版・iPhone版に共通のバージョン表示を追加",
+            "未確認の更新があるときだけ NEW バッジで通知",
+            "更新日と変更内容をアプリ内から確認できるパッチノートを追加",
+        ],
+    },
+    {
+        "version": "1.8.2",
+        "released_on": "2026-08-09",
+        "title": "台番号ごとの実績データ取込",
+        "items": [
+            "店内マップから当日の差枚を1台ずつ登録できる入力欄を追加",
+            "台番号・差枚をCSVで一括取込できる機能を追加",
+            "公開取得済みデータを現地入力で上書きしない保護を追加",
+        ],
+    },
+    {
+        "version": "1.8.1",
+        "released_on": "2026-08-08",
+        "title": "四條畷周辺のデータ収集を強化",
+        "items": [
+            "店舗ごとの取得状況と不足データを確認できる収集画面を改善",
+            "スマスロ設置機種の対象範囲を拡大",
+            "取得元ごとの状態を分け、推測と確認済みデータを区別",
+        ],
+    },
+    {
+        "version": "1.8.0",
+        "released_on": "2026-08-08",
+        "title": "ハイエナと狙い台捜索を分離",
+        "items": [
+            "ホームから2つの攻略モードを選ぶ構成に変更",
+            "狙い台捜索・傾向分析・周辺マップ・店内ヒートマップを追加",
+            "積んだ期待値と実収支の差をグラフで確認できるように改善",
+        ],
+    },
+]
+
+
+def get_version_payload() -> dict[str, object]:
+    """API とテストが共通で使うリリース情報を返す。"""
+    return {
+        "app": "PACHI TOOL",
+        "version": APP_VERSION,
+        "released_on": RELEASE_DATE,
+        "channel": RELEASE_CHANNEL,
+        "patch_notes": PATCH_NOTES,
+    }

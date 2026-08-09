@@ -624,6 +624,17 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
 }
 .status-ok  { background: rgba(16,185,129,.15);  color: #34d399; border: 1px solid rgba(16,185,129,.3); }
 .status-err { background: rgba(244,63,94,.15);   color: #fb7185; border: 1px solid rgba(244,63,94,.3); }
+.desktop-version-button {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 27px; padding: 3px 9px;
+  color: #a5b4fc; background: rgba(99,102,241,.12); border: 1px solid rgba(165,180,252,.24);
+  border-radius: 99px; font-size: .64rem; font-weight: 900; cursor: pointer;
+}
+.desktop-version-button:hover { background: rgba(99,102,241,.2); border-color: rgba(165,180,252,.42); }
+.desktop-version-button em {
+  padding: 2px 5px; color: #161108; background: #facc15; border-radius: 99px;
+  font-size: .5rem; font-style: normal; font-weight: 950; letter-spacing: .04em;
+}
+.desktop-version-button.seen em { display: none; }
 
 /* ===== Estimate action / timer ===== */
 .session-timer-bar {
@@ -786,6 +797,21 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
 .modal-body   { padding: 18px; }
 .modal-footer { display: flex; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--border); }
 .modal-footer .btn { flex: 1; }
+.version-modal { max-width: 680px; }
+.version-modal .modal-header > div { display: flex; flex-direction: column; gap: 3px; }
+.version-eyebrow { color: var(--primary-h); font-size: .58rem; font-weight: 900; letter-spacing: .14em; }
+.desktop-release-current {
+  margin-bottom: 18px; padding: 16px; border: 1px solid rgba(124,127,245,.2); border-radius: 13px;
+  color: var(--text2); background: rgba(124,127,245,.08); font-size: .78rem; line-height: 1.65;
+}
+.desktop-release-current strong { display: block; color: #c7d2fe; font-size: 1.15rem; }
+.desktop-patch-notes { display: grid; gap: 12px; }
+.desktop-patch-note { padding: 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,.018); }
+.desktop-patch-note-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.desktop-patch-note-head strong { color: #c7d2fe; font-size: .86rem; }
+.desktop-patch-note-head time { color: var(--text3); font-size: .68rem; }
+.desktop-patch-note h3 { margin: 5px 0 8px; font-size: .84rem; }
+.desktop-patch-note ul { margin: 0; padding-left: 19px; color: var(--text2); font-size: .75rem; line-height: 1.75; }
 
 /* ===== Animated bar (used in today-targets stability bar) ===== */
 @keyframes bar-grow {

@@ -8,7 +8,19 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.8.2';
+const APP_VERSION = '1.9.0';
+const VERSION_SEEN_KEY = 'pachi-version-seen';
+let releaseInfo = {
+  version: APP_VERSION,
+  released_on: '2026-08-09',
+  channel: '開発版',
+  patch_notes: [{
+    version: APP_VERSION,
+    released_on: '2026-08-09',
+    title: 'バージョン表示とパッチノート',
+    items: ['全端末で共通のバージョンを表示', '更新内容をアプリ内から確認', '未確認の更新をNEWで通知'],
+  }],
+};
 const DB_NAME = 'pachi-tool-mobile';
 const STORE_NAME = 'app-state';
 const STATE_KEY = 'main';
@@ -68,6 +80,39 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
+}
+
+function releaseDateLabel(value) {
+  return String(value || '').replace(/-/g, '/');
+}
+
+function renderVersionInfo() {
+  const seen = localStorage.getItem(VERSION_SEEN_KEY) === releaseInfo.version;
+  byId('mobile-version-label').textContent = `v${releaseInfo.version}`;
+  byId('mobile-version-button').classList.toggle('seen', seen);
+  byId('settings-version-new').classList.toggle('seen', seen);
+  byId('settings-version-summary').textContent = `v${releaseInfo.version}・更新日 ${releaseDateLabel(releaseInfo.released_on)}`;
+  byId('mobile-release-current').innerHTML = `<strong>PACHI TOOL v${esc(releaseInfo.version)}</strong>${esc(releaseInfo.channel)}・${releaseDateLabel(releaseInfo.released_on)}公開`;
+  byId('mobile-patch-notes').innerHTML = (releaseInfo.patch_notes || []).map(note => `
+    <article class="patch-note">
+      <div class="patch-note-head"><strong>v${esc(note.version)}</strong><time>${releaseDateLabel(note.released_on)}</time></div>
+      <p>${esc(note.title)}</p>
+      <ul>${(note.items || []).map(item => `<li>${esc(item)}</li>`).join('')}</ul>
+    </article>`).join('');
+  byId('app-version').textContent = `PACHI TOOL Mobile v${releaseInfo.version}・期待値データ ${profiles.length}条件`;
+}
+
+async function loadVersionInfo() {
+  try {
+    const response = await fetch(`/api/version?ts=${Date.now()}`, { cache: 'no-store' });
+    if (response.ok) releaseInfo = await response.json();
+  } catch (_) { /* オフライン時は同梱情報を表示 */ }
+  renderVersionInfo();
+}
+
+function markVersionSeen() {
+  localStorage.setItem(VERSION_SEEN_KEY, releaseInfo.version);
+  renderVersionInfo();
 }
 
 function openDatabase() {
@@ -777,7 +822,7 @@ function renderSettings() {
   byId('budget-bankroll').value = state.budget.starting_bankroll || '';
   byId('budget-loss').value = state.budget.loss_limit_yen || '';
   byId('quick-close').value = state.settings.closing_time || '22:45';
-  byId('app-version').textContent = `PACHI TOOL Mobile v${APP_VERSION}・期待値データ ${profiles.length}条件`;
+  renderVersionInfo();
 }
 
 function renderAll() {
@@ -1147,9 +1192,21 @@ byId('reset-button').addEventListener('click', async () => {
 window.addEventListener('online', updateNetworkBadge);
 window.addEventListener('offline', updateNetworkBadge);
 
+byId('mobile-version-button').addEventListener('click', () => {
+  showScreen('settings');
+  const notes = byId('patch-notes-group');
+  notes.open = true;
+  markVersionSeen();
+  setTimeout(() => notes.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+});
+
+byId('patch-notes-group').addEventListener('toggle', event => {
+  if (event.currentTarget.open) markVersionSeen();
+});
+
 async function initialize() {
   try {
-    [state] = await Promise.all([readLocalState(), loadCatalog()]);
+    [state] = await Promise.all([readLocalState(), loadCatalog(), loadVersionInfo()]);
     state = normalizeState(state);
     byId('plan-date').value = tomorrowValue();
     byId('target-visit-date').value = tomorrowValue();

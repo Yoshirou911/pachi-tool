@@ -32,8 +32,10 @@ assert.match(html, /id="performance-chart"/, '期待値と実収支の比較グ�
 assert.match(html, /id="performance-summary"/, '比較指標を表示する');
 assert.match(html, /id="catalog-scope"/, '現在の対象機種を明示する');
 assert.match(html, /スマスロ攻略ホーム/, 'スマスロ専門ツールであることを明示する');
-assert.match(html, /app\.css\?v=1\.8\.1/);
-assert.match(html, /app\.js\?v=1\.8\.1/);
+assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
+assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
+assert.match(html, /app\.css\?v=1\.9\.0/);
+assert.match(html, /app\.js\?v=1\.9\.0/);
 assert.match(css, /min-height:\s*calc\(68px \+ var\(--safe-bottom\)\)/, '下部メニューのタップ領域を確保する');
 
 console.log('mobile UI contract tests passed');

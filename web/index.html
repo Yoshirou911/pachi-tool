@@ -34,6 +34,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="header-date" style="font-size:.72rem;color:var(--text3)"></span>
+        <button id="desktop-version-button" class="desktop-version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="desktop-version-label">v1.9.0</span><em id="desktop-version-new">NEW</em></button>
         <span id="header-status" class="status-badge"></span>
       </div>
     </div>
@@ -1487,6 +1488,20 @@
       <button id="modal-delete" class="btn btn-danger">削除</button>
       <button id="modal-edit" class="btn btn-secondary">編集</button>
       <button id="modal-close2" class="btn btn-ghost">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- Version and patch notes -->
+<div id="version-overlay" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="version-dialog-title">
+  <div class="modal version-modal">
+    <div class="modal-header">
+      <div><span class="version-eyebrow">UPDATE HISTORY</span><span id="version-dialog-title">バージョン・更新内容</span></div>
+      <button id="version-close" class="modal-close" type="button" aria-label="閉じる">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="desktop-release-current" class="desktop-release-current"></div>
+      <div id="desktop-patch-notes" class="desktop-patch-notes"></div>
     </div>
   </div>
 </div>

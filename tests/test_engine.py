@@ -240,9 +240,9 @@ class TestComputeEV:
         assert abs(sum(result.posterior.values()) - 1.0) < 1e-9
 
     def test_loads_kw_from_machine_json(self):
-        # ゴーゴージャグラーの machine_kw を自動ロード
-        posterior = {"1":1/6,"2":1/6,"3":1/6,"4":1/6,"5":1/6,"6":1/6}
-        result = compute_ev(posterior, machine_name="ゴーゴージャグラー")
+        # スマスロ北斗の拳の machine_kw を自動ロード
+        posterior = {"1":0.2,"2":0.2,"4":0.2,"5":0.2,"6":0.2}
+        result = compute_ev(posterior, machine_name="スマスロ北斗の拳")
         assert result.kw_source == "machine_data"
         assert result.ev > 0.9  # 妥当な範囲
 
@@ -261,10 +261,14 @@ class TestRealMachineData:
         path = ROOT / "data" / "machines" / f"{name}.json"
         return json.loads(path.read_text(encoding="utf-8-sig"))
 
-    def test_gogojuggler_loadable(self):
-        data = self._load_json("ゴーゴージャグラー")
+    def test_juggler_profiles_are_removed(self):
+        machines_dir = ROOT / "data" / "machines"
+        assert not list(machines_dir.glob("*ジャグラー*.json"))
+
+    def test_smartslot_hokuto_loadable(self):
+        data = self._load_json("スマスロ北斗の拳")
         profile = MachineProfile.from_dict(data)
-        assert len(profile.elements) == 6
+        assert len(profile.elements) == 5
         assert "1" in profile.settings and "6" in profile.settings
 
     def test_kabaneri_partial_settings(self):

@@ -1,12 +1,12 @@
 """
-パチスロ設定推測 CLI ツール。
+スマスロ設定推測 CLI ツール。
 
 スマホ/PCの端末で直接使える対話型コンソール。
 APIサーバなしにローカルで設定推測・EV計算を完結させる。
 
 使い方:
     python -m core.cli                       # 対話モード
-    python -m core.cli --machine ゴーゴージャグラー --games 3000  # ワンショット
+    python -m core.cli --machine スマスロ北斗の拳 --games 3000  # ワンショット
 """
 from __future__ import annotations
 

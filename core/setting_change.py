@@ -171,12 +171,12 @@ if __name__ == "__main__":
     ROOT = Path(__file__).parent.parent
     sys.path.insert(0, str(ROOT))
 
-    data = json.loads((ROOT / "data/machines/ゴーゴージャグラー.json").read_text(encoding="utf-8-sig"))
+    data = json.loads((ROOT / "data/machines/スマスロ北斗の拳.json").read_text(encoding="utf-8-sig"))
     profile = MachineProfile.from_dict(data)
 
     # デモ: 前半は低設定挙動、後半は高設定挙動（変更を模擬）
-    obs_early = Observation(3000, {"BB確率": 8, "RB確率": 7, "ブドウ確率": 432})
-    obs_late  = Observation(3000, {"BB確率": 15, "RB確率": 18, "ブドウ確率": 460})
+    obs_early = Observation(3000, {"AT初当り合算": 7, "地獄へ": 60, "通常へ": 24})
+    obs_late  = Observation(3000, {"AT初当り合算": 11, "地獄へ": 42, "通常へ": 35})
 
     result = detect_setting_change(profile, obs_early, obs_late)
     print(f"change_prob: {result.change_prob*100:.1f}%")

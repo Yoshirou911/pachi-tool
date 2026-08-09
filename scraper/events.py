@@ -186,20 +186,17 @@ def scrape_minrepo_events(hall_name: str) -> list[dict]:
     また、機種別平均差枚が全体より明らかに高い日をイベント候補として返す。
     """
     events = []
-    base = "https://min-repo.com"
-    tag_url = f"{base}/tag/{urllib.parse.quote(hall_name)}/"
-    r = _get(tag_url)
-    if not r:
-        print(f"[みんレポ] {hall_name}: タグページ取得失敗")
-        return events
+    from scraper.minrepo import build_tag_url, fetch_report_links
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    tag_url = build_tag_url(hall_name)
+    links = fetch_report_links(tag_url, max_pages=3, expected_hall_name=hall_name)
+    if not links:
+        print(f"[みんレポ] {hall_name}: 店舗専用データなし")
+        return events
     year = date.today().year
 
-    # レポートリンクから日付収集
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        text = a.get_text(strip=True)
+    # 検証済みの店舗レポートリンクから日付収集
+    for text, report_url in links:
         # みんレポの日付テキスト: "6/25(木)" 形式
         if re.match(r'\d+/\d+[（(][月火水木金土日][）)]', text):
             date_str = _parse_jp_date(text, year)
@@ -217,7 +214,7 @@ def scrape_minrepo_events(hall_name: str) -> list[dict]:
                     "event_type": "通常イベント",
                     "event_title": f"みんレポ記録日（{text}）",
                     "source": "minrepo",
-                    "source_url": tag_url,
+                    "source_url": report_url,
                 })
 
     print(f"[みんレポ] {hall_name}: {len(events)}件候補")
@@ -347,6 +344,14 @@ def scrape_dste(hall_name: str) -> list[dict]:
 
 def _pworld_search(hall_name: str) -> Optional[str]:
     """P-WORLDでホールページを検索（大阪府=27）"""
+    overrides = {
+        "キコーナ四條畷店": "https://www.p-world.co.jp/osaka/kicona-shijonawate.htm",
+        "ひま・わり四條畷店": "https://www.p-world.co.jp/osaka/himawarisijounawate.htm",
+        "キコーナ野崎店": "https://www.p-world.co.jp/osaka/kicona-nozaki.htm",
+        "スーパーコスモプレミアム大東店": "https://www.p-world.co.jp/osaka/scpdaitou.htm",
+    }
+    if hall_name in overrides:
+        return overrides[hall_name]
     for pref in ["27", "28"]:  # 大阪, 兵庫
         url = f"https://www.p-world.ne.jp/search.cgi?key={urllib.parse.quote(hall_name)}&pref={pref}&type=slot"
         r = _get(url)

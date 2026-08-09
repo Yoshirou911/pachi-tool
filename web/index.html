@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#6366f1">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
-<title>PACHI TOOL — スロット設定推測 &amp; データ分析</title>
+<title>PACHI TOOL — スマスロ設定推測 &amp; データ分析</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap">
@@ -30,7 +30,7 @@
           <button id="nav-back" class="history-btn" type="button" aria-label="一つ前の画面に戻る" title="戻る（Alt + ←）" disabled>←</button>
           <button id="nav-forward" class="history-btn" type="button" aria-label="一つ先の画面に進む" title="進む（Alt + →）" disabled>→</button>
         </div>
-        <span class="logo">PACHI TOOL</span>
+        <span class="logo">PACHI TOOL <small>SMART SLOT</small></span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="header-date" style="font-size:.72rem;color:var(--text3)"></span>
@@ -42,46 +42,176 @@
   <!-- Collapsible side navigation -->
   <nav id="main-navigation" class="tab-bar" aria-label="メインメニュー">
     <div class="sidebar-heading">
-      <span>メニュー</span>
-      <small>NAVIGATION</small>
+      <span id="sidebar-mode-title">モード選択</span>
+      <small id="sidebar-mode-subtitle">CHOOSE A MODE</small>
     </div>
-    <button class="tab-btn active" data-tab="estimate">
+    <button class="tab-btn active" data-tab="home">
+      <span class="tab-icon">⌂</span>
+      <span class="tab-copy"><span class="tab-label">ホーム</span><small>目的から機能を選ぶ</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="target" data-tab="target-search" hidden>
+      <span class="tab-icon">◇</span>
+      <span class="tab-copy"><span class="tab-label">狙い台捜索</span><small>データから候補を抽出</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="target" data-tab="trend-profile" hidden>
+      <span class="tab-icon">▥</span>
+      <span class="tab-copy"><span class="tab-label">傾向分析</span><small>強い曜日・日付・機種</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="target" data-tab="floor-map" hidden>
+      <span class="tab-icon">▦</span>
+      <span class="tab-copy"><span class="tab-label">店内マップ</span><small>座席ごとの熱量を確認</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="target" data-tab="estimate" hidden>
       <span class="tab-icon">🔍</span>
       <span class="tab-copy"><span class="tab-label">設定推測</span><small>実戦データから判定</small></span>
     </button>
-    <button class="tab-btn" data-tab="session">
+    <button class="tab-btn" data-module-nav="hyena" data-tab="session" hidden>
       <span class="tab-icon">📝</span>
       <span class="tab-copy"><span class="tab-label">収支記録</span><small>遊技結果を管理</small></span>
     </button>
-    <button class="tab-btn" data-tab="hall">
+    <button class="tab-btn" data-module-nav="target" data-tab="hall" hidden>
       <span class="tab-icon">📊</span>
-      <span class="tab-copy"><span class="tab-label">店舗傾向</span><small>ホールデータを分析</small></span>
+      <span class="tab-copy"><span class="tab-label">データ管理</span><small>収集状況と詳細分析</small></span>
     </button>
-    <button class="tab-btn" data-tab="map">
+    <button class="tab-btn" data-module-nav="target" data-tab="map" hidden>
       <span class="tab-icon">🗺️</span>
       <span class="tab-copy"><span class="tab-label">店舗マップ</span><small>周辺店舗を確認</small></span>
     </button>
-    <button class="tab-btn" data-tab="machines">
+    <button class="tab-btn" data-module-nav="hyena" data-tab="machines" hidden>
       <span class="tab-icon">🎮</span>
       <span class="tab-copy"><span class="tab-label">機種一覧</span><small>スペックを比較</small></span>
     </button>
-    <button class="tab-btn" data-tab="opportunity">
+    <button class="tab-btn" data-module-nav="hyena" data-tab="opportunity" hidden>
       <span class="tab-icon">🎯</span>
       <span class="tab-copy"><span class="tab-label">期待値狙い</span><small>候補台と資金を管理</small></span>
     </button>
-    <button class="tab-btn" data-tab="ai">
+    <button class="tab-btn" data-module-nav="target" data-tab="ai" hidden>
       <span class="tab-icon">🤖</span>
       <span class="tab-copy"><span class="tab-label">AI分析</span><small>データを詳しく相談</small></span>
     </button>
-    <div class="sidebar-help">項目を選ぶと画面が切り替わります</div>
+    <div id="sidebar-help" class="sidebar-help">ホームから攻略モードを選んでください</div>
   </nav>
   <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="メニューを閉じる"></button>
 
   <!-- Pages -->
   <main class="page-container">
 
+    <!-- ======================== ホーム ======================== -->
+    <section id="page-home" class="page active">
+      <div class="page-inner home-page-inner">
+        <div class="home-welcome">
+          <span class="page-eyebrow">CHOOSE A MODE</span>
+          <h1>今日はどう勝ちに行く？</h1>
+          <p>目的を選ぶと、判断に必要な画面だけをすぐ開きます。</p>
+        </div>
+
+        <div class="home-mode-grid">
+          <button class="home-mode-card home-mode-hyena" type="button" data-home-destination="opportunity">
+            <span class="home-mode-icon">◎</span>
+            <span class="home-mode-tag">ハイエナ</span>
+            <strong>空き台を探して判定する</strong>
+            <p>ゲーム数・期待値・必要資金を見て、いま打てる台を判断します。</p>
+            <span class="home-mode-points"><b>期待値早見表</b><b>着席判断</b><b>資金管理</b></span>
+            <span class="home-mode-action">ハイエナを始める <b>→</b></span>
+          </button>
+
+          <button class="home-mode-card home-mode-target" type="button" data-home-destination="target-search">
+            <span class="home-mode-icon">◇</span>
+            <span class="home-mode-tag">狙い台捜索</span>
+            <strong>行く店と狙い台を決める</strong>
+            <p>四條畷駅周辺の店舗・曜日・機種傾向から、明日の候補を絞ります。</p>
+            <span class="home-mode-points"><b>店舗比較</b><b>強い日</b><b>機種傾向</b></span>
+            <span class="home-mode-action">狙い台を探す <b>→</b></span>
+          </button>
+        </div>
+
+        <div class="home-mode-note">
+          <strong>2つは別の攻略モードです</strong>
+          <span>ハイエナ候補と狙い台分析を混ぜず、実戦後の収支だけをまとめて確認できます。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== 狙い台捜索 ======================== -->
+    <section id="page-target-search" class="page">
+      <div class="page-inner target-search-page">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">TARGET DISCOVERY</span><h1>狙い台捜索</h1><p>蓄積した店舗・曜日・機種データから、行く店と狙い機種をランキングします。</p></div>
+          <span class="page-number">01</span>
+        </div>
+        <div class="card target-search-controls">
+          <form id="desktop-target-search-form">
+            <div class="form-row-2col">
+              <div><label class="form-label" for="desktop-target-date">行く日</label><input id="desktop-target-date" class="form-input" type="date" required></div>
+              <div><label class="form-label" for="desktop-target-days">分析期間</label><select id="desktop-target-days" class="form-select"><option value="60">直近60日</option><option value="120" selected>直近120日</option><option value="180">直近180日</option></select></div>
+            </div>
+            <button id="desktop-target-search-button" class="btn btn-primary btn-full" type="submit">データから狙い台を探す</button>
+          </form>
+          <p id="desktop-target-status" class="target-search-help">平均差枚・プラス日率・同曜日実績・データ鮮度をまとめて評価します。</p>
+        </div>
+        <div id="desktop-target-results" class="desktop-target-results"></div>
+      </div>
+    </section>
+
+    <!-- ======================== 店舗傾向カルテ ======================== -->
+    <section id="page-trend-profile" class="page">
+      <div class="page-inner target-analysis-page">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">HALL TREND PROFILE</span><h1>店舗の傾向分析</h1><p>行く日より前の公開実績から、強い曜日・日付・機種と次の注目日を分析します。</p></div>
+          <span class="page-number">02</span>
+        </div>
+        <div class="card target-analysis-controls">
+          <form id="desktop-trend-form">
+            <div class="form-row-2col">
+              <div><label class="form-label" for="desktop-trend-hall">店舗</label><select id="desktop-trend-hall" class="form-select" required></select></div>
+              <div><label class="form-label" for="desktop-trend-date">行く日</label><input id="desktop-trend-date" class="form-input" type="date" required></div>
+            </div>
+            <div class="form-row"><label class="form-label" for="desktop-trend-days">分析期間</label><select id="desktop-trend-days" class="form-select"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></div>
+            <button id="desktop-trend-button" class="btn btn-primary btn-full" type="submit">この店舗を徹底分析</button>
+          </form>
+          <p id="desktop-trend-status" class="target-search-help">事実・推定・AIの解説を分けて表示します。</p>
+        </div>
+        <div id="desktop-trend-results" class="desktop-trend-results"></div>
+      </div>
+    </section>
+
+    <!-- ======================== 店内座席ヒートマップ ======================== -->
+    <section id="page-floor-map" class="page">
+      <div class="page-inner target-analysis-page wide-analysis-page">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">FLOOR SEAT HEAT MAP</span><h1>店内座席ヒートマップ</h1><p>店内レイアウトに台番号別の熱量を重ね、狙う島と座席を視覚化します。</p></div>
+          <span class="page-number">03</span>
+        </div>
+        <div class="card target-analysis-controls">
+          <form id="desktop-floor-form" class="desktop-floor-form">
+            <label>店舗<select id="desktop-floor-hall" class="form-select" required></select></label>
+            <label>行く日<input id="desktop-floor-date" class="form-input" type="date" required></label>
+            <label>台分析<select id="desktop-floor-days" class="form-select"><option value="30">直近30日</option><option value="90" selected>直近90日</option><option value="180">直近180日</option></select></label>
+            <button id="desktop-floor-button" class="btn btn-primary" type="submit">座席の熱量を表示</button>
+          </form>
+          <div class="desktop-floor-toolbar"><div class="desktop-seat-legend"><span class="seat-hot">かなり熱い</span><span class="seat-warm">狙い目</span><span class="seat-watch">注目</span><span class="seat-cool">慎重</span><span class="seat-none">不足</span></div><p id="desktop-floor-status">台番号データがない店舗は、先にレイアウトを登録してください。</p></div>
+        </div>
+        <div id="desktop-floor-meta" class="desktop-floor-meta"></div>
+        <div class="desktop-floor-layout">
+          <div class="desktop-floor-scroll"><div id="desktop-floor-canvas" class="desktop-floor-canvas"></div></div>
+          <aside id="desktop-floor-detail" class="desktop-floor-detail"><div class="desktop-floor-empty">座席を選ぶと分析根拠を表示します。</div></aside>
+        </div>
+        <details class="card desktop-layout-editor">
+          <summary><span><b>店内マップを登録・修正</b><small>公式情報または現地確認を元に入力</small></span><i>＋</i></summary>
+          <form id="desktop-layout-form">
+            <div class="form-row-2col"><div><label class="form-label">出典名</label><input id="desktop-layout-source-label" class="form-input" maxlength="200" placeholder="例：店舗公式フロア案内"></div><div><label class="form-label">出典URL</label><input id="desktop-layout-source-url" class="form-input" type="url" placeholder="https://..."></div></div>
+            <div class="form-row-2col"><div><label class="form-label">有効日</label><input id="desktop-layout-valid-from" class="form-input" type="date" required></div><div><label class="form-label">確認状態</label><select id="desktop-layout-verification" class="form-select"><option>未確認</option><option>要確認</option><option>確認済み</option></select></div></div>
+            <div class="desktop-layout-range"><label>開始台番号<input id="desktop-layout-seat-start" class="form-input" type="number" min="1" placeholder="501"></label><label>終了台番号<input id="desktop-layout-seat-end" class="form-input" type="number" min="1" placeholder="540"></label><label>島名・機種<input id="desktop-layout-island" class="form-input" maxlength="100" placeholder="スマスロ北斗の拳 島"></label><button id="desktop-layout-auto" class="btn btn-ghost" type="button">台番号を仮配置</button></div>
+            <label class="form-label">確認メモ<textarea id="desktop-layout-notes" class="form-input" rows="2" maxlength="1000" placeholder="現地確認した位置や未確認箇所"></textarea></label>
+            <button id="desktop-layout-save" class="btn btn-primary btn-full" type="submit">この配置を保存</button>
+          </form>
+          <p class="target-search-disclaimer">仮配置は本物の座席位置ではありません。公式情報または現地確認前は「要確認」のまま保存してください。</p>
+        </details>
+      </div>
+    </section>
+
     <!-- ======================== 推測ページ ======================== -->
-    <section id="page-estimate" class="page active">
+    <section id="page-estimate" class="page">
       <div class="page-inner">
 
         <div class="page-heading">
@@ -1077,22 +1207,24 @@
     <section id="page-map" class="page">
       <div class="page-inner" style="padding:0">
         <div class="page-heading map-page-heading">
-          <div><span class="page-eyebrow">HALL MAP</span><h1>店舗マップ</h1><p>取得済みデータから近隣店舗の強さを俯瞰します。</p></div>
+          <div><span class="page-eyebrow">TARGET HEAT MAP</span><h1>日付別 店舗ヒートマップ</h1><p>行く日を指定し、当日の狙い度と長期傾向を地図で比較します。</p></div>
           <span class="page-number">04</span>
         </div>
-        <div style="padding:12px 16px 8px;background:var(--bg1)">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:.78rem;color:var(--text2)">データ取得済み店舗の強度マップ</span>
-            <div style="display:flex;gap:8px;align-items:center;font-size:.7rem">
-              <span style="color:#e53e3e">● 強</span>
-              <span style="color:#dd8800">● 中</span>
-              <span style="color:#c8b800">● やや弱</span>
-              <span style="color:#38a169">● 弱</span>
-            </div>
+        <div class="desktop-heat-controls">
+          <form id="desktop-heat-form" class="desktop-heat-form">
+            <label>行く日<input id="desktop-heat-date" class="form-input" type="date" required></label>
+            <label>長期表示<select id="desktop-heat-long-days" class="form-select"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></label>
+            <button id="desktop-heat-button" class="btn btn-primary" type="submit">この日の熱量を表示</button>
+          </form>
+          <div class="desktop-heat-meta">
+            <div class="desktop-heat-legend"><span class="heat-dot heat-hot">かなり熱い</span><span class="heat-dot heat-warm">熱い</span><span class="heat-dot heat-watch">注目</span><span class="heat-dot heat-cool">慎重</span><span class="heat-dot heat-none">不足</span></div>
+            <div id="map-hint">読み込み中...</div>
           </div>
-          <div id="map-hint" style="font-size:.72rem;color:var(--text3)">読み込み中...</div>
         </div>
-        <div id="hall-map" style="height:60vh;width:100%"></div>
+        <div class="desktop-heat-layout">
+          <div id="hall-map"></div>
+          <aside id="desktop-heat-detail" class="desktop-heat-detail"><div class="desktop-heat-empty">地図の店舗を選ぶと、長期傾向を表示します。</div></aside>
+        </div>
       </div>
     </section>
 

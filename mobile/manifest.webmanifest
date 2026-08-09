@@ -1,7 +1,7 @@
 {
-  "name": "PACHI TOOL Mobile",
-  "short_name": "PACHI TOOL",
-  "description": "期待値早見表・10秒判定・資金管理をオフラインで使えるフィールドツール",
+  "name": "PACHI TOOL スマスロ",
+  "short_name": "スマスロ TOOL",
+  "description": "スマスロの期待値早見表・即時判定・狙い台管理をオフラインで使えるフィールドツール",
   "id": "./",
   "start_url": "./",
   "scope": "./",

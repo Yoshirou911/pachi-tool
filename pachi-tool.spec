@@ -6,6 +6,7 @@ app_icon = project_root / "desktop" / "PACHI_TOOL.ico"
 
 datas = [
     (str(project_root / "web"), "web"),
+    (str(project_root / "mobile"), "mobile"),
     (str(project_root / "data" / "machines"), "data/machines"),
     (str(project_root / "data" / "opportunity_catalog.json"), "data"),
 ]

@@ -27,6 +27,8 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
+from hall.machine_scope import is_smartslot_machine
+
 # curl_cffi が利用可能なら使う（Cloudflare 自動突破）、なければ cloudscraper にフォールバック
 try:
     from curl_cffi import requests as cf_requests
@@ -623,7 +625,10 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
             print("失敗")
             continue
 
-        seat_rows = _parse_seat_tables(day_soup, date_url)
+        seat_rows = [
+            row for row in _parse_seat_tables(day_soup, date_url)
+            if is_smartslot_machine(row["machine_name"])
+        ]
         saved = 0
         if not seat_rows:
             # データなしマーカーを保存して次回スキップ

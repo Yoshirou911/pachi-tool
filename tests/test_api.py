@@ -36,6 +36,13 @@ def test_machines():
     assert r.status_code == 200
     machines = r.json()
     assert len(machines) > 0
+    assert not any("ジャグラー" in machine for machine in machines)
+
+
+def test_mobile_smartslot_app_is_served():
+    r = client.get("/mobile/")
+    assert r.status_code == 200
+    assert "スマスロ専門" in r.text
 
 
 def test_stats_available_on_fresh_database():

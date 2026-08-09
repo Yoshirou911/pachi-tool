@@ -1,9 +1,9 @@
-const VERSION = 'pachi-tool-mobile-v1';
+const VERSION = 'pachi-tool-mobile-v1.8.1';
 const CORE_ASSETS = [
   './',
   './index.html',
-  './app.css',
-  './app.js',
+  './app.css?v=1.8.1',
+  './app.js?v=1.8.1',
   './core.mjs',
   './catalog.json',
   './manifest.webmanifest',

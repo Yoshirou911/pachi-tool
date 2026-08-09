@@ -35,8 +35,8 @@ assert.match(html, /id="catalog-scope"/, '現在の対象機種を明示する')
 assert.match(html, /スマスロ攻略ホーム/, 'スマスロ専門ツールであることを明示する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=1\.9\.4/);
-assert.match(html, /app\.js\?v=1\.9\.4/);
+assert.match(html, /app\.css\?v=1\.9\.5/);
+assert.match(html, /app\.js\?v=1\.9\.5/);
 assert.match(html, /id="brand-home"[^>]*data-screen-target="home"/, '左上ブランドからホームへ戻れる');
 assert.match(html, /id="mobile-menu-button"/, '全画面共通のメニューボタンが必要');
 assert.match(html, /id="mobile-menu-overlay"/, '開閉できる全機能メニューが必要');

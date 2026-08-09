@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.4"
+APP_VERSION = "1.9.5"
 RELEASE_DATE = "2026-08-10"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "1.9.5",
+        "released_on": "2026-08-10",
+        "title": "現行ハイエナ機種を優先追加",
+        "items": [
+            "四條畷周辺の設置状況を基準にゴッドイーター リザレクションとかぐや様を追加",
+            "通常・リセット、BIG後・REG後を分けた4条件と期待値カーブを追加",
+            "条件の取り違えを防ぐ専用メーター名・天井・必要資金・やめどきを表示",
+        ],
+    },
     {
         "version": "1.9.4",
         "released_on": "2026-08-10",

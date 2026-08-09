@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=1.9.5">
+  <link rel="stylesheet" href="./app.css?v=1.9.7">
   <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スマスロ攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v1.9.5</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v1.9.7</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -83,6 +83,17 @@
       </div>
 
       <div id="setup-alert" class="setup-card hidden"></div>
+
+      <details class="field-checklist" open>
+        <summary><div><strong>着席前30秒チェック</strong><small>上のゲーム数だけでは決めない</small></div><span>⌄</span></summary>
+        <ol>
+          <li><b>① どの履歴か</b><span>AT間・CZ間・BIG後・REG後を区別</span></li>
+          <li><b>② 台のメニュー画面</b><span>スルー回数・ポイント・液晶G・示唆を確認</span></li>
+          <li><b>③ リセット状況</b><span>確定情報がないなら「リセット確定」にしない</span></li>
+          <li><b>④ お金と時間</b><span>交換率・現金/持ちメダル・閉店までを確認</span></li>
+        </ol>
+        <p><b>重要：</b>データカウンターの現在Gと、台内部のG数が違う機種があります。入力欄に表示される「何のゲーム数か」を必ず合わせてください。</p>
+      </details>
 
       <article class="panel judge-panel">
         <form id="quick-form">
@@ -326,7 +337,7 @@
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v1.9.5・更新日 2026/08/10</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v1.9.7・更新日 2026/08/10</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
@@ -394,6 +405,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=1.9.5"></script>
+  <script type="module" src="./app.js?v=1.9.7"></script>
 </body>
 </html>

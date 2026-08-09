@@ -8,7 +8,7 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.9.5';
+const APP_VERSION = '1.9.7';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -175,7 +175,7 @@ function normalizeState(saved) {
 }
 
 async function loadCatalog() {
-  const response = await fetch('./catalog.json');
+  const response = await fetch(`./catalog.json?v=${APP_VERSION}`);
   if (!response.ok) throw new Error(`期待値データを取得できません（${response.status}）`);
   const catalog = await response.json();
   profiles = (catalog.profiles || []).map((profile, index) => ({ ...profile, id: index + 1 }));
@@ -285,6 +285,7 @@ function renderQuickResult(result, profile, currentValue) {
         <div><small>閉店まで</small><strong>${result.minutes_until_close}分</strong></div>
         <div><small>使える資金</small><strong>${money(calculateSummary(state).risk_capacity_yen)}</strong></div>
       </div>
+      <div class="input-rule"><b>この判定で見る数字</b><strong>${esc(profile.metric_name)}（${esc(profile.unit_label)}）</strong>${profile.notes ? `<span>${esc(profile.notes)}</span>` : ''}</div>
       ${warnings ? `<ul class="warning-list">${warnings}</ul>` : ''}
       <div class="stop-rule"><b>やめどき</b>${esc(profile.stop_rule || '未登録')}</div>
       <div class="decision-actions">

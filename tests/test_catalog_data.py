@@ -34,6 +34,9 @@ def test_current_machine_batch_keeps_conditions_separate():
         "god-eater-resurrection-reset-equivalent-v1": (300, 1500, "reset_confirmed"),
         "kaguya-sama-big-after-equivalent-v1": (550, 1182, "normal"),
         "kaguya-sama-reg-after-equivalent-v1": (400, 1299, "normal"),
+        "monster-hunter-rise-normal-equivalent-v1": (550, 1171, "normal"),
+        "karakuri-circus-cz-equivalent-v1": (350, 1173, "normal"),
+        "karakuri-circus-cz-56-cash-v1": (450, 1374, "normal"),
     }
     for key, (start, value, reset_status) in expected.items():
         assert by_key[key]["start_threshold"] == start

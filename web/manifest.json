@@ -1,7 +1,7 @@
 {
-  "name": "pachi-tool",
-  "short_name": "pachi-tool",
-  "description": "パチスロ設定推測・収支管理ツール",
+  "name": "PACHI TOOL スマスロ",
+  "short_name": "スマスロ TOOL",
+  "description": "スマスロの設定推測・期待値・店舗傾向・収支管理ツール",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",

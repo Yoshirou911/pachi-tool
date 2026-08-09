@@ -38,6 +38,36 @@ export function calculateSummary(state) {
   };
 }
 
+export function buildPerformanceSeries(results) {
+  const tracked = (Array.isArray(results) ? [...results].reverse() : [])
+    .filter(row => row.expected_value_yen !== null && row.expected_value_yen !== undefined && Number.isFinite(Number(row.expected_value_yen)));
+  let cumulativeExpected = 0;
+  let cumulativeActual = 0;
+  const points = tracked.map((row, index) => {
+    const expected = Number(row.expected_value_yen);
+    const actual = Number(row.returns_yen || 0) - Number(row.investment_yen || 0);
+    cumulativeExpected += expected;
+    cumulativeActual += actual;
+    return {
+      index: index + 1,
+      played_on: row.played_on || '',
+      machine_name: row.machine_name || '',
+      expected_yen: expected,
+      actual_yen: actual,
+      cumulative_expected_yen: cumulativeExpected,
+      cumulative_actual_yen: cumulativeActual,
+      gap_yen: cumulativeActual - cumulativeExpected,
+    };
+  });
+  return {
+    points,
+    tracked_count: points.length,
+    total_expected_yen: cumulativeExpected,
+    total_actual_yen: cumulativeActual,
+    gap_yen: cumulativeActual - cumulativeExpected,
+  };
+}
+
 export function curvePointAt(profile, currentValue) {
   const points = Array.isArray(profile?.curve_points)
     ? [...profile.curve_points].sort((a, b) => Number(a.value) - Number(b.value))

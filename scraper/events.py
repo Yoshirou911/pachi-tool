@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import time
@@ -40,6 +41,14 @@ HEADERS = {
 
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
+
+
+# 公開ページと店舗名の対応が確認できた店舗だけを登録する。
+# SloMap の非公開 API は使用せず、検索エンジン向けに公開された JSON-LD のみ読む。
+SLOMAP_HALL_URLS = {
+    "キコーナ四條畷店": "https://slo-map.com/halls/7964",
+    "キコーナ野崎店": "https://slo-map.com/halls/7963",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -176,6 +185,95 @@ def _get(url: str, timeout: int = 15) -> Optional[requests.Response]:
 
 
 # ---------------------------------------------------------------------------
+# SloMap AI - 公開 JSON-LD の取材・旧イベント予定
+# ---------------------------------------------------------------------------
+
+def parse_slomap_events(html: str, hall_name: str, source_url: str) -> list[dict]:
+    """公開ページ内の Schema.org Event だけを正規化して返す。"""
+    soup = BeautifulSoup(html, "html.parser")
+    events: list[dict] = []
+
+    def iter_objects(value):
+        if isinstance(value, list):
+            for item in value:
+                yield from iter_objects(item)
+        elif isinstance(value, dict):
+            yield value
+            graph = value.get("@graph")
+            if graph is not None:
+                yield from iter_objects(graph)
+
+    for script in soup.select('script[type="application/ld+json"]'):
+        raw = script.string or script.get_text()
+        if not raw.strip():
+            continue
+        try:
+            payload = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+
+        for item in iter_objects(payload):
+            item_type = item.get("@type")
+            is_event = item_type == "Event" or (
+                isinstance(item_type, list) and "Event" in item_type
+            )
+            if not is_event:
+                continue
+
+            raw_date = str(item.get("startDate") or "")[:10]
+            try:
+                event_date = date.fromisoformat(raw_date).isoformat()
+            except ValueError:
+                continue
+
+            raw_title = re.sub(r"\s+", " ", str(item.get("name") or "")).strip()
+            if not raw_title:
+                continue
+            # Schema.org 名は「イベント名 - 店舗名」のため、アプリ内では冗長な店舗名を外す。
+            title = re.sub(rf"\s*[-－]\s*{re.escape(hall_name)}\s*$", "", raw_title).strip()
+            description = re.sub(
+                r"\s+", " ", str(item.get("description") or "")
+            ).strip()
+            rank_match = re.search(r"ランク\s*[:：]\s*([A-Z])", description, re.IGNORECASE)
+            if rank_match and "ランク" not in title:
+                title = f"{title}（{rank_match.group(1).upper()}ランク）"
+
+            location = item.get("location")
+            if isinstance(location, dict):
+                published_hall = str(location.get("name") or "").strip()
+                if published_hall and published_hall != hall_name:
+                    continue
+
+            events.append({
+                "hall_name": hall_name,
+                "event_date": event_date,
+                "event_type": _classify_event(title),
+                "event_title": title[:120],
+                "source": "slomap",
+                "source_url": source_url,
+            })
+
+    # 同じJSON-LDが複数箇所に埋め込まれても1件として扱う。
+    unique: dict[tuple[str, str], dict] = {}
+    for event in events:
+        unique.setdefault((event["event_date"], event["event_title"]), event)
+    return list(unique.values())
+
+
+def scrape_slomap_events(hall_name: str) -> list[dict]:
+    """対応を確認済みの店舗ページから公開イベント予定を取得する。"""
+    source_url = SLOMAP_HALL_URLS.get(hall_name)
+    if not source_url:
+        return []
+    response = _get(source_url)
+    if not response:
+        return []
+    events = parse_slomap_events(response.text, hall_name, source_url)
+    print(f"[SloMap] {hall_name}: {len(events)}件取得")
+    return events
+
+
+# ---------------------------------------------------------------------------
 # 1. みんレポ (min-repo.com) — 差枚データのある日をイベント候補として推定
 # ---------------------------------------------------------------------------
 
@@ -186,20 +284,17 @@ def scrape_minrepo_events(hall_name: str) -> list[dict]:
     また、機種別平均差枚が全体より明らかに高い日をイベント候補として返す。
     """
     events = []
-    base = "https://min-repo.com"
-    tag_url = f"{base}/tag/{urllib.parse.quote(hall_name)}/"
-    r = _get(tag_url)
-    if not r:
-        print(f"[みんレポ] {hall_name}: タグページ取得失敗")
-        return events
+    from scraper.minrepo import build_tag_url, fetch_report_links
 
-    soup = BeautifulSoup(r.text, "html.parser")
+    tag_url = build_tag_url(hall_name)
+    links = fetch_report_links(tag_url, max_pages=3, expected_hall_name=hall_name)
+    if not links:
+        print(f"[みんレポ] {hall_name}: 店舗専用データなし")
+        return events
     year = date.today().year
 
-    # レポートリンクから日付収集
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        text = a.get_text(strip=True)
+    # 検証済みの店舗レポートリンクから日付収集
+    for text, report_url in links:
         # みんレポの日付テキスト: "6/25(木)" 形式
         if re.match(r'\d+/\d+[（(][月火水木金土日][）)]', text):
             date_str = _parse_jp_date(text, year)
@@ -217,7 +312,7 @@ def scrape_minrepo_events(hall_name: str) -> list[dict]:
                     "event_type": "通常イベント",
                     "event_title": f"みんレポ記録日（{text}）",
                     "source": "minrepo",
-                    "source_url": tag_url,
+                    "source_url": report_url,
                 })
 
     print(f"[みんレポ] {hall_name}: {len(events)}件候補")
@@ -347,6 +442,14 @@ def scrape_dste(hall_name: str) -> list[dict]:
 
 def _pworld_search(hall_name: str) -> Optional[str]:
     """P-WORLDでホールページを検索（大阪府=27）"""
+    overrides = {
+        "キコーナ四條畷店": "https://www.p-world.co.jp/osaka/kicona-shijonawate.htm",
+        "ひま・わり四條畷店": "https://www.p-world.co.jp/osaka/himawarisijounawate.htm",
+        "キコーナ野崎店": "https://www.p-world.co.jp/osaka/kicona-nozaki.htm",
+        "スーパーコスモプレミアム大東店": "https://www.p-world.co.jp/osaka/scpdaitou.htm",
+    }
+    if hall_name in overrides:
+        return overrides[hall_name]
     for pref in ["27", "28"]:  # 大阪, 兵庫
         url = f"https://www.p-world.ne.jp/search.cgi?key={urllib.parse.quote(hall_name)}&pref={pref}&type=slot"
         r = _get(url)
@@ -478,6 +581,7 @@ def scrape_all(hall_name: str, save: bool = True) -> dict:
     results = {}
 
     scrapers = [
+        (scrape_slomap_events,       "slomap"),
         (scrape_dste,              "dste"),
         (scrape_pworld,            "pworld"),
         (scrape_minrepo_events,    "minrepo"),

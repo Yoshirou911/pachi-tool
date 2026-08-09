@@ -8,6 +8,7 @@ _get_active_halls)経由でのみ状態を読み書きする — 生の変数を
 from __future__ import annotations
 
 import time
+from datetime import datetime, timedelta
 
 from api.deps import logger
 
@@ -28,24 +29,17 @@ def set_scrape_running(value: bool) -> None:
     _SCRAPE_RUNNING = value
 
 
-# デフォルトホール一覧（DBが空の場合のシード用）
+# 四條畷駅を起点にしたデフォルト収集範囲（近い順）。
+# 徒歩圏 → 野崎・住道 → 大東市内の大型店、の順に収集する。
 _DEFAULT_HALLS = [
-    {"hall_name": "ベガスベガス大東店",             "prefecture": "大阪府"},
-    {"hall_name": "マルハン大東店",                 "prefecture": "大阪府"},
+    {"hall_name": "キコーナ四條畷店",               "prefecture": "大阪府"},
+    {"hall_name": "ひま・わり四條畷店",             "prefecture": "大阪府"},
+    {"hall_name": "キコーナ野崎店",                 "prefecture": "大阪府"},
     {"hall_name": "ニコニコ住道店",                 "prefecture": "大阪府"},
+    {"hall_name": "キコーナ大東店",                 "prefecture": "大阪府"},
+    {"hall_name": "マルハン大東店",                 "prefecture": "大阪府"},
     {"hall_name": "スーパーコスモプレミアム大東店", "prefecture": "大阪府"},
-    {"hall_name": "マルハン枚方店",                 "prefecture": "大阪府"},
-    {"hall_name": "ニコニコ枚方店",                 "prefecture": "大阪府"},
-    {"hall_name": "ベガビック1700枚方店",           "prefecture": "大阪府"},
-    {"hall_name": "G-ONE枚方宮之阪店",             "prefecture": "大阪府"},
-    {"hall_name": "キコーナ寝屋川南店",             "prefecture": "大阪府"},
-    {"hall_name": "ニコニコ寝屋川南インター店",     "prefecture": "大阪府"},
-    {"hall_name": "マルハン寝屋川店",               "prefecture": "大阪府"},
-    {"hall_name": "ベラジオ寝屋川店",               "prefecture": "大阪府"},
-    {"hall_name": "ニコニコ寝屋川店スロット館",     "prefecture": "大阪府"},
-    {"hall_name": "123交野店",                      "prefecture": "大阪府"},
-    {"hall_name": "キコーナ守口店",                 "prefecture": "大阪府"},
-    {"hall_name": "テキサス門真",                   "prefecture": "大阪府"},
+    {"hall_name": "ベガスベガス大東店",             "prefecture": "大阪府"},
 ]
 
 
@@ -54,7 +48,10 @@ def _get_active_halls() -> list[dict]:
     try:
         from scraper.anaslo import get_hall_configs
         halls = get_hall_configs(enabled_only=True)
-        return halls if halls else _DEFAULT_HALLS
+        if not halls:
+            return _DEFAULT_HALLS
+        local_order = {h["hall_name"]: index for index, h in enumerate(_DEFAULT_HALLS)}
+        return sorted(halls, key=lambda h: local_order.get(h.get("hall_name", ""), 999))
     except Exception:
         return _DEFAULT_HALLS
 
@@ -82,8 +79,36 @@ def _run_nightly_scrape() -> None:
         # ② みんレポ（機種別差枚） - 循環import回避のため遅延import
         from api.routers.hall import _run_minrepo_nightly
         _run_minrepo_nightly(halls, days=3)
+        # ③ P-WORLD（現在の設置スマスロ）。差枚データがない店舗も対象機種を蓄積する。
+        _run_snapshot_scrape()
     except Exception as e:
         logger.warning(f"[スクレイプ] バッチエラー: {e}")
+    finally:
+        set_scrape_running(False)
+
+
+def _run_snapshot_scrape() -> None:
+    """公開店舗ページの設置スマスロ構成を日次保存する。"""
+    try:
+        from scraper.pworld_snapshot import scrape_all
+        results = scrape_all(_get_active_halls())
+        logger.info(f"[設置機種] 日次スナップショット完了: {results}")
+    except Exception as e:
+        logger.warning(f"[設置機種] 日次スナップショットエラー: {e}")
+
+
+def _run_startup_refresh() -> None:
+    """4時にアプリが閉じていた場合も、次回起動時に直近データを補う。"""
+    if is_scrape_running():
+        return
+    set_scrape_running(True)
+    try:
+        halls = _get_active_halls()
+        from api.routers.hall import _run_minrepo_nightly
+        _run_minrepo_nightly(halls, days=3)
+        _run_snapshot_scrape()
+    except Exception as e:
+        logger.warning(f"[起動時更新] エラー: {e}")
     finally:
         set_scrape_running(False)
 
@@ -94,6 +119,7 @@ def _start_scrape_scheduler() -> None:
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.date import DateTrigger
         _SCHEDULER = BackgroundScheduler(timezone="Asia/Tokyo")
         _SCHEDULER.add_job(
             _run_nightly_scrape,
@@ -118,7 +144,19 @@ def _start_scrape_scheduler() -> None:
             id="event_scrape",
             replace_existing=True,
         )
+        _SCHEDULER.add_job(
+            _run_snapshot_scrape,
+            CronTrigger(hour=12, minute=15, timezone="Asia/Tokyo"),
+            id="machine_snapshot",
+            replace_existing=True,
+        )
+        _SCHEDULER.add_job(
+            _run_startup_refresh,
+            DateTrigger(run_date=datetime.now() + timedelta(seconds=20)),
+            id="startup_refresh",
+            replace_existing=True,
+        )
         _SCHEDULER.start()
-        logger.info("[スクレイプ] スケジューラー起動: みんレポ04:00/イベント12:00(JST)")
+        logger.info("[スクレイプ] 起動時補完/差枚04:00/イベント12:00/設置機種12:15(JST)")
     except Exception as e:
         logger.warning(f"[スクレイプ] スケジューラー起動失敗: {e}")

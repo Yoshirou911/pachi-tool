@@ -2,8 +2,8 @@
 アナスロ (ana-slo.com) スクレーパー - curl_cffi版
 
 台番別データ（差枚・G数・BB確率・RB確率）を取得してSQLiteに保存する。
-curl_cffi で Chrome の TLS フィンガープリントを模倣し、Cloudflare を自動突破。
-cf_clearance Cookie の手動更新は不要。
+ブラウザ互換の通信で公開ページを取得する。アクセス制限がある場合は無理に回避せず、
+取得元の状態として記録する。サイト側が要求する場合だけ、利用者自身のCookieを使用する。
 
 必要パッケージ:
     pip install curl-cffi beautifulsoup4 lxml
@@ -27,7 +27,9 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
-# curl_cffi が利用可能なら使う（Cloudflare 自動突破）、なければ cloudscraper にフォールバック
+from hall.machine_scope import is_smartslot_machine
+
+# curl_cffi が利用可能なら使い、なければ cloudscraper にフォールバック
 try:
     from curl_cffi import requests as cf_requests
     _USE_CURL_CFFI = True
@@ -66,12 +68,12 @@ HEADERS = {
 
 def _make_session(cookie_str: str = ""):
     """
-    curl_cffi セッション（CF自動突破）を返す。
+    ブラウザ互換の curl_cffi セッションを返す。
     curl_cffi が未インストールなら cloudscraper にフォールバック。
     cookie_str が指定された場合はそのCookieも追加注入する。
     """
     if _USE_CURL_CFFI:
-        # curl_cffi: Chrome120 の TLS フィンガープリントで CF を自動突破
+        # 公開ページと同じブラウザ向けレスポンスを受け取るための互換設定。
         session = cf_requests.Session(impersonate="chrome120")
         session.headers.update(HEADERS)
         # 追加Cookieがあれば注入（後方互換用）
@@ -83,7 +85,7 @@ def _make_session(cookie_str: str = ""):
                     session.cookies.set(k.strip(), v.strip(), domain=".ana-slo.com")
             print("  [curl_cffi + Cookie注入済み]")
         else:
-            print("  [curl_cffi: CF自動突破モード]")
+            print("  [curl_cffi: ブラウザ互換モード]")
         return session
 
     # フォールバック: cloudscraper
@@ -349,8 +351,13 @@ class CloudflareBlockedError(Exception):
     pass
 
 
+_GET_LAST_ERROR = ""
+
+
 def _get(session, url: str, retry: int = 2) -> Optional[BeautifulSoup]:
     """GETしてBeautifulSoupを返す。CF検知時は CloudflareBlockedError を raise。"""
+    global _GET_LAST_ERROR
+    _GET_LAST_ERROR = ""
     for attempt in range(retry + 1):
         try:
             if _USE_CURL_CFFI:
@@ -372,7 +379,8 @@ def _get(session, url: str, retry: int = 2) -> Optional[BeautifulSoup]:
                     continue
                 raise CloudflareBlockedError(f"Cloudflare blocked (HTTP {resp.status_code})")
             if resp.status_code != 200:
-                print(f"  HTTP {resp.status_code}: {url}")
+                _GET_LAST_ERROR = f"HTTP {resp.status_code}: {url}"
+                print(f"  {_GET_LAST_ERROR}")
                 return None
             return BeautifulSoup(resp.text, "lxml")
         except CloudflareBlockedError:
@@ -381,7 +389,8 @@ def _get(session, url: str, retry: int = 2) -> Optional[BeautifulSoup]:
             if attempt < retry:
                 time.sleep(3)
                 continue
-            print(f"  取得エラー: {e}")
+            _GET_LAST_ERROR = f"取得エラー: {type(e).__name__}: {e}"
+            print(f"  {_GET_LAST_ERROR}")
             return None
     return None
 
@@ -551,7 +560,13 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
     if cf_cookie and not cookie_str:
         cookie_str = f"cf_clearance={cf_cookie}"
     scraper = _make_session(cookie_str=cookie_str)
-    store_url = f"{BASE_URL}/ホールデータ/{prefecture}/{hall_name}-データ一覧/"
+    # 自動生成URLが実際のslugと異なる店舗は、管理画面で登録したURLを優先する。
+    config_row = conn.execute(
+        "SELECT url_override FROM scrape_hall_config WHERE hall_name=?",
+        (hall_name,),
+    ).fetchone()
+    url_override = (config_row[0] or "").strip() if config_row else ""
+    store_url = url_override or f"{BASE_URL}/ホールデータ/{prefecture}/{hall_name}-データ一覧/"
 
     print(f"\n=== アナスロ スクレーパー ===")
     print(f"ホール: {hall_name}")
@@ -566,16 +581,29 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
         log_id = cur.lastrowid
         conn.commit()
 
-    soup = _get(scraper, store_url)
-    if soup is None:
+    try:
+        soup = _get(scraper, store_url)
+    except CloudflareBlockedError as exc:
+        error_msg = f"アクセス制限: {exc}; URL={store_url}"
         conn.execute(
-            "UPDATE scrape_log SET status='failed', error_msg=?, finished_at=datetime('now','localtime') WHERE id=?",
-            ("店舗ページ取得失敗", log_id)
+            "UPDATE scrape_log SET status='cf_blocked', error_msg=?, finished_at=datetime('now','localtime') WHERE id=?",
+            (error_msg, log_id),
         )
         conn.commit()
-        print("店舗ページ取得失敗")
         conn.close()
-        return
+        print(error_msg)
+        return 0
+    if soup is None:
+        detail = _GET_LAST_ERROR or "応答なし"
+        error_msg = f"取得元に店舗ページなし、または取得不能: {detail}; URL={store_url}"
+        conn.execute(
+            "UPDATE scrape_log SET status='source_unavailable', error_msg=?, finished_at=datetime('now','localtime') WHERE id=?",
+            (error_msg, log_id)
+        )
+        conn.commit()
+        print(error_msg)
+        conn.close()
+        return 0
 
     date_links = _collect_date_links(soup, store_url)
     print(f"{len(date_links)} 件の日付データを発見\n")
@@ -588,7 +616,7 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
         conn.commit()
         print("⚠ 日付リンクが見つかりません。")
         conn.close()
-        return
+        return 0
 
     total_saved = 0
     fetched = 0  # 今回のセッションで実際にリクエストした数
@@ -623,7 +651,10 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
             print("失敗")
             continue
 
-        seat_rows = _parse_seat_tables(day_soup, date_url)
+        seat_rows = [
+            row for row in _parse_seat_tables(day_soup, date_url)
+            if is_smartslot_machine(row["machine_name"])
+        ]
         saved = 0
         if not seat_rows:
             # データなしマーカーを保存して次回スキップ

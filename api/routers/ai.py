@@ -30,11 +30,11 @@ from api.deps import (
 router = APIRouter()
 
 try:
-    from api.ai_service import chat as ai_chat, generate_report, comment_estimate
+    from api.ai_service import chat as ai_chat, generate_report, comment_estimate, explain_trend_profile
     AI_AVAILABLE = True
 except ImportError:
     try:
-        from ai_service import chat as ai_chat, generate_report, comment_estimate
+        from ai_service import chat as ai_chat, generate_report, comment_estimate, explain_trend_profile
         AI_AVAILABLE = True
     except ImportError:
         AI_AVAILABLE = False
@@ -86,4 +86,28 @@ def api_ai_status():
     import os
     has_key = bool(os.environ.get("GROQ_API_KEY", ""))
     return {"available": has_key and AI_AVAILABLE}
+
+
+@router.get("/api/ai/hall_profile")
+def api_ai_hall_profile(
+    hall_name: str = Query(..., min_length=1),
+    visit_date: str = Query(...),
+    days: int = Query(365, ge=30, le=730),
+):
+    """AIキーがなくても統計解説を返し、あればGroqで文章を補強する。"""
+    from api.routers.layout import get_hall_trend_profile
+
+    profile = get_hall_trend_profile(hall_name=hall_name, visit_date=visit_date, days=days)
+    fallback = "\n".join(f"・{item}" for item in profile.get("insights", []))
+    if not fallback:
+        fallback = "分析できる公開データがまだありません。収集後に自動更新されます。"
+    import os
+    if not AI_AVAILABLE or not os.environ.get("GROQ_API_KEY", ""):
+        return {"available": False, "engine": "統計エンジン", "summary": fallback}
+    summary = explain_trend_profile(profile)
+    return {
+        "available": bool(summary),
+        "engine": "Groq AI＋統計エンジン" if summary else "統計エンジン",
+        "summary": summary or fallback,
+    }
 

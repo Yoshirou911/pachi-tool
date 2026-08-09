@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { assessQuick, buildGuideRows, calculateSummary } from '../mobile/core.mjs';
+import { assessQuick, buildGuideRows, buildPerformanceSeries, calculateSummary } from '../mobile/core.mjs';
 
 const profile = {
   id: 1,
@@ -70,5 +70,18 @@ assert.equal(closing.judgment, 'closing_risk');
 const rows = buildGuideRows([profile], summary, 'all');
 assert.equal(rows.length, 3);
 assert.equal(rows.at(-1).assessment.judgment, 'target');
+
+const performance = buildPerformanceSeries([
+  { played_on: '2026-08-02', expected_value_yen: 2000, investment_yen: 8000, returns_yen: 5000 },
+  { played_on: '2026-08-01', expected_value_yen: 1500, investment_yen: 5000, returns_yen: 9000 },
+]);
+assert.equal(performance.tracked_count, 2);
+assert.equal(performance.total_expected_yen, 3500);
+assert.equal(performance.total_actual_yen, 1000);
+assert.equal(performance.gap_yen, -2500);
+assert.deepEqual(performance.points.map(point => point.cumulative_expected_yen), [1500, 3500]);
+
+const legacyPerformance = buildPerformanceSeries([{ investment_yen: 1000, returns_yen: 2000 }]);
+assert.equal(legacyPerformance.tracked_count, 0);
 
 console.log('mobile core tests passed');

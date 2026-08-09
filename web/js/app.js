@@ -44,6 +44,7 @@ async function apiFetch(path, opts = {}, _retried = false) {
 }
 
 const api = {
+  getVersion: () => apiFetch(`/api/version?ts=${Date.now()}`),
   getMachines: () => apiFetch('/api/machines'),
   getMachine: (name) => apiFetch(`/api/machines/${encodeURIComponent(name)}`),
   estimate: (body) => apiFetch('/api/estimate', { method: 'POST', body: JSON.stringify(body) }),
@@ -63,6 +64,52 @@ const api = {
   createOpportunityResult: (id, body) => apiFetch(`/api/opportunity/candidates/${id}/result`, { method: 'POST', body: JSON.stringify(body) }),
   updateOpportunityBudget: (body) => apiFetch('/api/opportunity/budget', { method: 'PUT', body: JSON.stringify(body) }),
 };
+
+const VERSION_SEEN_KEY = 'pachi-version-seen';
+let desktopReleaseInfo = null;
+
+function versionDateLabel(value) {
+  return String(value || '').replace(/-/g, '/');
+}
+
+function renderDesktopVersion() {
+  if (!desktopReleaseInfo) return;
+  const seen = localStorage.getItem(VERSION_SEEN_KEY) === desktopReleaseInfo.version;
+  document.getElementById('desktop-version-label').textContent = `v${desktopReleaseInfo.version}`;
+  document.getElementById('desktop-version-button').classList.toggle('seen', seen);
+  document.getElementById('desktop-release-current').innerHTML = `<strong>PACHI TOOL v${esc(desktopReleaseInfo.version)}</strong>${esc(desktopReleaseInfo.channel)}・${versionDateLabel(desktopReleaseInfo.released_on)}公開`;
+  document.getElementById('desktop-patch-notes').innerHTML = (desktopReleaseInfo.patch_notes || []).map(note => `
+    <article class="desktop-patch-note">
+      <div class="desktop-patch-note-head"><strong>v${esc(note.version)}</strong><time>${versionDateLabel(note.released_on)}</time></div>
+      <h3>${esc(note.title)}</h3>
+      <ul>${(note.items || []).map(item => `<li>${esc(item)}</li>`).join('')}</ul>
+    </article>`).join('');
+}
+
+async function loadDesktopVersion() {
+  try {
+    desktopReleaseInfo = await api.getVersion();
+    renderDesktopVersion();
+  } catch (_) {
+    document.getElementById('desktop-version-label').textContent = 'v1.9.2';
+  }
+}
+
+function openVersionNotes() {
+  document.getElementById('version-overlay').style.display = 'flex';
+  if (desktopReleaseInfo) localStorage.setItem(VERSION_SEEN_KEY, desktopReleaseInfo.version);
+  renderDesktopVersion();
+}
+
+function closeVersionNotes() {
+  document.getElementById('version-overlay').style.display = 'none';
+}
+
+document.getElementById('desktop-version-button').addEventListener('click', openVersionNotes);
+document.getElementById('version-close').addEventListener('click', closeVersionNotes);
+document.getElementById('version-overlay').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeVersionNotes();
+});
 
 // ---------------------------------------------------------------------------
 // Loading helpers
@@ -109,8 +156,44 @@ const mainNavigation = document.getElementById('main-navigation');
 const desktopSidebar = window.matchMedia('(min-width: 900px)');
 const navBackButton = document.getElementById('nav-back');
 const navForwardButton = document.getElementById('nav-forward');
-let navigationEntries = ['estimate'];
+let navigationEntries = ['home'];
 let navigationIndex = 0;
+let activeModule = 'home';
+let desktopTargetSearchData = null;
+let desktopTrendProfileData = null;
+let desktopFloorData = null;
+let desktopFloorEditorSeats = [];
+let desktopHallOptions = [];
+const TARGET_MODULE_TABS = new Set(['target-search', 'trend-profile', 'floor-map', 'estimate', 'hall', 'map', 'ai']);
+const HYENA_MODULE_TABS = new Set(['opportunity', 'machines', 'session']);
+
+function updateModuleNavigation() {
+  document.body.dataset.module = activeModule;
+  let visibleCount = 0;
+  document.querySelectorAll('.tab-btn').forEach(button => {
+    const moduleName = button.dataset.moduleNav;
+    const visible = button.dataset.tab === 'home' || moduleName === activeModule;
+    button.hidden = !visible;
+    if (visible) visibleCount += 1;
+  });
+  const modeTitle = document.getElementById('sidebar-mode-title');
+  const modeSubtitle = document.getElementById('sidebar-mode-subtitle');
+  const help = document.getElementById('sidebar-help');
+  if (activeModule === 'hyena') {
+    modeTitle.textContent = 'ハイエナ専用';
+    modeSubtitle.textContent = 'HYENA MODE';
+    help.textContent = '空き台判定・期待値・実戦記録だけを表示しています';
+  } else if (activeModule === 'target') {
+    modeTitle.textContent = '狙い台捜索専用';
+    modeSubtitle.textContent = 'TARGET MODE';
+    help.textContent = '店舗・曜日・機種の分析機能だけを表示しています';
+  } else {
+    modeTitle.textContent = 'モード選択';
+    modeSubtitle.textContent = 'CHOOSE A MODE';
+    help.textContent = 'ホームから攻略モードを選んでください';
+  }
+  mainNavigation.classList.toggle('module-home-only', visibleCount === 1);
+}
 
 function updateNavigationButtons() {
   navBackButton.disabled = navigationIndex <= 0;
@@ -168,6 +251,10 @@ initializeSidebar();
 function switchTab(tabId, options = {}) {
   const { record = true, resetHistory = false } = options;
   if (!document.getElementById(`page-${tabId}`)) return;
+  if (tabId === 'home') activeModule = 'home';
+  else if (TARGET_MODULE_TABS.has(tabId)) activeModule = 'target';
+  else if (HYENA_MODULE_TABS.has(tabId)) activeModule = 'hyena';
+  updateModuleNavigation();
   if (resetHistory) {
     navigationEntries = [tabId];
     navigationIndex = 0;
@@ -190,9 +277,12 @@ function switchTab(tabId, options = {}) {
     switchHallTab(last);
   }
   if (tabId === 'map') loadMapPage();
+  if (tabId === 'trend-profile' && !desktopTrendProfileData) loadDesktopTrendProfile();
+  if (tabId === 'floor-map' && !desktopFloorData) loadDesktopFloorHeat();
   if (tabId === 'ai') loadAiPage();
   if (tabId === 'machines') loadMachinesPage();
   if (tabId === 'opportunity') loadOpportunityPage();
+  if (tabId === 'target-search' && !desktopTargetSearchData) loadDesktopTargetSearch();
   updateNavigationButtons();
 }
 
@@ -232,6 +322,359 @@ function switchHallTab(htabId) {
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
+
+document.getElementById('page-home').addEventListener('click', event => {
+  const destination = event.target.closest('[data-home-destination]');
+  if (destination) switchTab(destination.dataset.homeDestination);
+});
+
+function localDateValue(offsetDays = 0) {
+  const value = new Date();
+  value.setDate(value.getDate() + offsetDays);
+  return value.toLocaleDateString('sv');
+}
+
+function desktopSignedCoins(value) {
+  const number = Number(value || 0);
+  return `${number >= 0 ? '+' : ''}${number.toLocaleString('ja-JP')}枚`;
+}
+
+function renderDesktopTargetSearch(data) {
+  const container = document.getElementById('desktop-target-results');
+  const halls = data.halls || [];
+  const insufficient = data.insufficient_halls || [];
+  if (!halls.length) {
+    container.innerHTML = `<div class="card desktop-target-empty"><strong>おすすめを出せるデータがありません</strong><span>${esc(data.notice || '取得日数が増えるまでお待ちください。')}</span></div>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="desktop-target-heading"><div><span class="page-eyebrow">${esc(data.visit_date)} ${esc(data.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="badge">${halls.length}店舗</span></div>
+    ${halls.map(hall => `<article class="card desktop-target-hall">
+      <div class="desktop-target-hall-head"><span class="desktop-target-rank">${hall.rank}</span><div><h3>${esc(hall.hall_name)}</h3><p>${esc(hall.basis)}・最終データ ${esc(hall.latest_date)}</p></div><div class="desktop-target-score"><b>${hall.score}</b><small>点</small></div></div>
+      <div class="desktop-target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>実績日数</small><b>${hall.sample_days}日</b></span><span><small>信頼度</small><b class="target-confidence-${hall.confidence === '高' ? 'high' : hall.confidence === '中' ? 'mid' : 'low'}">${esc(hall.confidence)}</b></span></div>
+      <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
+      <div class="desktop-target-machines">
+        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
+      </div>
+    </article>`).join('')}
+    ${insufficient.length ? `<details class="desktop-insufficient"><summary>データ不足の店舗 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}
+    <p class="target-search-disclaimer">${esc(data.notice)}</p>`;
+}
+
+async function loadDesktopTargetSearch() {
+  const dateInput = document.getElementById('desktop-target-date');
+  const daysInput = document.getElementById('desktop-target-days');
+  const button = document.getElementById('desktop-target-search-button');
+  const status = document.getElementById('desktop-target-status');
+  if (!dateInput.value) dateInput.value = localDateValue(1);
+  button.disabled = true;
+  status.textContent = '店舗・曜日・機種データを分析中...';
+  try {
+    desktopTargetSearchData = await apiFetch(`/api/hall/target_search?visit_date=${encodeURIComponent(dateInput.value)}&days=${encodeURIComponent(daysInput.value)}`);
+    renderDesktopTargetSearch(desktopTargetSearchData);
+    status.textContent = `${desktopTargetSearchData.generated_at}時点の公開データで分析しました。`;
+  } catch (error) {
+    desktopTargetSearchData = null;
+    document.getElementById('desktop-target-results').innerHTML = `<div class="card desktop-target-empty"><strong>分析できませんでした</strong><span>${esc(error.message)}</span></div>`;
+    status.textContent = '分析サーバーとの接続を確認してください。';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById('desktop-target-search-form').addEventListener('submit', event => {
+  event.preventDefault();
+  loadDesktopTargetSearch();
+});
+
+document.getElementById('desktop-target-date').value = localDateValue(1);
+
+function safeExternalUrl(raw) {
+  try {
+    const url = new URL(raw, window.location.href);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch { return ''; }
+}
+
+async function loadDesktopHallOptions() {
+  if (!desktopHallOptions.length) {
+    try {
+      const rows = await apiFetch('/api/scrape/halls');
+      desktopHallOptions = (rows || []).filter(row => row.hall_name);
+    } catch { /* fallback below */ }
+  }
+  if (!desktopHallOptions.length) {
+    desktopHallOptions = [{ hall_name: 'キコーナ四條畷店' }, { hall_name: 'ひま・わり四條畷店' }];
+  }
+  const localPriority = new Map([['キコーナ四條畷店', 0], ['ひま・わり四條畷店', 1], ['キコーナ野崎店', 2]]);
+  desktopHallOptions.sort((a, b) => {
+    const aPriority = localPriority.has(a.hall_name) ? localPriority.get(a.hall_name) : 99;
+    const bPriority = localPriority.has(b.hall_name) ? localPriority.get(b.hall_name) : 99;
+    return aPriority - bPriority || (b.db_record_count || 0) - (a.db_record_count || 0);
+  });
+  const html = desktopHallOptions.map(row => `<option value="${esc(row.hall_name)}">${esc(row.hall_name)}</option>`).join('');
+  ['desktop-trend-hall', 'desktop-floor-hall'].forEach(id => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = html;
+    if ([...select.options].some(option => option.value === current)) select.value = current;
+  });
+}
+
+function desktopProfileBars(rows, labelKey) {
+  if (!rows?.length) return '<p class="desktop-analysis-empty">分析できる実績がありません。</p>';
+  const max = Math.max(1, ...rows.map(row => Math.abs(Number(row.avg_diff || 0))));
+  return `<div class="desktop-profile-bars">${rows.map(row => {
+    const value = Number(row.avg_diff || 0);
+    const width = Math.max(4, Math.round(Math.abs(value) / max * 100));
+    return `<div><span>${esc(row[labelKey])}</span><i><b class="${value >= 0 ? 'profile-up' : 'profile-down'}" style="width:${width}%"></b></i><strong class="${value >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(value)}</strong><small>${row.sample_days || 0}日</small></div>`;
+  }).join('')}</div>`;
+}
+
+function renderDesktopTrendProfile(aiResult = null) {
+  const root = document.getElementById('desktop-trend-results');
+  const data = desktopTrendProfileData;
+  if (!data || data.status !== '分析済み') {
+    root.innerHTML = `<div class="card desktop-analysis-empty"><strong>まだ分析できる実績がありません</strong><span>${esc(data?.notice || '公開データを収集すると自動で表示されます。')}</span></div>`;
+    return;
+  }
+  const aiText = aiResult?.summary || (data.insights || []).map(item => `・${item}`).join('\n');
+  const sources = (data.source_urls || []).map((url, index) => {
+    const safe = safeExternalUrl(url);
+    return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">出典${index + 1}</a>` : '';
+  }).join('');
+  root.innerHTML = `
+    <article class="card desktop-profile-hero">
+      <div><span class="page-eyebrow">${esc(data.reference_date)}までの実績</span><h2>${esc(data.hall_name)}</h2><p>${data.sample_days}日分・信頼度 ${esc(data.confidence)}</p></div>
+      <div class="desktop-profile-score"><small>全体平均</small><b class="${data.overall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(data.overall.avg_diff)}</b><span>プラス日率 ${data.overall.positive_day_rate}%</span></div>
+    </article>
+    <article class="card desktop-ai-brief"><div class="card-title card-title-row"><span>分析の要点</span><em>${esc(aiResult?.engine || '統計エンジン')}</em></div><p>${esc(aiText).replace(/\n/g, '<br>')}</p><small>断定ではなく、取得済み実績から見た傾向です。</small></article>
+    <div class="desktop-analysis-grid">
+      <article class="card"><div class="card-title">曜日別</div>${desktopProfileBars(data.weekday_profile, 'weekday')}</article>
+      <article class="card"><div class="card-title">日付末尾別</div>${desktopProfileBars(data.digit_profile, 'digit')}</article>
+    </div>
+    <article class="card"><div class="card-title card-title-row"><span>直近42日の実績カレンダー</span><small>点数は店舗内の相対評価</small></div><div class="desktop-trend-calendar">${(data.calendar || []).slice(-42).map(day => `<div style="--calendar-score:${Math.max(0, Math.min(100, Number(day.score || 0)))}%"><span>${esc(day.date.slice(5).replace('-', '/'))}</span><b>${day.score}</b><small class="${day.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(day.avg_diff)}</small></div>`).join('')}</div></article>
+    <article class="card"><div class="card-title">次の注目日</div><div class="desktop-next-dates">${(data.next_dates || []).map(day => `<div class="${day.score >= 60 ? 'hot' : ''}"><strong>${esc(day.date.slice(5).replace('-', '/'))}</strong><span>${esc(day.weekday)}曜</span><b>${day.score}点</b><small>${esc(day.evidence)}</small></div>`).join('')}</div></article>
+    <article class="card"><div class="card-title">扱いが強い機種</div><div class="desktop-profile-machines">${(data.machine_profile || []).slice(0, 12).map((machine, index) => `<div><span>${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('')}</div></article>
+    <details class="card desktop-analysis-sources"><summary>出典と注意事項</summary><div>${sources || '<span>データ内に出典URLはありません。</span>'}<p>${esc(data.notice)}</p></div></details>`;
+}
+
+async function loadDesktopTrendProfile() {
+  await loadDesktopHallOptions();
+  const hall = document.getElementById('desktop-trend-hall').value;
+  const visitDate = document.getElementById('desktop-trend-date').value || localDateValue(1);
+  const days = document.getElementById('desktop-trend-days').value;
+  const button = document.getElementById('desktop-trend-button');
+  const status = document.getElementById('desktop-trend-status');
+  button.disabled = true;
+  status.textContent = '公開実績と日付パターンを分析中...';
+  try {
+    const query = new URLSearchParams({ hall_name: hall, visit_date: visitDate, days });
+    const [profile, aiResult] = await Promise.all([
+      apiFetch(`/api/hall/trend_profile?${query}`),
+      apiFetch(`/api/ai/hall_profile?${query}`).catch(() => null),
+    ]);
+    desktopTrendProfileData = profile;
+    renderDesktopTrendProfile(aiResult);
+    status.textContent = profile.status === '分析済み' ? `${profile.sample_days}日分・信頼度${profile.confidence}で分析しました。` : profile.notice;
+  } catch (error) {
+    desktopTrendProfileData = null;
+    document.getElementById('desktop-trend-results').innerHTML = `<div class="card desktop-analysis-empty"><strong>分析できませんでした</strong><span>${esc(error.message)}</span></div>`;
+    status.textContent = '分析サーバーとの接続を確認してください。';
+  } finally { button.disabled = false; }
+}
+
+function renderDesktopFloorDetail(seat) {
+  const detail = document.getElementById('desktop-floor-detail');
+  if (!seat) {
+    detail.innerHTML = '<div class="desktop-floor-empty">座席を選ぶと分析根拠を表示します。</div>';
+    return;
+  }
+  detail.innerHTML = `<div class="desktop-seat-detail-head"><div><span>台番号 ${seat.seat_number}</span><h2>${esc(seat.machine_name || '機種未登録')}</h2><small>${esc(seat.island_name || '')}</small></div><div style="--seat-color:${esc(seat.color)}"><b>${seat.score ?? '--'}</b><small>点</small><span>${esc(seat.heat_level)}</span></div></div><div class="desktop-seat-metrics"><div><small>指定日推定</small><strong class="${seat.estimate >= 0 ? 'money-up' : 'money-down'}">${seat.estimate == null ? '--' : desktopSignedCoins(seat.estimate)}</strong></div><div><small>プラス率</small><strong>${seat.positive_rate == null ? '--' : `${seat.positive_rate}%`}</strong></div><div><small>実績</small><strong>${seat.sample_days}日</strong></div><div><small>当日結果</small><strong>${seat.actual ? desktopSignedCoins(seat.actual.diff) : '--'}</strong></div></div><div class="desktop-seat-reasons">${(seat.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>`;
+}
+
+function renderDesktopFloorMap() {
+  const canvas = document.getElementById('desktop-floor-canvas');
+  const meta = document.getElementById('desktop-floor-meta');
+  const data = desktopFloorData;
+  if (!data?.layout || !data.seats?.length) {
+    canvas.innerHTML = '<div class="desktop-floor-empty"><strong>座席マップはまだありません</strong><span>下の登録欄から、出典と台番号範囲を登録できます。</span></div>';
+    canvas.style.aspectRatio = 'auto';
+    meta.innerHTML = `<span>${esc(data?.status || '未登録')}</span><small>${esc(data?.notice || '')}</small>`;
+    renderDesktopFloorDetail(null);
+    return;
+  }
+  const layout = data.layout;
+  canvas.style.aspectRatio = `${layout.width} / ${layout.height}`;
+  canvas.innerHTML = data.seats.map(seat => `<button type="button" class="desktop-floor-seat" data-desktop-seat="${seat.seat_number}" style="left:${seat.x / layout.width * 100}%;top:${seat.y / layout.height * 100}%;width:${seat.width / layout.width * 100}%;height:${seat.height / layout.height * 100}%;--seat-color:${esc(seat.color)}"><b>${seat.seat_number}</b><span>${seat.score ?? '--'}</span></button>`).join('');
+  const source = safeExternalUrl(layout.source_url);
+  meta.innerHTML = `<span>${esc(layout.floor_name)}・${esc(layout.verification_status)}</span><small>${esc(layout.source_label || '利用者登録マップ')}・台番号実績 ${data.data_coverage.seat_count}台</small>${source ? `<a href="${esc(source)}" target="_blank" rel="noopener">出典を開く</a>` : ''}`;
+  canvas.querySelectorAll('[data-desktop-seat]').forEach(button => button.addEventListener('click', () => renderDesktopFloorDetail(data.seats.find(seat => seat.seat_number === Number(button.dataset.desktopSeat)))));
+  renderDesktopFloorDetail(data.seats[0]);
+}
+
+function syncDesktopFloorEditor() {
+  const layout = desktopFloorData?.layout;
+  if (!layout) return;
+  document.getElementById('desktop-layout-valid-from').value = layout.valid_from || localDateValue();
+  document.getElementById('desktop-layout-source-label').value = layout.source_label || '';
+  document.getElementById('desktop-layout-source-url').value = layout.source_url || '';
+  document.getElementById('desktop-layout-verification').value = layout.verification_status || '未確認';
+  document.getElementById('desktop-layout-notes').value = layout.notes || '';
+  desktopFloorEditorSeats = (desktopFloorData.seats || []).map(seat => ({ seat_number: seat.seat_number, machine_name: seat.machine_name || '', island_name: seat.island_name || '', x: seat.x, y: seat.y, width: seat.width, height: seat.height, rotation: seat.rotation || 0 }));
+}
+
+async function loadDesktopFloorHeat() {
+  await loadDesktopHallOptions();
+  const hall = document.getElementById('desktop-floor-hall').value;
+  const visitDate = document.getElementById('desktop-floor-date').value || localDateValue(1);
+  const days = document.getElementById('desktop-floor-days').value;
+  const button = document.getElementById('desktop-floor-button');
+  const status = document.getElementById('desktop-floor-status');
+  button.disabled = true;
+  status.textContent = '店内レイアウトと台番号実績を照合中...';
+  try {
+    desktopFloorData = await apiFetch(`/api/layouts/seat_heat?hall_name=${encodeURIComponent(hall)}&visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`);
+    syncDesktopFloorEditor();
+    renderDesktopFloorMap();
+    status.textContent = `${desktopFloorData.status}・${desktopFloorData.data_coverage.history_rows}件の台番号実績を使用`;
+  } catch (error) {
+    desktopFloorData = null;
+    document.getElementById('desktop-floor-canvas').innerHTML = `<div class="desktop-floor-empty"><strong>表示できませんでした</strong><span>${esc(error.message)}</span></div>`;
+    status.textContent = '分析サーバーとの接続を確認してください。';
+  } finally { button.disabled = false; }
+}
+
+function createDesktopAutoLayout() {
+  const start = Number(document.getElementById('desktop-layout-seat-start').value);
+  const end = Number(document.getElementById('desktop-layout-seat-end').value);
+  if (!start || !end || end < start) return showToast('正しい開始・終了台番号を入力してください', 'error');
+  if (end - start + 1 > 300) return showToast('一度に登録できるのは300台までです', 'error');
+  const island = document.getElementById('desktop-layout-island').value.trim() || 'スロット島';
+  const numbers = Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  desktopFloorEditorSeats = numbers.map((seatNumber, index) => ({ seat_number: seatNumber, machine_name: island, island_name: island, x: 55 + (index % 14) * 64, y: 70 + Math.floor(index / 14) * 100, width: 52, height: 44, rotation: 0 }));
+  const height = Math.max(420, 170 + Math.ceil(numbers.length / 14) * 100);
+  desktopFloorData = { hall_name: document.getElementById('desktop-floor-hall').value, status: '仮配置', notice: '公式情報または現地で位置を確認してください。', data_coverage: { history_rows: 0, seat_count: 0 }, layout: { id: null, hall_name: document.getElementById('desktop-floor-hall').value, floor_name: 'スロットフロア', valid_from: document.getElementById('desktop-layout-valid-from').value || localDateValue(), width: 1000, height, source_url: document.getElementById('desktop-layout-source-url').value, source_label: document.getElementById('desktop-layout-source-label').value || '利用者登録マップ', verification_status: document.getElementById('desktop-layout-verification').value, notes: '仮配置です。実際の位置を確認してください。' }, seats: desktopFloorEditorSeats.map(seat => ({ ...seat, score: null, color: '#64748b', heat_level: 'データ不足', reasons: ['配置確認待ち'], sample_days: 0 })) };
+  renderDesktopFloorMap();
+  showToast(`${numbers.length}台を仮配置しました`, 'success');
+}
+
+async function saveDesktopFloorLayout(event) {
+  event.preventDefault();
+  if (!desktopFloorEditorSeats.length) return showToast('先に台番号を仮配置してください', 'error');
+  const sourceUrl = document.getElementById('desktop-layout-source-url').value.trim();
+  const sourceLabel = document.getElementById('desktop-layout-source-label').value.trim();
+  const body = {
+    hall_name: document.getElementById('desktop-floor-hall').value,
+    floor_name: 'スロットフロア',
+    valid_from: document.getElementById('desktop-layout-valid-from').value || localDateValue(),
+    width: desktopFloorData?.layout?.width || 1000,
+    height: desktopFloorData?.layout?.height || 700,
+    source_url: sourceUrl,
+    source_label: sourceLabel || (sourceUrl ? '公開店内マップ' : '利用者登録マップ'),
+    source_kind: sourceUrl ? 'official' : 'manual',
+    verification_status: document.getElementById('desktop-layout-verification').value,
+    notes: document.getElementById('desktop-layout-notes').value.trim(),
+    seats: desktopFloorEditorSeats,
+  };
+  const button = document.getElementById('desktop-layout-save');
+  button.disabled = true;
+  try {
+    await apiFetch('/api/layouts', { method: 'POST', body: JSON.stringify(body) });
+    showToast('店内マップを保存しました', 'success');
+    await loadDesktopFloorHeat();
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { button.disabled = false; }
+}
+
+function parseSeatResultCsv(text) {
+  const parseLine = line => {
+    const values = []; let value = ''; let quoted = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"' && quoted && line[i + 1] === '"') { value += '"'; i += 1; }
+      else if (char === '"') quoted = !quoted;
+      else if (char === ',' && !quoted) { values.push(value.trim()); value = ''; }
+      else value += char;
+    }
+    values.push(value.trim());
+    return values;
+  };
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim());
+  if (lines.length < 2) throw new Error('見出しと1件以上のデータが必要です');
+  const aliases = {
+    seat_number: ['seat_number', '台番号', '台番'], machine_name: ['machine_name', '機種名', '機種'],
+    diff_coins: ['diff_coins', '差枚'], games: ['games', 'g数', 'ゲーム数'],
+  };
+  const headers = parseLine(lines[0]).map(value => value.toLowerCase());
+  const indexOf = key => headers.findIndex(header => aliases[key].includes(header));
+  const indexes = Object.fromEntries(Object.keys(aliases).map(key => [key, indexOf(key)]));
+  if (indexes.seat_number < 0 || indexes.diff_coins < 0) throw new Error('「台番号」と「差枚」列が必要です');
+  return lines.slice(1).map((line, lineIndex) => {
+    const cols = parseLine(line);
+    const seat = Number(cols[indexes.seat_number]);
+    const diff = Number(String(cols[indexes.diff_coins]).replace(/[+,枚]/g, ''));
+    const games = indexes.games >= 0 && cols[indexes.games] !== '' ? Number(String(cols[indexes.games]).replace(/[,Gg]/g, '')) : null;
+    if (!Number.isInteger(seat) || !Number.isFinite(diff) || (games != null && !Number.isFinite(games))) throw new Error(`${lineIndex + 2}行目の数値を確認してください`);
+    return { seat_number: seat, machine_name: indexes.machine_name >= 0 ? cols[indexes.machine_name] : '', diff_coins: diff, games };
+  });
+}
+
+async function saveDesktopSeatResults(rows, sourceLabel) {
+  const status = document.getElementById('desktop-seat-result-status');
+  const body = {
+    hall_name: document.getElementById('desktop-floor-hall').value,
+    report_date: document.getElementById('desktop-seat-result-date').value || localDateValue(),
+    source_label: sourceLabel || document.getElementById('desktop-seat-result-source').value.trim() || '現地入力',
+    rows,
+  };
+  status.textContent = `${rows.length}件を保存中...`;
+  const result = await apiFetch('/api/layouts/seat_results', { method: 'POST', body: JSON.stringify(body) });
+  status.textContent = `${result.report_date}・${result.message}`;
+  showToast(result.message, 'success');
+  await loadDesktopFloorHeat();
+}
+
+document.getElementById('desktop-seat-result-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = document.getElementById('desktop-seat-result-save');
+  button.disabled = true;
+  try {
+    await saveDesktopSeatResults([{
+      seat_number: Number(document.getElementById('desktop-seat-result-number').value),
+      machine_name: document.getElementById('desktop-seat-result-machine').value.trim(),
+      diff_coins: Number(document.getElementById('desktop-seat-result-diff').value),
+      games: document.getElementById('desktop-seat-result-games').value === '' ? null : Number(document.getElementById('desktop-seat-result-games').value),
+    }]);
+    ['desktop-seat-result-number', 'desktop-seat-result-machine', 'desktop-seat-result-diff', 'desktop-seat-result-games'].forEach(id => { document.getElementById(id).value = ''; });
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { button.disabled = false; }
+});
+
+document.getElementById('desktop-seat-result-csv').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try { await saveDesktopSeatResults(parseSeatResultCsv(await file.text()), `CSV: ${file.name}`); }
+  catch (error) { showToast(error.message, 'error'); }
+  finally { event.target.value = ''; }
+});
+
+document.getElementById('desktop-seat-result-template').addEventListener('click', () => {
+  const blob = new Blob(['台番号,機種名,差枚,G数\n501,スマスロ北斗の拳,1800,7200\n'], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = 'seat-results-template.csv'; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+document.getElementById('desktop-trend-form').addEventListener('submit', event => { event.preventDefault(); loadDesktopTrendProfile(); });
+document.getElementById('desktop-floor-form').addEventListener('submit', event => { event.preventDefault(); loadDesktopFloorHeat(); });
+document.getElementById('desktop-layout-auto').addEventListener('click', createDesktopAutoLayout);
+document.getElementById('desktop-layout-form').addEventListener('submit', saveDesktopFloorLayout);
+document.getElementById('desktop-trend-date').value = localDateValue(1);
+document.getElementById('desktop-floor-date').value = localDateValue(1);
+document.getElementById('desktop-layout-valid-from').value = localDateValue();
+document.getElementById('desktop-seat-result-date').value = localDateValue();
 
 document.querySelectorAll('.hall-sub-btn').forEach(btn => {
   btn.addEventListener('click', () => switchHallTab(btn.dataset.htab));
@@ -3164,7 +3607,6 @@ function renderMachineList(profiles) {
   const search = document.getElementById('machine-search');
 
   function categorize(name) {
-    if (/ジャグラー/.test(name)) return 'ジャグラー系';
     if (/ハナハナ/.test(name)) return 'ハナハナ系';
     if (/スマスロ|^S[^マ]|^L[^S]/.test(name)) return 'スマスロ系';
     if (/バジリスク|絆/.test(name)) return 'バジリスク系';
@@ -3190,7 +3632,7 @@ function renderMachineList(profiles) {
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(p);
     });
-    const catOrder = ['ジャグラー系', 'ハナハナ系', 'スマスロ系', 'バジリスク系', 'カバネリ系', '北斗系', 'その他'];
+    const catOrder = ['スマスロ系', '北斗系', 'バジリスク系', 'カバネリ系', 'ハナハナ系', 'その他'];
     const sortedGroups = catOrder.filter(c => groups[c]);
     // フィルター時はグループ表示なし
     const useGroups = !filter && sortedGroups.length > 1;
@@ -4410,7 +4852,7 @@ document.addEventListener('keydown', (e) => {
 // Init
 // ---------------------------------------------------------------------------
 async function init() {
-  await checkConnection();
+  await Promise.all([checkConnection(), loadDesktopVersion()]);
   await loadMachineSelect();
   await populateSessionFilters();
   _renderRecentHallsBar();
@@ -5411,89 +5853,122 @@ async function loadMachineSeatRankingInline(hall, machineName, rowEl) {
 }
 
 init().then(() => {
-  // 最後に見たタブを復元（デフォルトは estimate）
-  const lastTab = localStorage.getItem('pachi_last_tab');
-  if (lastTab && lastTab !== 'estimate') switchTab(lastTab, { record: false, resetHistory: true });
+  // 起動時は必ず目的選択ホームから始める。
+  switchTab('home', { record: false, resetHistory: true });
 });
 
 // ---------------------------------------------------------------------------
 // マップページ
 // ---------------------------------------------------------------------------
 let _hallMap = null;
-let _mapLoaded = false;
+let _targetHeatLayer = null;
+let _desktopHeatData = null;
+
+function desktopTomorrowValue() {
+  const value = new Date();
+  value.setDate(value.getDate() + 1);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
+
+function desktopSignedCoins(value) {
+  const number = Math.round(Number(value || 0));
+  return `${number >= 0 ? '+' : ''}${number.toLocaleString('ja-JP')}枚`;
+}
+
+function desktopTrendRows(rows, labelKey) {
+  if (!rows?.length) return '<p class="desktop-heat-empty">まだ長期データがありません。</p>';
+  const maxAbs = Math.max(1, ...rows.map(row => Math.abs(Number(row.avg_diff || 0))));
+  return `<div class="desktop-mini-trend">${rows.map(row => {
+    const value = Number(row.avg_diff || 0);
+    const width = Math.max(3, Math.round(Math.abs(value) / maxAbs * 100));
+    return `<div><span>${esc(row[labelKey])}</span><i><b class="${value >= 0 ? 'desktop-trend-up' : 'desktop-trend-down'}" style="width:${width}%"></b></i><em class="${value >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(value)}</em></div>`;
+  }).join('')}</div>`;
+}
+
+function renderDesktopHeatDetail(hall) {
+  const detail = document.getElementById('desktop-heat-detail');
+  if (!detail) return;
+  if (!hall) {
+    detail.innerHTML = '<div class="desktop-heat-empty">地図の店舗を選ぶと、長期傾向を表示します。</div>';
+    return;
+  }
+  detail.innerHTML = `
+    <div class="desktop-heat-detail-head">
+      <div><span>${esc(_desktopHeatData.visit_date)}の分析</span><h2>${esc(hall.hall_name)}</h2></div>
+      <div class="desktop-heat-score" style="--heat-color:${esc(hall.color)}"><b>${hall.score}</b><small>点</small><em>${esc(hall.heat_level)}</em></div>
+    </div>
+    <div class="desktop-heat-stats">
+      <div><small>指定日推定</small><strong class="${hall.projected_diff >= 0 ? 'money-up' : 'money-down'}">${hall.projected_diff == null ? '--' : desktopSignedCoins(hall.projected_diff)}</strong></div>
+      <div><small>プラス日率</small><strong>${hall.positive_rate == null ? '--' : `${hall.positive_rate}%`}</strong></div>
+      <div><small>信頼度</small><strong>${esc(hall.confidence)}</strong></div>
+      <div><small>長期実績</small><strong>${hall.long_term?.sample_days || 0}日</strong></div>
+    </div>
+    <div class="desktop-heat-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
+    <section class="desktop-trend-block"><h3>月ごとの長期推移</h3>${desktopTrendRows(hall.monthly_trend, 'month')}</section>
+    <section class="desktop-trend-block"><h3>曜日ごとの長期傾向</h3>${desktopTrendRows(hall.weekday_profile, 'weekday')}</section>
+    <section class="desktop-heat-machines"><h3>この日の狙い機種</h3>${(hall.target_machines || []).slice(0, 3).map(machine => `<div><strong>${esc(machine.machine_name)}</strong><span class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(machine.avg_diff)}</span><small>${machine.sample_days}日・${machine.score}点</small></div>`).join('') || '<p class="desktop-heat-empty">機種候補は材料不足です。</p>'}</section>`;
+}
 
 async function loadMapPage() {
   const hint = document.getElementById('map-hint');
+  const dateInput = document.getElementById('desktop-heat-date');
+  const longDaysInput = document.getElementById('desktop-heat-long-days');
+  const form = document.getElementById('desktop-heat-form');
+  const button = document.getElementById('desktop-heat-button');
+  if (!dateInput.value) dateInput.value = desktopTomorrowValue();
+  if (!form.dataset.bound) {
+    form.dataset.bound = '1';
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      loadMapPage();
+    });
+  }
 
-  // Leaflet マップ初期化（1回だけ）
   if (!_hallMap) {
-    _hallMap = L.map('hall-map', { zoomControl: true }).setView([34.76, 135.63], 12);
+    _hallMap = L.map('hall-map', { zoomControl: true }).setView([34.724, 135.631], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 18,
     }).addTo(_hallMap);
   }
 
-  hint.textContent = 'データ読み込み中...';
-
+  hint.textContent = '指定日の店舗熱量と長期傾向を計算中...';
+  button.disabled = true;
   try {
-    const halls = await fetch('/api/map/halls?days=30').then(r => r.json());
-
-    // 既存マーカーをクリア
-    _hallMap.eachLayer(layer => {
-      if (layer instanceof L.CircleMarker) _hallMap.removeLayer(layer);
-    });
+    const url = `/api/map/target_heat?visit_date=${encodeURIComponent(dateInput.value)}&days=120&long_days=${encodeURIComponent(longDaysInput.value)}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`API ${response.status}`);
+    _desktopHeatData = await response.json();
+    const halls = _desktopHeatData.halls || [];
+    if (_targetHeatLayer) _targetHeatLayer.remove();
+    _targetHeatLayer = L.layerGroup().addTo(_hallMap);
 
     if (!halls.length) {
-      hint.textContent = 'データのある店舗がありません。店傾向タブから「取得」してください。';
+      hint.textContent = '表示できる店舗データがありません。データ収集後に再度確認してください。';
+      renderDesktopHeatDetail(null);
       return;
     }
 
-    hint.textContent = `${halls.length}店舗表示中 / マーカーをタップで詳細`;
-
-    halls.forEach(h => {
-      const radius = 10 + Math.round(h.score * 14); // 強いほど大きく
-      const marker = L.circleMarker([h.lat, h.lng], {
-        radius,
-        color: h.color,
-        fillColor: h.color,
-        fillOpacity: 0.82,
-        weight: 2,
-        opacity: 1,
-      }).addTo(_hallMap);
-
-      const sign = h.avg_diff >= 0 ? '+' : '';
-      marker.bindPopup(`
-        <div style="min-width:160px;font-size:13px;line-height:1.7">
-          <strong>${h.hall_name}</strong><br>
-          <span style="color:${h.color};font-weight:bold">平均差枚 ${sign}${h.avg_diff.toLocaleString()}</span><br>
-          <span style="color:#888">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span><br>
-          <button onclick="switchToHall('${h.hall_name}')"
-            style="margin-top:6px;width:100%;padding:5px;background:#6366f1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px">
-            店傾向を見る
-          </button>
-        </div>
-      `);
+    hint.textContent = `${_desktopHeatData.visit_date}（${_desktopHeatData.weekday}）・${halls.length}店舗を表示中。丸が大きいほど当日の分析点が高いです。`;
+    halls.forEach(hall => {
+      const radius = hall.score ? 12 + hall.score * .22 : 9;
+      const marker = L.circleMarker([hall.lat, hall.lng], {
+        radius, color: hall.color, fillColor: hall.color, fillOpacity: .74, weight: 3, opacity: 1,
+      }).addTo(_targetHeatLayer);
+      marker.bindTooltip(esc(`${hall.rank ? `${hall.rank}位 ` : ''}${hall.hall_name} ${hall.score}点`), { direction: 'top' });
+      marker.on('click', () => renderDesktopHeatDetail(hall));
     });
 
-    // 全マーカーが見えるようにズーム調整（初回のみ）
-    if (!_mapLoaded) {
-      _mapLoaded = true;
-      const coords = halls.map(h => [h.lat, h.lng]);
-      if (coords.length === 1) {
-        _hallMap.setView(coords[0], 14);
-      } else {
-        _hallMap.fitBounds(coords, { padding: [30, 30] });
-      }
-    }
-    // マップサイズ再計算（タブ切り替え後に必要）
+    const coords = halls.map(hall => [hall.lat, hall.lng]);
+    if (coords.length === 1) _hallMap.setView(coords[0], 14);
+    else _hallMap.fitBounds(coords, { padding: [30, 30], maxZoom: 14 });
+    renderDesktopHeatDetail(halls[0]);
     setTimeout(() => _hallMap.invalidateSize(), 100);
-
   } catch(e) {
-    hint.textContent = 'マップデータ取得失敗: ' + e.message;
+    hint.textContent = 'マップデータ取得失敗：' + e.message;
+  } finally {
+    button.disabled = false;
   }
-
-  // ホール比較カード
   loadHallCompare();
 }
 
@@ -6754,16 +7229,21 @@ function _renderBulkProgress(d) {
 
   const hallsEl = document.getElementById('bp-halls');
   if (d.halls && d.halls.length) {
-    const statusLabel = { done: '完了', running: '実行中', waiting: '待機中', failed: '失敗' };
-    const statusColor = { done: 'var(--success)', running: 'var(--accent)', waiting: 'var(--text3)', failed: 'var(--danger)' };
+    const statusLabel = { done: '完了', partial: '一部取得', running: '実行中', waiting: '待機中', failed: '失敗' };
+    const statusColor = { done: 'var(--success)', partial: 'var(--warning)', running: 'var(--accent)', waiting: 'var(--text3)', failed: 'var(--danger)' };
     hallsEl.innerHTML = d.halls.map(h => {
       const isRunning = h.status === 'running';
       const dot = isRunning ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);animation:bpulse 1.2s ease-in-out infinite;vertical-align:middle;margin-right:4px"></span>' : '';
       const records = h.records ? `${h.records}件` : (h.status === 'waiting' ? '—' : '');
+      const sourceLabels = { seat: '台番', machine: '差枚', snapshot: '設置' };
+      const sourceText = Object.entries(h.sources || {}).map(([key, value]) => {
+        const mark = value.status === 'done' ? '○' : value.status === 'failed' ? '×' : '―';
+        return `${sourceLabels[key] || key}${mark}`;
+      }).join(' ');
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${h.name}</div>
+        <div style="flex:1;min-width:0"><div style="font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${esc(h.name)}</div><div style="font-size:.57rem;color:var(--text3)">${sourceText}</div></div>
         <div style="font-size:.65rem;color:var(--text3);min-width:30px;text-align:right">${records}</div>
-        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
+        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='partial'?'rgba(245,158,11,.14)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
       </div>`;
     }).join('');
   }
@@ -6836,10 +7316,18 @@ async function loadScrapeHalls() {
       const dateCol = diffDays === null ? 'var(--text3)' : diffDays === 0 ? 'var(--success)' : diffDays <= 2 ? 'var(--text3)' : 'var(--danger)';
       const dateLabel = diffDays === null ? '未取得' : diffDays === 0 ? '今日' : `${diffDays}日前`;
       const recStr = h.db_record_count ? `${h.db_record_count}件` : '';
+      const coverage = h.coverage || {};
+      const badges = [
+        ['台番', coverage.seat?.records],
+        ['差枚', coverage.machine?.records],
+        ['設置', coverage.snapshot?.records],
+        ['予定', coverage.event?.records],
+      ].map(([label, count]) => `<span style="font-size:.54rem;padding:1px 5px;border-radius:99px;background:${count ? 'rgba(34,197,94,.12)' : 'var(--bg3)'};color:${count ? 'var(--success)' : 'var(--text3)'}">${label}${count ? '○' : '―'}</span>`).join('');
       return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--bg3)">
         <div style="flex:1;min-width:0">
           <div style="font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.hall_name)}</div>
-          <div style="font-size:.58rem;color:${dateCol}">${dateLabel}${recStr ? ` · ${recStr}` : ''}</div>
+          <div style="font-size:.58rem;color:${dateCol}">${esc(h.data_level || '未取得')} · ${dateLabel}${recStr ? ` · ${recStr}` : ''}</div>
+          <div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:3px">${badges}</div>
         </div>
         <button onclick="toggleScrapeHall('${enc}',${!h.enabled})"
           style="font-size:.58rem;padding:1px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:${enCol};cursor:pointer;flex-shrink:0">${enLabel}</button>

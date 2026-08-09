@@ -25,17 +25,20 @@ from fastapi.staticfiles import StaticFiles
 
 from api.deps import WEB_DIR, logger
 from api import scheduler
+from app_version import APP_VERSION
 from api.routers import (
     admin,
     ai,
     estimate,
     events,
     hall,
+    layout,
     machines,
     map as map_router,
     opportunity,
     scrape,
     sessions,
+    version,
 )
 from records.models import init_db
 
@@ -73,12 +76,17 @@ async def _lifespan(_app: FastAPI):
 
     threading.Thread(target=_init, daemon=True).start()
     yield
-    # シャットダウン処理: スケジューラ/バックグラウンドスレッドはdaemon=Trueなので
-    # プロセス終了時に自動で片付く。明示的な後始末は現状不要。
+    # デスクトップ版の終了時にAPSchedulerのワーカースレッドを確実に止める。
+    active_scheduler = scheduler.get_scheduler()
+    if active_scheduler is not None and active_scheduler.running:
+        try:
+            active_scheduler.shutdown(wait=False)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
-app = FastAPI(title="pachi-tool", version="0.2.0", docs_url="/api/docs", lifespan=_lifespan)
+app = FastAPI(title="pachi-tool", version=APP_VERSION, docs_url="/api/docs", lifespan=_lifespan)
 
 if _cors_origins:
     app.add_middleware(
@@ -119,6 +127,16 @@ def _init_auxiliary_databases() -> None:
         initializers.append(init_event_db)
     except ImportError:
         pass
+    try:
+        from scraper.pworld_snapshot import init_db as init_snapshot_db
+        initializers.append(init_snapshot_db)
+    except ImportError:
+        pass
+    try:
+        from api.routers.layout import init_layout_db
+        initializers.append(init_layout_db)
+    except ImportError:
+        pass
 
     for initializer in initializers:
         try:
@@ -141,11 +159,17 @@ app.include_router(hall.router)
 app.include_router(scrape.router)
 app.include_router(events.router)
 app.include_router(map_router.router)
+app.include_router(layout.router)
 app.include_router(admin.router)
 app.include_router(ai.router)
+app.include_router(version.router)
 
 # ---------------------------------------------------------------------------
 # Static frontend
 # ---------------------------------------------------------------------------
+MOBILE_DIR = WEB_DIR.parent / "mobile"
+if MOBILE_DIR.exists():
+    app.mount("/mobile", StaticFiles(directory=str(MOBILE_DIR), html=True), name="mobile")
+
 if WEB_DIR.exists():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="static")

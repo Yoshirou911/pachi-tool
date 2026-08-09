@@ -53,7 +53,7 @@ def _run_scrape(hall_name: str, days: int):
         conn = init_db()
         tag_url = build_tag_url(hall_name)
         max_pages = max(1, (days + 9) // 10)  # ~10件/ページ
-        links = fetch_report_links(tag_url, max_pages=max_pages)
+        links = fetch_report_links(tag_url, max_pages=max_pages, expected_hall_name=hall_name)
         year = date.today().year
         for date_text, report_url in links[:days]:
             date_str = parse_date_from_text(date_text, year)
@@ -353,6 +353,272 @@ def get_report_dates(hall_name: str = Query(...)) -> list[str]:
     result = [r["report_date"] for r in rows]
     _cache_set(ckey, result)
     return result
+
+
+@router.get("/api/hall/installation_snapshot", tags=["hall"])
+def get_installation_snapshot(hall_name: str = Query(...)) -> dict:
+    """最新の設置スマスロ一覧と、前回取得時からの追加・削除を返す。"""
+    conn = _get_reports_conn()
+    if conn is None:
+        return {"hall_name": hall_name, "snapshot_date": None, "machines": []}
+    try:
+        dates = conn.execute(
+            """SELECT DISTINCT snapshot_date FROM hall_machine_snapshot
+               WHERE hall_name=? ORDER BY snapshot_date DESC LIMIT 2""",
+            (hall_name,),
+        ).fetchall()
+        if not dates:
+            return {"hall_name": hall_name, "snapshot_date": None, "machines": []}
+        latest_date = dates[0][0]
+        latest_rows = conn.execute(
+            """SELECT machine_name, machine_id, source_url
+               FROM hall_machine_snapshot
+               WHERE hall_name=? AND snapshot_date=? ORDER BY machine_name""",
+            (hall_name, latest_date),
+        ).fetchall()
+        latest_names = {row[0] for row in latest_rows}
+        previous_date = dates[1][0] if len(dates) > 1 else None
+        previous_names: set[str] = set()
+        if previous_date:
+            previous_names = {
+                row[0]
+                for row in conn.execute(
+                    """SELECT machine_name FROM hall_machine_snapshot
+                       WHERE hall_name=? AND snapshot_date=?""",
+                    (hall_name, previous_date),
+                ).fetchall()
+            }
+        return {
+            "hall_name": hall_name,
+            "snapshot_date": latest_date,
+            "previous_date": previous_date,
+            "machine_count": len(latest_rows),
+            "machines": [
+                {"machine_name": row[0], "machine_id": row[1], "source_url": row[2]}
+                for row in latest_rows
+            ],
+            "added": sorted(latest_names - previous_names) if previous_date else [],
+            "removed": sorted(previous_names - latest_names) if previous_date else [],
+        }
+    except sqlite3.OperationalError:
+        return {"hall_name": hall_name, "snapshot_date": None, "machines": []}
+    finally:
+        conn.close()
+
+
+@router.get("/api/hall/target_search", tags=["hall"])
+def get_target_search(
+    visit_date: str = Query(..., description="狙い台を探す日 YYYY-MM-DD"),
+    days: int = Query(120, ge=14, le=365),
+    limit: int = Query(8, ge=1, le=20),
+) -> dict:
+    """蓄積済みデータから、指定日に狙う店舗と機種の候補を根拠付きで返す。"""
+    try:
+        target_date = date.fromisoformat(visit_date)
+    except ValueError as exc:
+        raise HTTPException(400, "visit_date は YYYY-MM-DD で指定してください") from exc
+
+    conn = _get_reports_conn()
+    weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
+    weekday_name = weekday_names[target_date.weekday()]
+    empty_result = {
+        "visit_date": visit_date,
+        "weekday": weekday_name,
+        "generated_at": datetime.now().isoformat(timespec="minutes"),
+        "halls": [],
+        "insufficient_halls": [],
+        "notice": "公開データが不足しているため候補を算出できません。",
+    }
+    if conn is None:
+        return empty_result
+
+    reference_date = min(target_date, date.today())
+    start_date = reference_date - timedelta(days=days)
+    try:
+        rows = conn.execute(
+            """SELECT hall_name, report_date, machine_name, avg_diff_coins,
+                      win_rate_pct, unit_count, source_url
+               FROM hall_day_machine
+               WHERE report_date >= ? AND report_date <= ?
+                 AND machine_name != '_NODATA_'
+                 AND avg_diff_coins IS NOT NULL
+               ORDER BY report_date""",
+            (start_date.isoformat(), reference_date.isoformat()),
+        ).fetchall()
+        try:
+            active_halls = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT hall_name FROM scrape_hall_config WHERE enabled=1"
+                ).fetchall()
+            }
+        except sqlite3.OperationalError:
+            active_halls = set()
+    finally:
+        conn.close()
+
+    if active_halls:
+        rows = [row for row in rows if row["hall_name"] in active_halls]
+
+    by_hall: dict[str, list] = {}
+    for row in rows:
+        by_hall.setdefault(row["hall_name"], []).append(row)
+
+    ranked_halls: list[dict] = []
+    insufficient: list[dict] = []
+    all_hall_names = sorted(active_halls or by_hall.keys())
+
+    def _date_weighted_estimate(source_rows: list) -> dict:
+        """全体傾向に、指定曜日・日付末尾・直近傾向を縮小推定で重ねる。"""
+        daily: dict[str, list[float]] = {}
+        for source_row in source_rows:
+            daily.setdefault(source_row["report_date"], []).append(float(source_row["avg_diff_coins"]))
+        points = [
+            (date.fromisoformat(day), sum(values) / len(values))
+            for day, values in daily.items() if values
+        ]
+        points.sort(key=lambda item: item[0])
+        values = [value for _, value in points]
+        weekday_values = [value for day, value in points if day.weekday() == target_date.weekday()]
+        digit_values = [value for day, value in points if day.day % 10 == target_date.day % 10]
+        recent_values = [value for _, value in points[-min(7, len(points)):]]
+
+        base_avg = sum(values) / len(values) if values else 0.0
+        components = [(base_avg, 0.35)]
+        if recent_values:
+            components.append((sum(recent_values) / len(recent_values), 0.20))
+        if weekday_values:
+            components.append((sum(weekday_values) / len(weekday_values), min(0.30, 0.10 * len(weekday_values))))
+        if digit_values:
+            components.append((sum(digit_values) / len(digit_values), min(0.15, 0.075 * len(digit_values))))
+        weight_total = sum(weight for _, weight in components) or 1.0
+        projected = sum(value * weight for value, weight in components) / weight_total
+
+        base_positive = sum(value > 0 for value in values) / len(values) * 100 if values else 0.0
+        if weekday_values:
+            weekday_positive = sum(value > 0 for value in weekday_values) / len(weekday_values) * 100
+            positive_rate = base_positive * 0.6 + weekday_positive * 0.4
+        else:
+            positive_rate = base_positive
+        return {
+            "projected": round(projected),
+            "base_avg": round(base_avg),
+            "positive_rate": round(positive_rate),
+            "sample_days": len(points),
+            "weekday_days": len(weekday_values),
+            "digit_days": len(digit_values),
+            "recent_days": len(recent_values),
+            "weekday_avg": round(sum(weekday_values) / len(weekday_values)) if weekday_values else None,
+            "digit_avg": round(sum(digit_values) / len(digit_values)) if digit_values else None,
+            "latest_date": points[-1][0].isoformat() if points else "",
+        }
+
+    for hall_name in all_hall_names:
+        hall_rows = by_hall.get(hall_name, [])
+        estimate = _date_weighted_estimate(hall_rows)
+        if estimate["sample_days"] < 3:
+            insufficient.append({
+                "hall_name": hall_name,
+                "sample_days": estimate["sample_days"],
+                "reason": "分析には最低3日分の差枚データが必要です",
+            })
+            continue
+        basis = (
+            f"全体{estimate['sample_days']}日＋{weekday_name}曜{estimate['weekday_days']}日"
+            f"＋末尾{target_date.day % 10}の日{estimate['digit_days']}日"
+        )
+        avg_diff = estimate["projected"]
+        positive_rate = estimate["positive_rate"]
+        latest_date = estimate["latest_date"]
+        stale_days = max(0, (reference_date - date.fromisoformat(latest_date)).days)
+        freshness_points = 15 if stale_days <= 7 else 10 if stale_days <= 30 else 5 if stale_days <= 90 else 0
+        score = round(
+            max(0, min(40, 20 + avg_diff / 50))
+            + positive_rate * 0.25
+            + min(20, estimate["sample_days"] / 8 * 20)
+            + freshness_points
+        )
+        score = max(0, min(100, score))
+        confidence = (
+            "高" if estimate["sample_days"] >= 10 and estimate["weekday_days"] >= 2 and stale_days <= 14
+            else "中" if estimate["sample_days"] >= 5 and stale_days <= 45
+            else "低"
+        )
+
+        by_machine: dict[str, list] = {}
+        for row in hall_rows:
+            by_machine.setdefault(row["machine_name"], []).append(row)
+        machine_candidates = []
+        for machine_name, machine_rows in by_machine.items():
+            machine_dates = {row["report_date"] for row in machine_rows}
+            if len(machine_dates) < 2:
+                continue
+            diffs = [float(row["avg_diff_coins"]) for row in machine_rows]
+            machine_estimate = _date_weighted_estimate(machine_rows)
+            machine_avg = machine_estimate["projected"]
+            machine_positive = machine_estimate["positive_rate"]
+            machine_score = round(
+                max(0, min(60, 30 + machine_avg / 35))
+                + machine_positive * 0.25
+                + min(15, len(machine_dates) / 6 * 15)
+            )
+            machine_candidates.append({
+                "machine_name": machine_name,
+                "score": max(0, min(100, machine_score)),
+                "avg_diff": machine_avg,
+                "positive_rate": machine_positive,
+                "sample_days": len(machine_dates),
+                "latest_date": max(machine_dates),
+                "weekday_days": machine_estimate["weekday_days"],
+                "digit_days": machine_estimate["digit_days"],
+            })
+        machine_candidates.sort(
+            key=lambda item: (item["score"], item["sample_days"], item["avg_diff"]), reverse=True
+        )
+
+        reasons = [
+            f"{basis}を重み付け",
+            f"指定日の推定差枚 {avg_diff:+,}枚・プラス日率{positive_rate}%",
+        ]
+        if stale_days > 30:
+            reasons.append(f"最終データから{stale_days}日経過しているため信頼度を減点")
+        ranked_halls.append({
+            "hall_name": hall_name,
+            "score": score,
+            "confidence": confidence,
+            "basis": basis,
+            "sample_days": estimate["sample_days"],
+            "avg_diff": avg_diff,
+            "baseline_avg": estimate["base_avg"],
+            "weekday_avg": estimate["weekday_avg"],
+            "digit_avg": estimate["digit_avg"],
+            "weekday_sample_days": estimate["weekday_days"],
+            "digit_sample_days": estimate["digit_days"],
+            "positive_rate": positive_rate,
+            "latest_date": latest_date,
+            "stale_days": stale_days,
+            "reasons": reasons,
+            "target_machines": machine_candidates[:5],
+        })
+
+    ranked_halls.sort(
+        key=lambda item: (item["score"], item["confidence"] == "高", item["sample_days"]), reverse=True
+    )
+    ranked_halls = ranked_halls[:limit]
+    for index, hall in enumerate(ranked_halls, 1):
+        hall["rank"] = index
+
+    return {
+        "visit_date": visit_date,
+        "weekday": weekday_name,
+        "generated_at": datetime.now().isoformat(timespec="minutes"),
+        "halls": ranked_halls,
+        "insufficient_halls": insufficient,
+        "notice": (
+            "候補は公開データによる統計順位です。勝利や高設定を保証しません。"
+            if ranked_halls else empty_result["notice"]
+        ),
+    }
 
 
 @router.get("/api/hall/report", tags=["hall"])

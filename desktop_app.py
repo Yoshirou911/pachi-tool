@@ -53,7 +53,10 @@ def migrate_legacy_databases(destination: Path, source: Path | None = None) -> l
 
 
 def configure_environment() -> Path:
-    data_dir = user_data_dir()
+    # テスト・移行時だけ明示した保存先を使えるようにする。通常起動は従来どおり
+    # LOCALAPPDATA/PachiTool/data で、アプリ更新時も利用者データを保持する。
+    configured_data_dir = os.environ.get("DATA_DIR", "").strip()
+    data_dir = Path(configured_data_dir) if configured_data_dir else user_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     migrate_legacy_databases(data_dir)
     os.environ["DATA_DIR"] = str(data_dir)
@@ -113,6 +116,16 @@ def main() -> int:
             with urllib.request.urlopen(f"{url}api/opportunity/dashboard?month=2026-08", timeout=5) as response:
                 if response.status != 200:
                     raise RuntimeError(f"Desktop API smoke test failed: HTTP {response.status}")
+            with urllib.request.urlopen(
+                f"{url}api/map/target_heat?visit_date=2026-08-10&days=120&long_days=365",
+                timeout=5,
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"Target heat map smoke test failed: HTTP {response.status}")
+            with urllib.request.urlopen(f"{url}mobile/", timeout=5) as response:
+                mobile_html = response.read().decode("utf-8")
+                if response.status != 200 or 'id="target-map-form"' not in mobile_html:
+                    raise RuntimeError("Mobile heat map assets are missing from desktop build")
             server.should_exit = True
             server_thread.join(timeout=5)
             return 0
@@ -137,6 +150,9 @@ def main() -> int:
             server_thread.join(timeout=5)
         return 0
     except Exception as exc:
+        if "--smoke-test" in sys.argv:
+            print(f"Desktop smoke test failed: {exc}", file=sys.stderr)
+            return 1
         show_error(
             "PACHI TOOL could not start.\n\n"
             f"{exc}\n\n"

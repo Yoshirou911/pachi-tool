@@ -135,5 +135,5 @@ def format_ev_report(result: EVResult) -> str:
 
 if __name__ == "__main__":
     post = {"1": 0.05, "2": 0.10, "3": 0.15, "4": 0.30, "5": 0.25, "6": 0.15}
-    r = compute_ev(post, machine_name="ゴーゴージャグラー")
+    r = compute_ev(post, machine_name="スマスロ北斗の拳")
     print(format_ev_report(r))

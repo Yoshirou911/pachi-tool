@@ -24,6 +24,8 @@ import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 
+from hall.machine_scope import is_smartslot_machine
+
 # ---------------------------------------------------------------------------
 BASE_URL = "https://min-repo.com"
 HEADERS = {
@@ -31,11 +33,32 @@ HEADERS = {
                   "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept-Language": "ja,en;q=0.9",
 }
+_SESSION = requests.Session()
+_SESSION.headers.update(HEADERS)
 try:
     from config import HALL_REPORTS_DB as DB_PATH
 except ImportError:
     DB_PATH = Path(__file__).parent.parent / "data" / "hall_reports.db"
 REQUEST_DELAY = 1.5  # 秒 (サーバー負荷軽減)
+
+
+def _get_page(url: str, timeout: int = 15):
+    """みんレポのJavaScript Cookieチャレンジを処理してページを取得する。"""
+    resp = _SESSION.get(url, timeout=timeout)
+    for _ in range(2):
+        match = re.search(
+            r"\$\.cookie\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]",
+            resp.text,
+        )
+        if not match:
+            break
+        _SESSION.cookies.set(match.group(1), match.group(2), domain=".min-repo.com", path="/")
+        resp = _SESSION.get(url, timeout=timeout)
+    return resp
+
+
+def _normalize_hall_name(name: str) -> str:
+    return re.sub(r"[^0-9a-zぁ-んァ-ヶ一-龠]", "", (name or "").lower())
 
 
 # ---------------------------------------------------------------------------
@@ -214,18 +237,29 @@ def parse_report_page(html: str, url: str) -> tuple[list[dict], list[dict]]:
 # メインスクレーパー
 # ---------------------------------------------------------------------------
 
-def fetch_report_links(hall_tag_url: str, max_pages: int = 3) -> list[tuple[str, str]]:
+def fetch_report_links(
+    hall_tag_url: str,
+    max_pages: int = 3,
+    expected_hall_name: str = "",
+) -> list[tuple[str, str]]:
     """
     ホールのタグページから (date_str, report_url) のリストを返す。
     """
     results = []
     url = hall_tag_url
     for page in range(max_pages):
-        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp = _get_page(url)
         if resp.status_code != 200:
             print(f"  タグページ取得失敗: {resp.status_code} {url}")
             break
         soup = BeautifulSoup(resp.text, "lxml")
+
+        # 存在しないタグURLは別店舗を含む共通ページへ戻されることがある。
+        if page == 0 and expected_hall_name:
+            page_text = _normalize_hall_name(soup.get_text(" ", strip=True))
+            if _normalize_hall_name(expected_hall_name) not in page_text:
+                print(f"  店舗専用ページなし: {expected_hall_name}")
+                return []
 
         # リンクを全部探す: <a href="/数字/">M/D(曜)</a>
         for a in soup.find_all("a", href=True):
@@ -247,24 +281,35 @@ def fetch_report_links(hall_tag_url: str, max_pages: int = 3) -> list[tuple[str,
         else:
             break
 
-    # 重複除去
+    # 同じ日付への機種別リンクが複数含まれるため、日付単位で重複除去する。
     seen = set()
     unique = []
+    current_year = date.today().year
     for item in results:
-        if item[1] not in seen:
-            seen.add(item[1])
+        normalized_date = parse_date_from_text(item[0], current_year) or item[0]
+        if normalized_date not in seen:
+            seen.add(normalized_date)
             unique.append(item)
     return unique
 
 
 def scrape_report(url: str, hall_name: str, report_date_str: str, conn: sqlite3.Connection) -> int:
     """1日分のレポートをスクレイプしてDBに保存。保存件数を返す"""
-    resp = requests.get(url, headers=HEADERS, timeout=15)
+    resp = _get_page(url)
     if resp.status_code != 200:
         print(f"  レポート取得失敗: {resp.status_code} {url}")
         return 0
 
+    soup = BeautifulSoup(resp.text, "lxml")
+    heading = soup.find("h1")
+    heading_text = heading.get_text(" ", strip=True) if heading else ""
+    if _normalize_hall_name(hall_name) not in _normalize_hall_name(heading_text):
+        print(f"  店舗不一致のため破棄: {heading_text or '見出しなし'}")
+        return 0
+
     machine_rows, seat_rows = parse_report_page(resp.text, url)
+    machine_rows = [row for row in machine_rows if is_smartslot_machine(row["machine_name"])]
+    seat_rows = [row for row in seat_rows if is_smartslot_machine(row["machine_name"])]
 
     saved = 0
     for row in machine_rows:
@@ -293,12 +338,23 @@ def scrape_report(url: str, hall_name: str, report_date_str: str, conn: sqlite3.
         except Exception:
             pass
 
+    if not machine_rows:
+        conn.execute("""
+            INSERT OR IGNORE INTO hall_day_machine
+            (hall_name, report_date, machine_name, unit_count, source_url)
+            VALUES (?, ?, '_NODATA_', 0, ?)
+        """, (hall_name, report_date_str, url))
+
     conn.commit()
     return saved
 
 
 def build_tag_url(hall_name: str) -> str:
-    encoded = urllib.parse.quote(hall_name)
+    # 一部店舗はみんレポ側のタグslugが表示名と異なる。
+    tag_name = {
+        "スーパーコスモプレミアム大東店": "super-cosmo-premium-大東店",
+    }.get(hall_name, hall_name)
+    encoded = urllib.parse.quote(tag_name)
     return f"{BASE_URL}/tag/{encoded}/"
 
 
@@ -333,7 +389,7 @@ def main():
         # 単発テスト
         url = f"{BASE_URL}/{args.url_id}/"
         print(f"テスト取得: {url}")
-        rows, seats = parse_report_page(requests.get(url, headers=HEADERS).text, url)
+        rows, seats = parse_report_page(_get_page(url).text, url)
         print(f"  機種別: {len(rows)}件")
         for r in rows[:5]:
             print(f"    {r['machine_name']}: 差枚{r['avg_diff_coins']}, G{r['avg_games']}, 出率{r['ev_pct']}%")
@@ -342,7 +398,7 @@ def main():
 
     tag_url = build_tag_url(hall)
     print(f"タグページ: {tag_url}")
-    links = fetch_report_links(tag_url, max_pages=3)
+    links = fetch_report_links(tag_url, max_pages=3, expected_hall_name=hall)
     print(f"  {len(links)} 件のレポートを発見")
 
     year = date.today().year

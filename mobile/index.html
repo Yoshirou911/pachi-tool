@@ -3,120 +3,367 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#07101f">
+  <meta name="theme-color" content="#07111e">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="PACHI TOOL">
+  <meta name="apple-mobile-web-app-title" content="スマスロ TOOL">
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./app.css">
-  <title>PACHI TOOL Mobile</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="./app.css?v=1.9.2">
+  <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
   <header class="topbar">
-    <div><small>PACHI TOOL</small><strong>期待値ハンター</strong></div>
-    <span id="network-badge" class="status-badge">確認中</span>
+    <div class="brand"><span class="brand-mark">P</span><div><strong>PACHI TOOL</strong><small id="brand-mode-label">スマスロ攻略ホーム</small></div></div>
+    <div class="topbar-actions">
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v1.9.2</span><em id="mobile-version-new">NEW</em></button>
+      <span id="network-badge" class="status-badge">確認中</span>
+    </div>
   </header>
 
   <main>
-    <section id="screen-guide" class="screen active">
-      <div class="hero">
-        <span class="eyebrow">OFFLINE FIELD DESK</span>
-        <h1>打つ台を、ひと目で。</h1>
-        <p>期待値・必要資金・着席判断を端末内だけで確認します。</p>
+    <section id="screen-home" class="screen active">
+      <div class="home-hero">
+        <span class="page-step">CHOOSE A MODE</span>
+        <h1>今日はどう勝ちに行く？</h1>
+        <p>目的を選ぶと、必要な機能だけを表示します。</p>
       </div>
 
-      <div id="setup-alert" class="alert warning hidden"></div>
+      <div class="mode-grid">
+        <button class="mode-card hyena-mode" type="button" data-screen-target="check">
+          <span class="mode-icon">◎</span>
+          <span class="module-tag module-hyena">ハイエナ</span>
+          <strong>空き台を判定する</strong>
+          <small>現在ゲーム数から期待値・必要資金・打てるかを即判定</small>
+          <span class="mode-action">判定を始める <b>→</b></span>
+        </button>
+        <button class="mode-card plan-mode" type="button" data-screen-target="planner">
+          <span class="mode-icon">◇</span>
+          <span class="module-tag module-plan">狙い台捜索</span>
+          <strong>明日の狙い台を決める</strong>
+          <small>店舗・機種・台番号と根拠を整理して朝一の順番を作成</small>
+          <span class="mode-action">作戦を作る <b>→</b></span>
+        </button>
+      </div>
+
+      <p class="home-footnote">2つのモードは別々に管理され、実戦結果だけが収支へ集約されます。</p>
+    </section>
+
+    <section id="screen-check" class="screen">
+      <div class="page-heading">
+        <span class="module-tag module-hyena">ハイエナ</span>
+        <h1>空き台をその場で判定</h1>
+        <p>現在のゲーム数から、期待値・資金・閉店時間を確認します。</p>
+      </div>
+
+      <div id="setup-alert" class="setup-card hidden"></div>
+
+      <article class="panel judge-panel">
+        <form id="quick-form">
+          <div class="field-step"><span>1</span><label for="quick-machine">機種を選ぶ</label></div>
+          <select id="quick-machine" class="primary-select" required></select>
+
+          <div class="field-step"><span>2</span><label for="quick-profile">狙う条件を選ぶ</label></div>
+          <select id="quick-profile" class="primary-select" required></select>
+
+          <div class="field-step"><span>3</span><label id="quick-current-label" for="quick-current">現在値</label></div>
+          <div class="number-field"><input id="quick-current" class="big-input" type="number" min="0" inputmode="numeric" placeholder="650" required><span id="quick-current-unit">G</span></div>
+
+          <details class="advanced-options">
+            <summary><span>交換条件・台の状態を確認</span><small>自動入力済み</small></summary>
+            <div class="advanced-body two-col">
+              <label>交換条件<select id="quick-exchange"><option value="equivalent">等価</option><option value="56">5.6枚</option><option value="other">その他</option></select></label>
+              <label>投資方法<select id="quick-funding"><option value="cash">現金</option><option value="medals">持ちメダル</option></select></label>
+              <label>台の状態<select id="quick-reset"><option value="normal">通常・据え置き</option><option value="reset_confirmed">リセット確定</option><option value="unknown">不明</option></select></label>
+              <label>閉店時刻<input id="quick-close" type="time" value="22:45" required></label>
+            </div>
+          </details>
+
+          <button class="primary-button judge-button" type="submit"><span>判定する</span><small>期待値・資金・閉店時間を確認</small></button>
+        </form>
+        <div id="quick-result" aria-live="polite"></div>
+      </article>
+
+      <button class="text-action" type="button" data-screen-target="guide">ハイエナ早見表から選ぶ <span>→</span></button>
+    </section>
+
+    <section id="screen-guide" class="screen">
+      <button class="back-action" type="button" data-screen-target="check">← ハイエナ判定に戻る</button>
+      <div class="page-heading compact-heading">
+        <span class="module-tag module-hyena">ハイエナ</span>
+        <h1>空き台の早見表</h1>
+        <p>期待値が高い順に、狙い始めるゲーム数を確認できます。</p>
+      </div>
+
+      <div id="catalog-scope" class="scope-note"></div>
+
+      <article class="panel guide-panel">
+        <div class="toolbar">
+          <label class="search-field"><span>⌕</span><input id="guide-search" type="search" placeholder="機種名を検索"></label>
+          <select id="guide-mode" aria-label="表示範囲"><option value="targets">狙い目</option><option value="all">全データ</option></select>
+        </div>
+        <div class="section-bar"><h2>期待値早見表</h2><span id="guide-count" class="count-badge">0件</span></div>
+        <div id="guide-list" class="guide-list"><p class="empty">読み込み中...</p></div>
+        <p class="fine-print">期待値は登録情報に基づく目安です。着席前に必ず「判定する」で交換条件・資金・閉店時刻を確認してください。</p>
+      </article>
+
+      <section class="saved-section">
+        <div class="section-bar"><div><span class="page-step">保存済み</span><h2>いま気になる台</h2></div><span id="candidate-count" class="count-badge">0台</span></div>
+        <div id="candidate-list" class="stack-list"></div>
+      </section>
+    </section>
+
+    <section id="screen-planner" class="screen">
+      <div class="page-heading compact-heading">
+        <span class="module-tag module-plan">狙い台捜索</span>
+        <h1>分析から候補を探す</h1>
+        <p>蓄積した店舗・曜日・機種データを比較して、行く店と狙い機種を絞ります。</p>
+      </div>
+
+      <article class="panel planner-panel target-search-panel">
+        <div class="panel-heading"><span class="heading-icon plan-icon">◇</span><div><h2>行く日を指定</h2><p>四條畷駅周辺の取得済みデータを分析します</p></div></div>
+        <form id="target-search-form">
+          <div class="two-col">
+            <label>行く日<input id="target-visit-date" type="date" required></label>
+            <label>分析期間<select id="target-search-days"><option value="60">直近60日</option><option value="120" selected>直近120日</option><option value="180">直近180日</option></select></label>
+          </div>
+          <button id="target-search-button" class="primary-button plan-button" type="submit">データから狙い台を探す</button>
+        </form>
+        <p id="target-search-status" class="fine-print">平均差枚・プラス日率・同曜日実績・データ鮮度をまとめて評価します。</p>
+      </article>
+
+      <div id="target-search-results" class="target-search-results"></div>
+    </section>
+
+    <section id="screen-trend" class="screen">
+      <div class="page-heading compact-heading">
+        <span class="module-tag module-plan">狙い台捜索</span>
+        <h1>店舗の傾向分析</h1>
+        <p>店舗ごとの強い曜日・日付・機種・次の注目日を徹底分析します。</p>
+      </div>
+      <article class="panel trend-controls">
+        <form id="trend-form">
+          <label>店舗<select id="trend-hall" required></select></label>
+          <div class="two-col">
+            <label>行く日<input id="trend-date" type="date" required></label>
+            <label>分析期間<select id="trend-days"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></label>
+          </div>
+          <button id="trend-button" class="primary-button plan-button" type="submit">この店舗を分析</button>
+        </form>
+        <p id="trend-status" class="fine-print">公開実績だけを使い、事実と仮説を分けて表示します。</p>
+      </article>
+      <div id="trend-results" class="trend-results"></div>
+    </section>
+
+    <section id="screen-floor-map" class="screen">
+      <div class="page-heading compact-heading">
+        <span class="module-tag module-plan">狙い台捜索</span>
+        <h1>店内座席ヒートマップ</h1>
+        <p>店内レイアウトに台番号別の熱量を重ね、狙う島と座席を視覚化します。</p>
+      </div>
+      <article class="panel floor-controls">
+        <form id="floor-form">
+          <label>店舗<select id="floor-hall" required></select></label>
+          <div class="two-col">
+            <label>行く日<input id="floor-date" type="date" required></label>
+            <label>台分析<select id="floor-days"><option value="30">直近30日</option><option value="90" selected>直近90日</option><option value="180">直近180日</option></select></label>
+          </div>
+          <button id="floor-button" class="primary-button plan-button" type="submit">座席の熱量を表示</button>
+        </form>
+        <div class="heat-legend"><span class="heat-hot">かなり熱い</span><span class="heat-warm">狙い目</span><span class="heat-watch">注目</span><span class="heat-cool">慎重</span><span class="heat-none">不足</span></div>
+        <p id="floor-status" class="fine-print">台番号データがない店舗は、先にレイアウト登録が必要です。</p>
+      </article>
+      <div id="floor-map-meta" class="floor-map-meta"></div>
+      <div class="floor-map-scroll"><div id="floor-map-canvas" class="floor-map-canvas"></div></div>
+      <div id="floor-seat-detail" class="floor-seat-detail"></div>
+      <details class="settings-group floor-result-entry">
+        <summary><span><b>今日の台データを追加</b><small>1台ずつ入力・CSV一括取込</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <form id="floor-result-form">
+            <div class="two-col"><label>営業日<input id="floor-result-date" type="date" required></label><label>情報源<input id="floor-result-source" maxlength="200" value="現地入力"></label></div>
+            <div class="two-col"><label>台番号<input id="floor-result-number" type="number" min="1" inputmode="numeric" required placeholder="501"></label><label>差枚<input id="floor-result-diff" type="number" min="-100000" max="100000" inputmode="numeric" required placeholder="+1800"></label></div>
+            <label>機種名<input id="floor-result-machine" maxlength="120" placeholder="マップ登録済みなら省略可"></label>
+            <label>G数<input id="floor-result-games" type="number" min="0" max="100000" inputmode="numeric" placeholder="7200"></label>
+            <button id="floor-result-save" class="primary-button plan-button" type="submit">この1台を保存</button>
+          </form>
+          <div class="floor-import-actions"><label class="secondary-button">CSVを読み込む<input id="floor-result-csv" type="file" accept=".csv,text/csv" hidden></label><button id="floor-result-template" class="secondary-button" type="button">CSVひな形</button></div>
+          <p id="floor-result-status" class="fine-print">登録した結果は翌日以降のヒートマップに反映されます。公開取得済みデータは上書きしません。</p>
+        </div>
+      </details>
+      <details class="settings-group floor-editor">
+        <summary><span><b>店内マップを登録・修正</b><small>公式マップや現地確認を元に再構築</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <form id="floor-editor-form">
+            <label>出典名<input id="floor-source-label" maxlength="200" placeholder="例：店舗公式フロア案内"></label>
+            <label>出典URL<input id="floor-source-url" type="url" placeholder="https://...（任意）"></label>
+            <div class="two-col"><label>出典種別<select id="floor-source-kind"><option value="manual">現地・手動</option><option value="official">店舗公式</option><option value="pworld">P-WORLD</option><option value="uploaded">画像から再構築</option></select></label><label>確認状態<select id="floor-verification"><option>未確認</option><option>要確認</option><option>確認済み</option></select></label></div>
+            <label>有効日<input id="floor-valid-from" type="date" required></label>
+            <div class="two-col"><label>開始台番号<input id="floor-seat-start" type="number" min="1" inputmode="numeric" placeholder="例：501"></label><label>終了台番号<input id="floor-seat-end" type="number" min="1" inputmode="numeric" placeholder="例：540"></label></div>
+            <label>島名・機種名<input id="floor-island-name" maxlength="100" placeholder="例：スマスロ北斗の拳 島"></label>
+            <label>確認メモ<textarea id="floor-notes" maxlength="1000" rows="2" placeholder="現地で確認した位置や未確認箇所"></textarea></label>
+            <button id="floor-auto-layout" class="secondary-button" type="button">台番号を自動整列</button>
+            <button id="floor-save-layout" class="primary-button" type="submit">この配置を保存</button>
+          </form>
+          <p class="fine-print">自動整列は仮配置です。実際の位置を確認できていない場合は「要確認」と表示します。</p>
+        </div>
+      </details>
+    </section>
+
+    <section id="screen-strategy" class="screen">
+      <div class="page-heading compact-heading">
+        <span class="module-tag module-plan">狙い台捜索</span>
+        <h1>朝一の作戦</h1>
+        <p>分析から保存した店舗・機種・座席候補を、当日の確認順にまとめます。</p>
+      </div>
+      <div class="section-bar planner-list-heading"><div><span class="page-step">分析から保存</span><h2>朝一の作戦リスト</h2></div><span id="planner-count" class="count-badge">0台</span></div>
+      <div id="planner-list" class="stack-list"></div>
+
+      <details class="settings-group manual-plan-group">
+        <summary><span><b>データにない候補を手動追加</b><small>補助機能として使用</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <form id="planner-form">
+          <div class="two-col">
+            <label>行く日<input id="plan-date" type="date" required></label>
+            <label>優先度<select id="plan-priority"><option value="1">最優先</option><option value="2" selected>候補</option><option value="3">抑え</option></select></label>
+          </div>
+          <label>店舗名<input id="plan-store" maxlength="80" placeholder="例：○○店" required></label>
+          <div class="two-col">
+            <label>機種名<input id="plan-machine" maxlength="80" placeholder="例：スマスロ北斗の拳" required></label>
+            <label>台番号<input id="plan-number" maxlength="20" inputmode="numeric" placeholder="例：123"></label>
+          </div>
+          <div class="two-col">
+            <label>前日最終ゲーム数<input id="plan-previous-games" type="number" min="0" inputmode="numeric" placeholder="例：350"></label>
+            <label>狙い方<select id="plan-strategy"><option value="reset">リセット狙い</option><option value="carryover">据え置き狙い</option><option value="setting">設定狙い</option><option value="morning">朝一挙動を見る</option></select></label>
+          </div>
+          <label>根拠・確認ポイント<textarea id="plan-notes" maxlength="300" rows="3" placeholder="例：前日350G、据え置きなら朝一450Gから確認"></textarea></label>
+            <button class="secondary-button" type="submit">手動候補として追加</button>
+          </form>
+        </div>
+      </details>
+    </section>
+
+    <section id="screen-target-map" class="screen">
+      <div class="page-heading compact-heading">
+        <span class="module-tag module-plan">狙い台捜索</span>
+        <h1>周辺店舗ヒートマップ</h1>
+        <p>日付ごとの熱量を地図で比較し、長期的な店舗傾向も確認します。</p>
+      </div>
+      <article class="panel target-map-controls">
+        <form id="target-map-form">
+          <div class="two-col">
+            <label>行く日<input id="target-map-date" type="date" required></label>
+            <label>長期表示<select id="target-map-long-days"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></label>
+          </div>
+          <button id="target-map-button" class="primary-button plan-button" type="submit">この日の熱量を表示</button>
+        </form>
+        <div class="heat-legend"><span class="heat-hot">かなり熱い</span><span class="heat-warm">熱い</span><span class="heat-watch">注目</span><span class="heat-cool">慎重</span><span class="heat-none">不足</span></div>
+        <p id="target-map-status" class="fine-print">店舗マーカーは指定日の分析点が高いほど大きく表示されます。</p>
+      </article>
+      <div id="target-heat-map" class="target-heat-map" aria-label="四條畷駅周辺の店舗熱量マップ"></div>
+      <div id="target-map-detail" class="target-map-detail"></div>
+    </section>
+
+    <section id="screen-results" class="screen">
+      <div class="page-heading compact-heading">
+        <span class="page-step">収支管理</span>
+        <h1>実戦記録</h1>
+        <p>投資と回収を記録して、使える資金を自動計算します。</p>
+      </div>
 
       <div class="summary-grid">
-        <article><small>現在資金</small><strong id="summary-bankroll">--</strong></article>
+        <article class="summary-primary"><small>現在資金</small><strong id="summary-bankroll">--</strong><span>運用できる残高</span></article>
         <article><small>残り損失枠</small><strong id="summary-loss">--</strong></article>
         <article><small>累計収支</small><strong id="summary-net">--</strong></article>
         <article><small>実戦数</small><strong id="summary-plays">0回</strong></article>
       </div>
 
-      <article class="panel">
-        <div class="panel-title"><div><small>QUICK TABLE</small><h2>打つ・見送る早見表</h2></div><span id="guide-count" class="count-badge">0件</span></div>
-        <div class="toolbar">
-          <input id="guide-search" type="search" placeholder="機種名・条件を検索">
-          <select id="guide-mode"><option value="targets">狙い目だけ</option><option value="all">全ゲーム数</option></select>
+      <article class="panel performance-panel">
+        <div class="section-bar performance-heading">
+          <div><span class="page-step">期待値との差</span><h2>積んだ期待値と実収支</h2></div>
+          <span id="performance-count" class="count-badge">0件</span>
         </div>
-        <div id="guide-list" class="guide-list"><p class="empty">読み込み中...</p></div>
-        <p class="fine-print">期待値は登録情報に基づく目安です。「10秒判定」で交換条件・資金・リセット・閉店時刻を必ず確認してください。</p>
+        <div id="performance-summary" class="comparison-grid"></div>
+        <div class="chart-legend"><span class="legend-expected">期待値</span><span class="legend-actual">実収支</span></div>
+        <div id="performance-chart" class="performance-chart" role="img" aria-label="累積期待値と累積実収支の比較グラフ"></div>
+        <p id="performance-note" class="performance-note"></p>
       </article>
-    </section>
 
-    <section id="screen-check" class="screen">
-      <div class="section-heading"><span class="eyebrow">10 SECOND CHECK</span><h1>10秒判定</h1><p>目の前の台を最終確認</p></div>
-      <article class="panel accent-panel">
-        <form id="quick-form">
-          <label>機種<select id="quick-machine" required></select></label>
-          <label>条件<select id="quick-profile" required></select></label>
-          <label><span id="quick-current-label">現在値</span><input id="quick-current" class="big-input" type="number" min="0" inputmode="numeric" placeholder="例：650" required></label>
-          <div class="two-col">
-            <label>交換条件<select id="quick-exchange"><option value="equivalent">等価</option><option value="56">5.6枚</option><option value="other">その他</option></select></label>
-            <label>投資方法<select id="quick-funding"><option value="cash">現金</option><option value="medals">持ちメダル</option></select></label>
-            <label>台の状態<select id="quick-reset"><option value="normal">通常・据え置き</option><option value="reset_confirmed">リセット確定</option><option value="unknown">不明</option></select></label>
-            <label>閉店時刻<input id="quick-close" type="time" value="22:45" required></label>
-          </div>
-          <button class="primary-button" type="submit">この台を判定</button>
-        </form>
-        <div id="quick-result" aria-live="polite"></div>
-      </article>
-    </section>
-
-    <section id="screen-candidates" class="screen">
-      <div class="section-heading"><span class="eyebrow">CANDIDATES</span><h1>候補台</h1><p>判定後に保存した台</p></div>
-      <div id="candidate-list" class="stack-list"></div>
-    </section>
-
-    <section id="screen-results" class="screen">
-      <div class="section-heading"><span class="eyebrow">RESULTS</span><h1>実戦記録</h1><p>投資と回収を端末内に保存</p></div>
+      <div class="section-bar result-heading"><h2>これまでの実戦</h2></div>
       <div id="result-list" class="stack-list"></div>
     </section>
 
     <section id="screen-settings" class="screen">
-      <div class="section-heading"><span class="eyebrow">LOCAL SETTINGS</span><h1>設定・バックアップ</h1><p>データはこのiPhone内に保存されます</p></div>
-      <article class="panel">
-        <div class="panel-title"><div><small>BANKROLL</small><h2>資金設定</h2></div></div>
+      <div class="page-heading compact-heading">
+        <span class="page-step">設定</span>
+        <h1>資金とデータ</h1>
+        <p>判断に使う資金を設定します。データはこのiPhone内だけに保存されます。</p>
+      </div>
+
+      <details id="patch-notes-group" class="settings-group release-notes-group">
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v1.9.2・更新日 2026/08/09</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <div id="mobile-release-current" class="release-current"></div>
+          <div id="mobile-patch-notes" class="patch-notes-list"></div>
+        </div>
+      </details>
+
+      <article class="panel budget-panel">
+        <div class="panel-heading"><span class="heading-icon">¥</span><div><h2>最初に資金を設定</h2><p>無理に追わないための上限です</p></div></div>
         <form id="budget-form">
-          <label>運用資金（円）<input id="budget-bankroll" type="number" min="0" step="1000" inputmode="numeric" required></label>
-          <label>損失上限（円）<input id="budget-loss" type="number" min="0" step="1000" inputmode="numeric" required></label>
+          <label>運用資金<input id="budget-bankroll" type="number" min="0" step="1000" inputmode="numeric" placeholder="例：100000" required><span class="input-suffix">円</span></label>
+          <label>今月の損失上限<input id="budget-loss" type="number" min="0" step="1000" inputmode="numeric" placeholder="例：30000" required><span class="input-suffix">円</span></label>
+          <p class="form-help">損失上限は「ここまで負けたら今月は終了」の金額です。</p>
           <button class="primary-button" type="submit">資金設定を保存</button>
         </form>
       </article>
-      <article class="panel">
-        <div class="panel-title"><div><small>BACKUP</small><h2>バックアップ</h2></div></div>
-        <p class="help">機種変更やSafariデータ消去に備え、定期的にファイルへ保存してください。</p>
-        <div class="button-stack">
-          <button id="export-button" class="secondary-button" type="button">バックアップを書き出す</button>
-          <label class="secondary-button file-button">バックアップを読み込む<input id="import-file" type="file" accept="application/json,.json"></label>
-          <button id="reset-button" class="danger-button" type="button">端末内データを初期化</button>
+
+      <details class="settings-group">
+        <summary><span><b>バックアップ</b><small>機種変更に備える</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <p class="help">機種変更やSafariデータ消去に備え、定期的にファイルへ保存してください。</p>
+          <div class="button-stack">
+            <button id="export-button" class="secondary-button" type="button">バックアップを書き出す</button>
+            <label class="secondary-button file-button">バックアップを読み込む<input id="import-file" type="file" accept="application/json,.json"></label>
+          </div>
         </div>
-      </article>
-      <article class="panel install-panel">
-        <div class="panel-title"><div><small>INSTALL</small><h2>ホーム画面へ追加</h2></div></div>
-        <ol><li>Safariの共有ボタンを押す</li><li>「ホーム画面に追加」を選ぶ</li><li>「Webアプリとして開く」をオン</li></ol>
-        <p id="app-version" class="fine-print"></p>
-      </article>
+      </details>
+
+      <details class="settings-group">
+        <summary><span><b>ホーム画面へ追加</b><small>アプリとしてすぐ開く</small></span><i>⌄</i></summary>
+        <div class="settings-body install-panel">
+          <ol><li>Safariの共有ボタンを押す</li><li>「ホーム画面に追加」を選ぶ</li><li>「Webアプリとして開く」をオン</li></ol>
+          <p id="app-version" class="fine-print"></p>
+        </div>
+      </details>
+
+      <details class="settings-group danger-group">
+        <summary><span><b>データの初期化</b><small>すべての記録を削除</small></span><i>⌄</i></summary>
+        <div class="settings-body"><button id="reset-button" class="danger-button" type="button">端末内データを初期化</button></div>
+      </details>
     </section>
   </main>
 
-  <nav class="bottom-nav" aria-label="メインメニュー">
-    <button class="nav-button active" data-screen="guide"><span>⌕</span>早見表</button>
-    <button class="nav-button" data-screen="check"><span>◎</span>10秒判定</button>
-    <button class="nav-button" data-screen="candidates"><span>★</span>候補台</button>
-    <button class="nav-button" data-screen="results"><span>¥</span>実戦</button>
-    <button class="nav-button" data-screen="settings"><span>⚙</span>設定</button>
+  <nav class="bottom-nav" aria-label="専用メニュー" hidden>
+    <button class="nav-button active" data-screen="home" aria-current="page"><span class="nav-icon">⌂</span><span>ホーム</span></button>
+    <button class="nav-button" data-module-nav="hyena" data-screen="check"><span class="nav-icon">◎</span><span>判定</span></button>
+    <button class="nav-button" data-module-nav="hyena" data-screen="guide"><span class="nav-icon">☷</span><span>早見表</span></button>
+    <button class="nav-button" data-module-nav="target" data-screen="planner"><span class="nav-icon">◇</span><span>捜索</span></button>
+    <button class="nav-button" data-module-nav="target" data-screen="trend"><span class="nav-icon">▥</span><span>傾向</span></button>
+    <button class="nav-button" data-module-nav="target" data-screen="target-map"><span class="nav-icon">⌖</span><span>周辺</span></button>
+    <button class="nav-button" data-module-nav="target" data-screen="floor-map"><span class="nav-icon">▦</span><span>店内</span></button>
+    <button class="nav-button" data-module-nav="target" data-screen="strategy"><span class="nav-icon">☑</span><span>作戦</span></button>
+    <button class="nav-button" data-module-nav="hyena target" data-screen="results"><span class="nav-icon">▤</span><span>記録</span></button>
+    <button class="nav-button" data-module-nav="hyena target" data-screen="settings"><span class="nav-icon">⚙</span><span>設定</span></button>
   </nav>
 
   <dialog id="result-dialog">
     <form id="result-form" method="dialog">
-      <div class="dialog-head"><div><small>RESULT</small><h2 id="result-machine">実戦結果</h2></div><button id="dialog-close" type="button" aria-label="閉じる">×</button></div>
+      <div class="dialog-head"><div><span class="page-step">実戦終了</span><h2 id="result-machine">実戦結果</h2></div><button id="dialog-close" type="button" aria-label="閉じる">×</button></div>
       <input id="result-candidate-id" type="hidden">
-      <label>投資（円）<input id="result-investment" type="number" min="0" step="1000" inputmode="numeric" required></label>
-      <label>回収（円）<input id="result-returns" type="number" min="0" step="1000" inputmode="numeric" required></label>
+      <div class="two-col"><label>投資<input id="result-investment" type="number" min="0" step="1000" inputmode="numeric" required><span class="input-suffix">円</span></label><label>回収<input id="result-returns" type="number" min="0" step="1000" inputmode="numeric" required><span class="input-suffix">円</span></label></div>
       <div class="two-col"><label>実戦日<input id="result-date" type="date" required></label><label>時間（分）<input id="result-minutes" type="number" min="0" max="1440" inputmode="numeric"></label></div>
       <label>メモ<input id="result-notes" maxlength="200" placeholder="当選契機・終了状況など"></label>
       <button class="primary-button" type="submit">結果を保存</button>
@@ -124,6 +371,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=1.9.2"></script>
 </body>
 </html>

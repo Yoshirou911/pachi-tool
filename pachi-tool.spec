@@ -6,6 +6,7 @@ app_icon = project_root / "desktop" / "PACHI_TOOL.ico"
 
 datas = [
     (str(project_root / "web"), "web"),
+    (str(project_root / "mobile"), "mobile"),
     (str(project_root / "data" / "machines"), "data/machines"),
     (str(project_root / "data" / "opportunity_catalog.json"), "data"),
 ]
@@ -55,6 +56,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(app_icon),
+    version=str(project_root / "desktop" / "version_info.txt"),
 )
 coll = COLLECT(
     exe,

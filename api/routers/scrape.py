@@ -41,7 +41,7 @@ _BULK_PROGRESS: dict = {
     "started_at": None,
     "mode": "",
     "days": 0,
-    "halls": [],   # [{name, status, records, error}]
+    "halls": [],   # [{name, status, records, error, sources}]
 }
 
 
@@ -155,26 +155,45 @@ def trigger_nightly_scrape(
         "started_at": _dt_bulk.datetime.now().isoformat(),
         "mode": mode,
         "days": days,
-        "halls": [{"name": n, "status": "waiting", "records": 0, "error": ""} for n in hall_names],
+        "halls": [
+            {"name": n, "status": "waiting", "records": 0, "error": "", "sources": {}}
+            for n in hall_names
+        ],
     })
 
-    def _set_hall(name: str, status: str, records: int = 0, error: str = "") -> None:
+    def _set_hall(
+        name: str,
+        status: str,
+        records: int = 0,
+        error: str = "",
+        source: str = "",
+        source_status: str = "",
+        source_records: int = 0,
+    ) -> None:
         for h in _BULK_PROGRESS["halls"]:
             if h["name"] == name:
                 h["status"] = status
-                if records:
+                if records or status in {"done", "partial", "failed"}:
                     h["records"] = records
                 if error:
                     h["error"] = error
+                if source:
+                    h.setdefault("sources", {})[source] = {
+                        "status": source_status or status,
+                        "records": source_records,
+                    }
                 break
 
-    def _count_records(hall_name: str) -> int:
+    def _count_records(hall_name: str, table: str = "hall_day_machine") -> int:
         try:
+            if table not in {"hall_day_machine", "hall_day_seat"}:
+                return 0
             conn = _get_reports_conn()
             if not conn:
                 return 0
             row = conn.execute(
-                "SELECT COUNT(*) FROM hall_day_machine WHERE hall_name=?", (hall_name,)
+                f"SELECT COUNT(*) FROM {table} WHERE hall_name=? AND machine_name != '_NODATA_'",
+                (hall_name,),
             ).fetchone()
             conn.close()
             return row[0] if row else 0
@@ -194,9 +213,22 @@ def trigger_nightly_scrape(
                         _set_hall(hname, "running")
                         try:
                             scrape_hall(hname, prefecture=pref, max_days=days)
-                            _set_hall(hname, "done")
+                            seat_count = _count_records(hname, "hall_day_seat")
+                            _set_hall(
+                                hname,
+                                "running",
+                                source="seat",
+                                source_status="done" if seat_count else "unavailable",
+                                source_records=seat_count,
+                            )
                         except Exception as e:
-                            _set_hall(hname, "failed", error=str(e)[:80])
+                            _set_hall(
+                                hname,
+                                "running",
+                                error=str(e)[:120],
+                                source="seat",
+                                source_status="failed",
+                            )
                         time.sleep(30)
                 except Exception as e:
                     logger.warning(f"[アナスロ] 全体エラー: {e}")
@@ -211,10 +243,56 @@ def trigger_nightly_scrape(
                 try:
                     _run_scrape(hname, days=min(days, 30))
                     recs = _count_records(hname)
-                    _set_hall(hname, "done", records=recs)
+                    _set_hall(
+                        hname,
+                        "running",
+                        records=recs,
+                        source="machine",
+                        source_status="done" if recs else "unavailable",
+                        source_records=recs,
+                    )
                 except Exception as e:
-                    _set_hall(hname, "failed", error=str(e)[:80])
+                    _set_hall(
+                        hname,
+                        "running",
+                        error=str(e)[:120],
+                        source="machine",
+                        source_status="failed",
+                    )
                 time.sleep(3)
+
+                # ③ P-WORLDの公開店舗ページから現在の設置スマスロを保存。
+                # 差枚ページがない店舗でも、分析対象となる機種構成は蓄積する。
+                snapshot_count = 0
+                snapshot_status = "unavailable"
+                try:
+                    from scraper.pworld_snapshot import scrape_snapshot, HALL_URLS
+                    if hname in HALL_URLS:
+                        snapshot_count = scrape_snapshot(hname)
+                        snapshot_status = "done" if snapshot_count else "unavailable"
+                except Exception as e:
+                    snapshot_status = "failed"
+                    _set_hall(hname, "running", error=str(e)[:120])
+
+                hall_progress = next(
+                    (row for row in _BULK_PROGRESS["halls"] if row["name"] == hname),
+                    None,
+                )
+                source_states = list((hall_progress or {}).get("sources", {}).values())
+                source_states.append({"status": snapshot_status, "records": snapshot_count})
+                successful_sources = sum(1 for item in source_states if item["status"] == "done")
+                failed_sources = sum(1 for item in source_states if item["status"] == "failed")
+                final_status = "done" if successful_sources >= 2 else "partial" if successful_sources else "failed"
+                if not successful_sources and not failed_sources:
+                    final_status = "partial"
+                _set_hall(
+                    hname,
+                    final_status,
+                    records=_count_records(hname, "hall_day_seat") + recs + snapshot_count,
+                    source="snapshot",
+                    source_status=snapshot_status,
+                    source_records=snapshot_count,
+                )
         finally:
             scheduler.set_scrape_running(False)
             _BULK_PROGRESS["running"] = False
@@ -256,7 +334,8 @@ def get_auto_scrape_status() -> dict:
 def get_bulk_scrape_status() -> dict:
     """全店舗一括スクレイプの進捗を返す"""
     halls = _BULK_PROGRESS.get("halls", [])
-    done = sum(1 for h in halls if h["status"] == "done")
+    done = sum(1 for h in halls if h["status"] in {"done", "partial"})
+    partial = sum(1 for h in halls if h["status"] == "partial")
     failed = sum(1 for h in halls if h["status"] == "failed")
     total = len(halls)
     running_hall = next((h["name"] for h in halls if h["status"] == "running"), None)
@@ -283,6 +362,7 @@ def get_bulk_scrape_status() -> dict:
         "days": _BULK_PROGRESS.get("days", 0),
         "total": total,
         "done": done,
+        "partial": partial,
         "failed": failed,
         "current_hall": running_hall,
         "eta_min": eta_min,
@@ -303,20 +383,63 @@ def list_scrape_halls() -> list[dict]:
             seat_stats = {
                 r[0]: {"last_date": r[1], "record_count": r[2]}
                 for r in conn.execute(
-                    "SELECT hall_name, MAX(report_date), COUNT(*) FROM hall_day_seat GROUP BY hall_name"
+                    """SELECT hall_name, MAX(report_date), COUNT(*)
+                       FROM hall_day_seat WHERE machine_name != '_NODATA_' GROUP BY hall_name"""
                 ).fetchall()
             }
             machine_stats = {
                 r[0]: {"last_date": r[1], "record_count": r[2]}
                 for r in conn.execute(
-                    "SELECT hall_name, MAX(report_date), COUNT(*) FROM hall_day_machine GROUP BY hall_name"
+                    """SELECT hall_name, MAX(report_date), COUNT(*)
+                       FROM hall_day_machine WHERE machine_name != '_NODATA_' GROUP BY hall_name"""
                 ).fetchall()
             }
+            snapshot_stats = {
+                r[0]: {"last_date": r[1], "record_count": r[2]}
+                for r in conn.execute(
+                    """SELECT hall_name, MAX(snapshot_date), COUNT(*)
+                       FROM hall_machine_snapshot GROUP BY hall_name"""
+                ).fetchall()
+            } if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='hall_machine_snapshot'"
+            ).fetchone() else {}
+            event_stats = {
+                r[0]: {"last_date": r[1], "record_count": r[2]}
+                for r in conn.execute(
+                    "SELECT hall_name, MAX(event_date), COUNT(*) FROM hall_event GROUP BY hall_name"
+                ).fetchall()
+            } if conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='hall_event'"
+            ).fetchone() else {}
             for h in base:
                 name = h["hall_name"]
-                s = seat_stats.get(name) or machine_stats.get(name) or {}
-                h["last_scraped_date"] = s.get("last_date")
-                h["db_record_count"] = s.get("record_count", 0)
+                seat = seat_stats.get(name, {})
+                machine = machine_stats.get(name, {})
+                snapshot = snapshot_stats.get(name, {})
+                event = event_stats.get(name, {})
+                dates = [
+                    item.get("last_date")
+                    for item in (seat, machine, snapshot)
+                    if item.get("last_date")
+                ]
+                h["last_scraped_date"] = max(dates) if dates else None
+                h["db_record_count"] = sum(
+                    int(item.get("record_count", 0)) for item in (seat, machine, snapshot)
+                )
+                h["coverage"] = {
+                    "seat": {"last_date": seat.get("last_date"), "records": seat.get("record_count", 0)},
+                    "machine": {"last_date": machine.get("last_date"), "records": machine.get("record_count", 0)},
+                    "snapshot": {"last_date": snapshot.get("last_date"), "records": snapshot.get("record_count", 0)},
+                    "event": {"last_date": event.get("last_date"), "records": event.get("record_count", 0)},
+                }
+                if seat.get("record_count"):
+                    h["data_level"] = "台番号あり"
+                elif machine.get("record_count"):
+                    h["data_level"] = "機種傾向あり"
+                elif snapshot.get("record_count"):
+                    h["data_level"] = "設置機種のみ"
+                else:
+                    h["data_level"] = "未取得"
         except Exception:
             pass
         conn.close()

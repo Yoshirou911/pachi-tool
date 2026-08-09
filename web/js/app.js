@@ -7102,16 +7102,21 @@ function _renderBulkProgress(d) {
 
   const hallsEl = document.getElementById('bp-halls');
   if (d.halls && d.halls.length) {
-    const statusLabel = { done: '完了', running: '実行中', waiting: '待機中', failed: '失敗' };
-    const statusColor = { done: 'var(--success)', running: 'var(--accent)', waiting: 'var(--text3)', failed: 'var(--danger)' };
+    const statusLabel = { done: '完了', partial: '一部取得', running: '実行中', waiting: '待機中', failed: '失敗' };
+    const statusColor = { done: 'var(--success)', partial: 'var(--warning)', running: 'var(--accent)', waiting: 'var(--text3)', failed: 'var(--danger)' };
     hallsEl.innerHTML = d.halls.map(h => {
       const isRunning = h.status === 'running';
       const dot = isRunning ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);animation:bpulse 1.2s ease-in-out infinite;vertical-align:middle;margin-right:4px"></span>' : '';
       const records = h.records ? `${h.records}件` : (h.status === 'waiting' ? '—' : '');
+      const sourceLabels = { seat: '台番', machine: '差枚', snapshot: '設置' };
+      const sourceText = Object.entries(h.sources || {}).map(([key, value]) => {
+        const mark = value.status === 'done' ? '○' : value.status === 'failed' ? '×' : '―';
+        return `${sourceLabels[key] || key}${mark}`;
+      }).join(' ');
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${h.name}</div>
+        <div style="flex:1;min-width:0"><div style="font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${esc(h.name)}</div><div style="font-size:.57rem;color:var(--text3)">${sourceText}</div></div>
         <div style="font-size:.65rem;color:var(--text3);min-width:30px;text-align:right">${records}</div>
-        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
+        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='partial'?'rgba(245,158,11,.14)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
       </div>`;
     }).join('');
   }
@@ -7184,10 +7189,18 @@ async function loadScrapeHalls() {
       const dateCol = diffDays === null ? 'var(--text3)' : diffDays === 0 ? 'var(--success)' : diffDays <= 2 ? 'var(--text3)' : 'var(--danger)';
       const dateLabel = diffDays === null ? '未取得' : diffDays === 0 ? '今日' : `${diffDays}日前`;
       const recStr = h.db_record_count ? `${h.db_record_count}件` : '';
+      const coverage = h.coverage || {};
+      const badges = [
+        ['台番', coverage.seat?.records],
+        ['差枚', coverage.machine?.records],
+        ['設置', coverage.snapshot?.records],
+        ['予定', coverage.event?.records],
+      ].map(([label, count]) => `<span style="font-size:.54rem;padding:1px 5px;border-radius:99px;background:${count ? 'rgba(34,197,94,.12)' : 'var(--bg3)'};color:${count ? 'var(--success)' : 'var(--text3)'}">${label}${count ? '○' : '―'}</span>`).join('');
       return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--bg3)">
         <div style="flex:1;min-width:0">
           <div style="font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.hall_name)}</div>
-          <div style="font-size:.58rem;color:${dateCol}">${dateLabel}${recStr ? ` · ${recStr}` : ''}</div>
+          <div style="font-size:.58rem;color:${dateCol}">${esc(h.data_level || '未取得')} · ${dateLabel}${recStr ? ` · ${recStr}` : ''}</div>
+          <div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:3px">${badges}</div>
         </div>
         <button onclick="toggleScrapeHall('${enc}',${!h.enabled})"
           style="font-size:.58rem;padding:1px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:${enCol};cursor:pointer;flex-shrink:0">${enLabel}</button>

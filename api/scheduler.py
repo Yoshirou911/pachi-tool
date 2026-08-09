@@ -79,6 +79,8 @@ def _run_nightly_scrape() -> None:
         # ② みんレポ（機種別差枚） - 循環import回避のため遅延import
         from api.routers.hall import _run_minrepo_nightly
         _run_minrepo_nightly(halls, days=3)
+        # ③ P-WORLD（現在の設置スマスロ）。差枚データがない店舗も対象機種を蓄積する。
+        _run_snapshot_scrape()
     except Exception as e:
         logger.warning(f"[スクレイプ] バッチエラー: {e}")
     finally:

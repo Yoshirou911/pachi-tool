@@ -8,8 +8,12 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.9.2';
+const APP_VERSION = '1.9.3';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
+const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
+  ? 'https://pachi-tool.fly.dev'
+  : '';
+const apiUrl = path => `${API_ORIGIN}${path}`;
 let releaseInfo = {
   version: APP_VERSION,
   released_on: '2026-08-09',
@@ -17,8 +21,8 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-09',
-    title: '四條畷のイベント予定を日次収集',
-    items: ['キコーナ四條畷店・野崎店の予定を自動蓄積', '出典URLと公開ランクを予定に保存', '周辺3店舗の設置スマスロを更新'],
+    title: 'iPhone公開版と分析APIを接続',
+    items: ['iPhone公開版から収集データを表示', '接続先を公開APIへ自動切替', '許可する接続元を公式PWAに限定'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -104,7 +108,7 @@ function renderVersionInfo() {
 
 async function loadVersionInfo() {
   try {
-    const response = await fetch(`/api/version?ts=${Date.now()}`, { cache: 'no-store' });
+    const response = await fetch(apiUrl(`/api/version?ts=${Date.now()}`), { cache: 'no-store' });
     if (response.ok) releaseInfo = await response.json();
   } catch (_) { /* オフライン時は同梱情報を表示 */ }
   renderVersionInfo();
@@ -450,7 +454,7 @@ async function loadTargetHeatMap() {
   byId('target-map-button').disabled = true;
   status.textContent = '指定日の店舗熱量と長期傾向を計算中...';
   try {
-    const response = await fetch(`/api/map/target_heat?visit_date=${encodeURIComponent(visitDate)}&days=120&long_days=${encodeURIComponent(longDays)}`);
+    const response = await fetch(apiUrl(`/api/map/target_heat?visit_date=${encodeURIComponent(visitDate)}&days=120&long_days=${encodeURIComponent(longDays)}`));
     if (!response.ok) throw new Error(`マップAPI ${response.status}`);
     targetMapData = await response.json();
     renderTargetHeatMap();
@@ -465,7 +469,7 @@ async function loadTargetHeatMap() {
 async function loadTargetHallOptions() {
   if (targetHallOptions.length) return targetHallOptions;
   try {
-    const response = await fetch('/api/scrape/halls');
+    const response = await fetch(apiUrl('/api/scrape/halls'));
     if (!response.ok) throw new Error(`店舗一覧 ${response.status}`);
     const rows = await response.json();
     const localPriority = new Map([['キコーナ四條畷店', 0], ['ひま・わり四條畷店', 1], ['キコーナ野崎店', 2]]);
@@ -545,8 +549,8 @@ async function loadTrendProfile() {
   try {
     const query = `hall_name=${encodeURIComponent(hall)}&visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`;
     const [profileResponse, aiResponse] = await Promise.all([
-      fetch(`/api/hall/trend_profile?${query}`),
-      fetch(`/api/ai/hall_profile?${query}`).catch(() => null),
+      fetch(apiUrl(`/api/hall/trend_profile?${query}`)),
+      fetch(apiUrl(`/api/ai/hall_profile?${query}`)).catch(() => null),
     ]);
     if (!profileResponse.ok) throw new Error(`傾向API ${profileResponse.status}`);
     trendData = await profileResponse.json();
@@ -597,7 +601,7 @@ async function loadFloorHeat() {
   byId('floor-button').disabled = true;
   status.textContent = '台番号・曜日・並び・機種傾向を分析中...';
   try {
-    const response = await fetch(`/api/layouts/seat_heat?hall_name=${encodeURIComponent(hall)}&visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`);
+    const response = await fetch(apiUrl(`/api/layouts/seat_heat?hall_name=${encodeURIComponent(hall)}&visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`));
     if (!response.ok) throw new Error(`座席API ${response.status}`);
     floorData = await response.json();
     floorEditorSeats = floorData.seats.map(seat => ({ seat_number: seat.seat_number, machine_name: seat.machine_name || '', island_name: seat.island_name || '', x: seat.x, y: seat.y, width: seat.width, height: seat.height, rotation: seat.rotation || 0 }));
@@ -660,7 +664,7 @@ async function saveFloorLayout(event) {
   };
   byId('floor-save-layout').disabled = true;
   try {
-    const response = await fetch('/api/layouts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const response = await fetch(apiUrl('/api/layouts'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error(`保存API ${response.status}`);
     showToast('店内マップを保存しました');
     await loadFloorHeat();
@@ -706,7 +710,7 @@ function parseFloorResultCsv(text) {
 async function saveFloorResults(rows, sourceLabel = '') {
   const status = byId('floor-result-status');
   status.textContent = `${rows.length}件を保存中...`;
-  const response = await fetch('/api/layouts/seat_results', {
+  const response = await fetch(apiUrl('/api/layouts/seat_results'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       hall_name: byId('floor-hall').value,
@@ -730,7 +734,7 @@ async function runTargetSearch() {
   status.textContent = '店舗・曜日・機種データを分析中...';
   byId('target-search-button').disabled = true;
   try {
-    const response = await fetch(`/api/hall/target_search?visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`);
+    const response = await fetch(apiUrl(`/api/hall/target_search?visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`));
     if (!response.ok) throw new Error(`分析API ${response.status}`);
     targetSearchData = await response.json();
     renderTargetSearch();

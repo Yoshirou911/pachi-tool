@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.2"
+APP_VERSION = "1.9.3"
 RELEASE_DATE = "2026-08-09"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "1.9.3",
+        "released_on": "2026-08-09",
+        "title": "iPhone公開版と分析APIを接続",
+        "items": [
+            "iPhone公開版から四條畷の収集データを表示できるよう修正",
+            "GitHub Pagesでは公開APIへ接続先を自動的に切り替え",
+            "APIが許可する接続元を公式PWAのURLに限定",
+        ],
+    },
     {
         "version": "1.9.2",
         "released_on": "2026-08-09",

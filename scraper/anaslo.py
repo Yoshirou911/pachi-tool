@@ -274,16 +274,14 @@ def delete_hall_config(hall_name: str) -> bool:
 
 
 def seed_hall_configs(default_halls: list[dict]) -> None:
-    """DBが空の場合のみデフォルトホールを投入"""
+    """既存の利用者設定を保ったまま、不足するデフォルトホールだけを追加する。"""
     conn = init_db()
-    count = conn.execute("SELECT COUNT(*) FROM scrape_hall_config").fetchone()[0]
-    if count == 0:
-        for h in default_halls:
-            conn.execute(
-                "INSERT OR IGNORE INTO scrape_hall_config (hall_name, prefecture) VALUES (?, ?)",
-                (h["hall_name"], h.get("prefecture", "大阪府"))
-            )
-        conn.commit()
+    for h in default_halls:
+        conn.execute(
+            "INSERT OR IGNORE INTO scrape_hall_config (hall_name, prefecture) VALUES (?, ?)",
+            (h["hall_name"], h.get("prefecture", "大阪府"))
+        )
+    conn.commit()
     conn.close()
 
 

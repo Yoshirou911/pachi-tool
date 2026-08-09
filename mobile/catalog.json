@@ -1,6 +1,6 @@
 {
   "catalog_version": 1,
-  "reviewed_on": "2026-08-08",
+  "reviewed_on": "2026-08-10",
   "methodology": "同一条件の複数情報源を照合し、差がある場合は保守側の開始ラインまたは期待値を採用。動画は論点の補助確認に使用し、映像内だけの数値は転記しない。",
   "profiles": [
     {
@@ -235,6 +235,156 @@
         {"value": 800, "ev_yen": 2321, "worst_case_yen": 13000},
         {"value": 900, "ev_yen": 3721, "worst_case_yen": 10000},
         {"value": 1000, "ev_yen": 5500, "worst_case_yen": 7000}
+      ]
+    },
+    {
+      "catalog_key": "god-eater-resurrection-normal-equivalent-v1",
+      "machine_name": "スマスロ ゴッドイーター リザレクション",
+      "condition_label": "通常・等価・期待値1,000円以上",
+      "exchange_type": "equivalent",
+      "funding_mode": "any",
+      "reset_status": "normal",
+      "metric_name": "AT間ゲーム数",
+      "unit_label": "G",
+      "start_threshold": 500,
+      "ceiling_threshold": 1000,
+      "expected_value_yen": 1300,
+      "worst_case_investment_yen": 18000,
+      "stop_rule": "AT後は休憩モードの示唆と月の楽園を確認して終了。直前ATが970〜1050枚なら100Gゾーンまで確認",
+      "source_name": "スロベース・なな徹照合",
+      "source_url": "https://slobase.jp/machines/god-eater",
+      "source_urls": [
+        "https://slobase.jp/machines/god-eater",
+        "https://nana-press.com/kaiseki/machine/767/22716/"
+      ],
+      "verified_on": "2026-08-10",
+      "confidence": "verified",
+      "discrepancy_note": "スロベース表では500Gから期待値1,300円。なな徹の5.6枚持ちメダル目安500Gとも照合した。",
+      "notes": "通常天井1000G+α。リセット確定・単発後の短縮状態ではこの条件を使わない。",
+      "curve_points": [
+        {"value": 0, "ev_yen": -1500}, {"value": 100, "ev_yen": -1100},
+        {"value": 200, "ev_yen": -600}, {"value": 300, "ev_yen": -100},
+        {"value": 400, "ev_yen": 500}, {"value": 500, "ev_yen": 1300, "worst_case_yen": 18000},
+        {"value": 590, "ev_yen": 2200, "worst_case_yen": 15000},
+        {"value": 700, "ev_yen": 3800, "worst_case_yen": 11000},
+        {"value": 800, "ev_yen": 5800, "worst_case_yen": 7000},
+        {"value": 900, "ev_yen": 8500, "worst_case_yen": 4000},
+        {"value": 970, "ev_yen": 11000, "worst_case_yen": 2000}
+      ]
+    },
+    {
+      "catalog_key": "god-eater-resurrection-reset-equivalent-v1",
+      "machine_name": "スマスロ ゴッドイーター リザレクション",
+      "condition_label": "リセット確定・等価・期待値1,000円以上",
+      "exchange_type": "equivalent",
+      "funding_mode": "any",
+      "reset_status": "reset_confirmed",
+      "metric_name": "AT間ゲーム数",
+      "unit_label": "G",
+      "start_threshold": 300,
+      "ceiling_threshold": 600,
+      "expected_value_yen": 1500,
+      "worst_case_investment_yen": 11000,
+      "stop_rule": "AT後は休憩モードの示唆と月の楽園を確認して終了。直前ATが970〜1050枚なら100Gゾーンまで確認",
+      "source_name": "スロベース・なな徹照合",
+      "source_url": "https://slobase.jp/machines/god-eater",
+      "source_urls": [
+        "https://slobase.jp/machines/god-eater",
+        "https://nana-press.com/kaiseki/machine/767/22719/"
+      ],
+      "verified_on": "2026-08-10",
+      "confidence": "verified",
+      "discrepancy_note": "短縮時の表では180Gでプラス域、300Gで期待値1,500円。誤判定を避けるためリセット確定時だけ表示する。",
+      "notes": "リセット確定時専用。単発後にも600G短縮の可能性があるが、履歴条件を確認できない場合は通常条件を使う。",
+      "curve_points": [
+        {"value": 0, "ev_yen": -1100}, {"value": 100, "ev_yen": -500},
+        {"value": 180, "ev_yen": 200}, {"value": 300, "ev_yen": 1500, "worst_case_yen": 11000},
+        {"value": 400, "ev_yen": 3500, "worst_case_yen": 7000},
+        {"value": 550, "ev_yen": 7000, "worst_case_yen": 2000}
+      ]
+    },
+    {
+      "catalog_key": "kaguya-sama-big-after-equivalent-v1",
+      "machine_name": "スマスロ かぐや様は告らせたい",
+      "condition_label": "BIG後・等価・期待値1,000円以上",
+      "exchange_type": "equivalent",
+      "funding_mode": "any",
+      "reset_status": "normal",
+      "metric_name": "BIG後ボーナス間ゲーム数",
+      "unit_label": "G",
+      "start_threshold": 550,
+      "ceiling_threshold": 1100,
+      "expected_value_yen": 1182,
+      "worst_case_investment_yen": 20000,
+      "stop_rule": "ボーナス後は引き戻しチャンスが終わる100G+αまで確認して終了",
+      "source_name": "なな徹",
+      "source_url": "https://nana-press.com/kaiseki/machine/804/23721/",
+      "source_urls": [
+        "https://nana-press.com/kaiseki/machine/804/23721/",
+        "https://nana-press.com/kaiseki/machine/804/23722/"
+      ],
+      "verified_on": "2026-08-10",
+      "confidence": "verified",
+      "discrepancy_note": "設定1・等価・打ち切りなしの試算。BIG後とREG後で天井と狙い目が異なるため条件を分離した。",
+      "notes": "BIG後専用。REG後・リセット後には使用しない。前兆中の台は個別確認。",
+      "curve_points": [
+        {"value": 0, "ev_yen": -1178}, {"value": 50, "ev_yen": -1075},
+        {"value": 100, "ev_yen": -958}, {"value": 150, "ev_yen": -825},
+        {"value": 200, "ev_yen": -673}, {"value": 250, "ev_yen": -500},
+        {"value": 300, "ev_yen": -302}, {"value": 350, "ev_yen": -77},
+        {"value": 400, "ev_yen": 179}, {"value": 450, "ev_yen": 471},
+        {"value": 500, "ev_yen": 803}, {"value": 550, "ev_yen": 1182, "worst_case_yen": 20000},
+        {"value": 600, "ev_yen": 1613, "worst_case_yen": 18000},
+        {"value": 650, "ev_yen": 2105, "worst_case_yen": 16000},
+        {"value": 700, "ev_yen": 2666, "worst_case_yen": 14000},
+        {"value": 750, "ev_yen": 3304, "worst_case_yen": 12000},
+        {"value": 800, "ev_yen": 4031, "worst_case_yen": 10000},
+        {"value": 850, "ev_yen": 4860, "worst_case_yen": 9000},
+        {"value": 900, "ev_yen": 5804, "worst_case_yen": 7000},
+        {"value": 950, "ev_yen": 6880, "worst_case_yen": 5000},
+        {"value": 1000, "ev_yen": 8105, "worst_case_yen": 4000},
+        {"value": 1050, "ev_yen": 9502, "worst_case_yen": 2000}
+      ]
+    },
+    {
+      "catalog_key": "kaguya-sama-reg-after-equivalent-v1",
+      "machine_name": "スマスロ かぐや様は告らせたい",
+      "condition_label": "REG後・等価・期待値1,000円以上",
+      "exchange_type": "equivalent",
+      "funding_mode": "any",
+      "reset_status": "normal",
+      "metric_name": "REG後ボーナス間ゲーム数",
+      "unit_label": "G",
+      "start_threshold": 400,
+      "ceiling_threshold": 900,
+      "expected_value_yen": 1299,
+      "worst_case_investment_yen": 18000,
+      "stop_rule": "ボーナス後は引き戻しチャンスが終わる100G+αまで確認して終了",
+      "source_name": "なな徹",
+      "source_url": "https://nana-press.com/kaiseki/machine/804/23721/",
+      "source_urls": [
+        "https://nana-press.com/kaiseki/machine/804/23721/",
+        "https://nana-press.com/kaiseki/machine/804/23722/"
+      ],
+      "verified_on": "2026-08-10",
+      "confidence": "verified",
+      "discrepancy_note": "設定1・等価・打ち切りなしの試算。REG後は900G+α天井のためBIG後より開始ラインが浅い。",
+      "notes": "REG後専用。BIG後・リセット後には使用しない。前兆中の台は個別確認。",
+      "curve_points": [
+        {"value": 0, "ev_yen": -1062}, {"value": 50, "ev_yen": -883},
+        {"value": 100, "ev_yen": -680}, {"value": 150, "ev_yen": -447},
+        {"value": 200, "ev_yen": -183}, {"value": 250, "ev_yen": 119},
+        {"value": 300, "ev_yen": 462}, {"value": 350, "ev_yen": 854},
+        {"value": 400, "ev_yen": 1299, "worst_case_yen": 18000},
+        {"value": 450, "ev_yen": 1808, "worst_case_yen": 16000},
+        {"value": 500, "ev_yen": 2386, "worst_case_yen": 14000},
+        {"value": 550, "ev_yen": 3046, "worst_case_yen": 12000},
+        {"value": 600, "ev_yen": 3797, "worst_case_yen": 10000},
+        {"value": 650, "ev_yen": 4653, "worst_case_yen": 9000},
+        {"value": 700, "ev_yen": 5629, "worst_case_yen": 7000},
+        {"value": 750, "ev_yen": 6740, "worst_case_yen": 5000},
+        {"value": 800, "ev_yen": 8006, "worst_case_yen": 4000},
+        {"value": 850, "ev_yen": 9449, "worst_case_yen": 2000}
       ]
     }
   ]

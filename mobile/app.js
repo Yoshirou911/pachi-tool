@@ -8,7 +8,7 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.9.3';
+const APP_VERSION = '1.9.4';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -16,13 +16,13 @@ const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
 const apiUrl = path => `${API_ORIGIN}${path}`;
 let releaseInfo = {
   version: APP_VERSION,
-  released_on: '2026-08-09',
+  released_on: '2026-08-10',
   channel: '公開版',
   patch_notes: [{
     version: APP_VERSION,
-    released_on: '2026-08-09',
-    title: 'iPhone公開版と分析APIを接続',
-    items: ['iPhone公開版から収集データを表示', '接続先を公開APIへ自動切替', '許可する接続元を公式PWAに限定'],
+    released_on: '2026-08-10',
+    title: 'どこからでもホーム・全機能へ移動',
+    items: ['左上のPACHI TOOLからホームへ戻る', '右上に常時表示する全機能メニューを追加', 'ハイエナと狙い台の機能をメニュー内で整理'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -840,6 +840,16 @@ function renderAll() {
   renderSettings();
 }
 
+function setMobileMenu(open) {
+  const overlay = byId('mobile-menu-overlay');
+  const trigger = byId('mobile-menu-button');
+  overlay.hidden = !open;
+  trigger.setAttribute('aria-expanded', String(open));
+  trigger.setAttribute('aria-label', open ? 'メニューを閉じる' : 'メニューを開く');
+  document.body.classList.toggle('menu-open', open);
+  if (open) setTimeout(() => byId('mobile-menu-close').focus(), 0);
+}
+
 function showScreen(name) {
   if (name === 'home') activeModule = 'home';
   else if (['check', 'guide'].includes(name)) activeModule = 'hyena';
@@ -860,6 +870,9 @@ function showScreen(name) {
     else button.removeAttribute('aria-current');
   });
   nav.style.setProperty('--visible-nav-count', String(Math.max(1, visibleNavCount)));
+  document.querySelectorAll('.menu-item[data-screen-target]').forEach(button => {
+    button.classList.toggle('active', button.dataset.screenTarget === name);
+  });
   document.body.dataset.module = activeModule;
   byId('brand-mode-label').textContent = activeModule === 'hyena' ? 'ハイエナ専用' : activeModule === 'target' ? '狙い台捜索専用' : 'スマスロ攻略ホーム';
   scrollTo({ top: 0, behavior: 'smooth' });
@@ -880,7 +893,20 @@ document.querySelector('.bottom-nav').addEventListener('click', event => {
 });
 document.addEventListener('click', event => {
   const target = event.target.closest('[data-screen-target]');
-  if (target) showScreen(target.dataset.screenTarget);
+  if (target) {
+    showScreen(target.dataset.screenTarget);
+    if (target.hasAttribute('data-menu-screen')) setMobileMenu(false);
+  }
+});
+byId('mobile-menu-button').addEventListener('click', () => {
+  setMobileMenu(byId('mobile-menu-overlay').hidden);
+});
+byId('mobile-menu-close').addEventListener('click', () => setMobileMenu(false));
+byId('mobile-menu-overlay').addEventListener('click', event => {
+  if (event.target.closest('[data-menu-close]')) setMobileMenu(false);
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !byId('mobile-menu-overlay').hidden) setMobileMenu(false);
 });
 byId('guide-search').addEventListener('input', renderGuide);
 byId('guide-mode').addEventListener('change', renderGuide);

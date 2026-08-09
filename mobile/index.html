@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=1.9.8">
+  <link rel="stylesheet" href="./app.css?v=1.9.9">
   <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スマスロ攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v1.9.8</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v1.9.9</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -142,7 +142,22 @@
         <p id="scan-status" class="fine-print">店舗の最新設置機種と期待値カタログを照合します。</p>
       </article>
 
+      <article class="panel time-strategy-panel">
+        <div class="section-bar">
+          <div><span class="page-step">FIELD STRATEGY</span><h2>時間帯別の立ち回り</h2></div>
+          <span class="rule-badge">現場ルール</span>
+        </div>
+        <div class="strategy-time-control">
+          <label>店にいる時刻<input id="scan-strategy-time" type="time" step="300"></label>
+          <small>時間を変えると、その時間に優先する動きが分かります。</small>
+        </div>
+        <div id="scan-time-tabs" class="strategy-time-tabs" aria-label="時間帯を選ぶ"></div>
+        <div id="scan-time-strategy" class="time-strategy-result" aria-live="polite"></div>
+        <p class="strategy-disclaimer">時間帯実績はまだ0件です。ここは収集データによる予測ではなく、閉店リスクと台の育ち方を基準にした運用ルールです。</p>
+      </article>
+
       <div id="scan-summary" class="scope-note"><strong>店舗を選んで開始</strong><span>対応機種の島だけを確認します。</span></div>
+      <div id="scan-data-coverage" class="data-coverage-card"><p class="empty">店舗を読み込むと、分析に使えるデータ量を表示します。</p></div>
 
       <div class="scan-legend">
         <span><i class="scan-pass-dot"></i><b>通過ライン</b> 未満なら立ち止まらない</span>
@@ -217,6 +232,7 @@
         </form>
         <p id="trend-status" class="fine-print">公開実績だけを使い、事実と仮説を分けて表示します。</p>
       </article>
+      <div id="trend-data-coverage" class="data-coverage-card"><p class="empty">店舗を分析すると、根拠に使えるデータ量を表示します。</p></div>
       <div id="trend-results" class="trend-results"></div>
     </section>
 
@@ -365,7 +381,7 @@
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v1.9.8・更新日 2026/08/10</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v1.9.9・更新日 2026/08/10</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
@@ -434,6 +450,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=1.9.8"></script>
+  <script type="module" src="./app.js?v=1.9.9"></script>
 </body>
 </html>

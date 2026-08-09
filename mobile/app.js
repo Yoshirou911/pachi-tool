@@ -8,7 +8,7 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.9.8';
+const APP_VERSION = '1.9.9';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -21,8 +21,8 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-10',
-    title: '店舗巡回モードを追加',
-    items: ['店舗ごとに見る機種だけを抽出', '通過ラインと打ち始めを並べて表示', '巡回リストから判定へワンタップ移動'],
+    title: '時間帯戦略とデータ充足度を追加',
+    items: ['時刻ごとに優先行動・確認箇所・見送り条件を表示', '店舗別の実績日数と台別・設置・時間帯データ量を明示', 'データ不足時は分析できない理由を表示'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -56,6 +56,39 @@ let floorData = null;
 let floorEditorSeats = [];
 let targetHallOptions = [];
 let scanSnapshot = null;
+
+const TIME_STRATEGIES = [
+  {
+    id: 'morning', start: 600, end: 690, label: '朝一', sample: '10:30',
+    title: 'リセット・据え置き確認を優先', interval: '60〜90分', tone: 'blue',
+    check: ['リセット確定・据え置きで条件が変わる台', '前日最終Gと当日Gの合算可否', '朝一作戦に保存した機種・島'],
+    avoid: '通常天井狙いはまだ育っていない。根拠のない0G着席はしない。',
+  },
+  {
+    id: 'early', start: 690, end: 900, label: '前半', sample: '13:00',
+    title: '履歴が育ち始めた台を拾う', interval: '約60分', tone: 'cyan',
+    check: ['通過ラインに近い現在G', '単発・スルー回数と液晶表示', '空き台になった直後の履歴'],
+    avoid: 'ゲーム数だけで座らず、AT間・CZ間など数える区間を合わせる。',
+  },
+  {
+    id: 'middle', start: 900, end: 1110, label: '中盤', sample: '16:30',
+    title: '通常天井・スルー狙いの標準巡回', interval: '45〜60分', tone: 'green',
+    check: ['期待値ボーダー100G手前の台', '当たり履歴が増えた機種の島', '持ちメダルで打てる候補'],
+    avoid: '低期待値を長時間追わず、候補がなければ次の島・店舗へ移る。',
+  },
+  {
+    id: 'evening', start: 1110, end: 1260, label: '夜', sample: '19:30',
+    title: '拾いやすさと閉店リスクを同時判定', interval: '30〜45分', tone: 'orange',
+    check: ['現在Gと期待値', '閉店までの残り時間', '想定消化時間・投資上限・持ちメダル'],
+    avoid: '期待値があっても、取り切れない可能性が高い長時間ATは見送る。',
+  },
+  {
+    id: 'closing', start: 1260, end: 1365, label: '閉店前', sample: '21:30',
+    title: '短時間で終わる高期待値だけ', interval: '20〜30分', tone: 'red',
+    check: ['閉店リスク判定が「打てる」か', '短時間完結のゾーン・天井', 'すぐ着席できる高期待値台'],
+    avoid: '消化時間不明・長いAT・低い期待値は見送り。取り切りを最優先する。',
+  },
+];
 
 function byId(id) { return document.getElementById(id); }
 function esc(value) {
@@ -499,6 +532,68 @@ async function loadTargetHallOptions() {
   return targetHallOptions;
 }
 
+function currentTimeValue() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
+function strategyAt(value) {
+  const [hours, minutes] = String(value || '').split(':').map(Number);
+  const total = Number.isFinite(hours) && Number.isFinite(minutes) ? hours * 60 + minutes : -1;
+  return TIME_STRATEGIES.find(strategy => total >= strategy.start && total < strategy.end) || null;
+}
+
+function renderTimeStrategy() {
+  const input = byId('scan-strategy-time');
+  const selected = strategyAt(input.value);
+  byId('scan-time-tabs').innerHTML = TIME_STRATEGIES.map(strategy => `
+    <button type="button" class="${selected?.id === strategy.id ? 'active' : ''}" data-strategy-time="${strategy.sample}">
+      <b>${esc(strategy.label)}</b><small>${String(Math.floor(strategy.start / 60)).padStart(2, '0')}:${String(strategy.start % 60).padStart(2, '0')}〜</small>
+    </button>`).join('');
+  const result = byId('scan-time-strategy');
+  if (!selected) {
+    result.innerHTML = '<div class="time-strategy-closed"><strong>営業時間外・準備時間</strong><span>開店後の時刻を選ぶと、その時間帯の立ち回りを確認できます。</span></div>';
+    return;
+  }
+  result.innerHTML = `
+    <div class="time-strategy-head strategy-${selected.tone}">
+      <div><span>${esc(selected.label)}の優先行動</span><strong>${esc(selected.title)}</strong></div>
+      <p><small>巡回目安</small><b>${esc(selected.interval)}</b></p>
+    </div>
+    <div class="time-strategy-body">
+      <div><b>見るもの</b><ol>${selected.check.map(item => `<li>${esc(item)}</li>`).join('')}</ol></div>
+      <div class="strategy-avoid"><b>見送り基準</b><p>${esc(selected.avoid)}</p></div>
+    </div>`;
+}
+
+function renderDataCoverage(containerId, coverage) {
+  const container = byId(containerId);
+  if (!container) return;
+  if (!coverage) {
+    container.innerHTML = '<p class="empty">データ量を取得できませんでした。分析結果は参考値として扱ってください。</p>';
+    return;
+  }
+  const performance = coverage.performance || {};
+  const installation = coverage.installation || {};
+  const intraday = coverage.intraday || {};
+  const readiness = coverage.readiness || {};
+  const level = readiness.trend_level || 'insufficient';
+  const ageText = performance.age_days == null ? '実績日なし' : performance.age_days === 0 ? '本日まで' : `最新から${performance.age_days}日`;
+  container.innerHTML = `
+    <div class="coverage-head">
+      <div><span class="page-step">DATA COVERAGE</span><strong>${esc(coverage.hall_name)}の分析データ</strong></div>
+      <span class="coverage-status coverage-${esc(level)}">傾向分析：${esc(readiness.trend_label || '不足')}</span>
+    </div>
+    <div class="coverage-metrics">
+      <span><small>日別実績</small><b>${Number(performance.performance_days || 0).toLocaleString('ja-JP')}日</b><em>${esc(ageText)}</em></span>
+      <span><small>機種別</small><b>${Number(performance.machine_records || 0).toLocaleString('ja-JP')}件</b><em>差枚・勝率</em></span>
+      <span><small>台番号別</small><b>${Number(performance.seat_records || 0).toLocaleString('ja-JP')}件</b><em>${readiness.seat_ready ? '座席分析可' : '座席分析不足'}</em></span>
+      <span><small>設置情報</small><b>${Number(installation.records || 0).toLocaleString('ja-JP')}件</b><em>${installation.latest_date || '未取得'}</em></span>
+      <span><small>時間帯別</small><b>${Number(intraday.records || 0).toLocaleString('ja-JP')}件</b><em>${intraday.ready ? '実測分析可' : 'まだ未収集'}</em></span>
+    </div>
+    <details class="coverage-reasons"><summary>分析できること・足りないこと</summary><ul>${(readiness.reasons || []).map(reason => `<li>${esc(reason)}</li>`).join('')}</ul></details>`;
+}
+
 function comparableMachineName(value) {
   return String(value || '')
     .normalize('NFKC')
@@ -560,9 +655,15 @@ async function loadScanHall() {
   state.settings.scan_hall = hall;
   await writeLocalState();
   try {
-    const response = await fetch(apiUrl(`/api/hall/installation_snapshot?hall_name=${encodeURIComponent(hall)}&ts=${Date.now()}`), { cache: 'no-store' });
-    if (!response.ok) throw new Error(`設置機種API ${response.status}`);
+    const [snapshotResult, coverageResult] = await Promise.allSettled([
+      fetch(apiUrl(`/api/hall/installation_snapshot?hall_name=${encodeURIComponent(hall)}&ts=${Date.now()}`), { cache: 'no-store' }),
+      fetch(apiUrl(`/api/hall/data_coverage?hall_name=${encodeURIComponent(hall)}&ts=${Date.now()}`), { cache: 'no-store' }),
+    ]);
+    const response = snapshotResult.status === 'fulfilled' ? snapshotResult.value : null;
+    if (!response?.ok) throw new Error(`設置機種API ${response?.status || '接続失敗'}`);
     scanSnapshot = await response.json();
+    const coverageResponse = coverageResult.status === 'fulfilled' ? coverageResult.value : null;
+    renderDataCoverage('scan-data-coverage', coverageResponse?.ok ? await coverageResponse.json() : null);
     renderScanList(scanSnapshot);
     status.textContent = scanSnapshot.snapshot_date
       ? `${scanSnapshot.snapshot_date}取得分から、対応している島だけに絞りました。`
@@ -571,6 +672,7 @@ async function loadScanHall() {
   } catch (error) {
     scanSnapshot = { hall_name: hall, machines: [] };
     renderScanList(scanSnapshot, true);
+    renderDataCoverage('scan-data-coverage', null);
     status.textContent = `設置情報を取得できないため全対応機種を表示：${error.message}`;
   } finally {
     button.disabled = false;
@@ -630,16 +732,19 @@ async function loadTrendProfile() {
   status.textContent = '曜日・日付・機種・次の注目日を分析中...';
   try {
     const query = `hall_name=${encodeURIComponent(hall)}&visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`;
-    const [profileResponse, aiResponse] = await Promise.all([
+    const [profileResponse, aiResponse, coverageResponse] = await Promise.all([
       fetch(apiUrl(`/api/hall/trend_profile?${query}`)),
       fetch(apiUrl(`/api/ai/hall_profile?${query}`)).catch(() => null),
+      fetch(apiUrl(`/api/hall/data_coverage?hall_name=${encodeURIComponent(hall)}&ts=${Date.now()}`), { cache: 'no-store' }).catch(() => null),
     ]);
     if (!profileResponse.ok) throw new Error(`傾向API ${profileResponse.status}`);
     trendData = await profileResponse.json();
     const aiData = aiResponse?.ok ? await aiResponse.json() : null;
+    renderDataCoverage('trend-data-coverage', coverageResponse?.ok ? await coverageResponse.json() : null);
     renderTrendProfile(aiData);
     status.textContent = `${trendData.sample_days || 0}日分・信頼度${trendData.confidence || '不足'}で分析`;
   } catch (error) {
+    renderDataCoverage('trend-data-coverage', null);
     status.textContent = `傾向分析を取得できません：${error.message}`;
   } finally {
     byId('trend-button').disabled = false;
@@ -1004,6 +1109,13 @@ byId('scan-hall-form').addEventListener('submit', async event => {
   event.preventDefault();
   await loadScanHall();
 });
+byId('scan-strategy-time').addEventListener('input', renderTimeStrategy);
+byId('scan-time-tabs').addEventListener('click', event => {
+  const button = event.target.closest('[data-strategy-time]');
+  if (!button) return;
+  byId('scan-strategy-time').value = button.dataset.strategyTime;
+  renderTimeStrategy();
+});
 
 byId('scan-machine-list').addEventListener('click', event => {
   const button = event.target.closest('[data-scan-profile]');
@@ -1344,6 +1456,8 @@ async function initialize() {
     byId('floor-date').value = tomorrowValue();
     byId('floor-valid-from').value = todayValue();
     byId('floor-result-date').value = todayValue();
+    byId('scan-strategy-time').value = currentTimeValue();
+    renderTimeStrategy();
     await loadTargetHallOptions();
     populateMachines();
     renderAll();

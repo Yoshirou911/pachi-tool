@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.8"
+APP_VERSION = "1.9.9"
 RELEASE_DATE = "2026-08-10"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "1.9.9",
+        "released_on": "2026-08-10",
+        "title": "時間帯戦略とデータ充足度を追加",
+        "items": [
+            "朝一・前半・中盤・夜・閉店前で、優先行動と見送り基準を切り替え",
+            "店舗ごとの実績日数・機種別・台番号別・設置・時間帯データ量を表示",
+            "傾向分析にデータが足りない場合は、不足理由と鮮度を明示",
+        ],
+    },
     {
         "version": "1.9.8",
         "released_on": "2026-08-10",

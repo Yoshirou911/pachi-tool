@@ -406,6 +406,133 @@ def get_installation_snapshot(hall_name: str = Query(...)) -> dict:
         conn.close()
 
 
+@router.get("/api/hall/data_coverage", tags=["hall"])
+def get_data_coverage(hall_name: str = Query(...)) -> dict:
+    """店舗分析に使えるデータ量と、現時点の分析可否を返す。"""
+    empty = {
+        "hall_name": hall_name,
+        "performance": {
+            "machine_records": 0, "machine_days": 0,
+            "machine_first_date": None, "machine_latest_date": None,
+            "seat_records": 0, "seat_days": 0,
+            "seat_first_date": None, "seat_latest_date": None,
+            "total_records": 0, "performance_days": 0,
+            "latest_date": None, "age_days": None,
+        },
+        "installation": {"records": 0, "days": 0, "latest_date": None},
+        "events": {"records": 0, "days": 0, "latest_date": None},
+        "intraday": {
+            "records": 0,
+            "ready": False,
+            "note": "現在は日次確定データのみ。時間帯別の途中経過は未収集です。",
+        },
+        "readiness": {
+            "trend_level": "insufficient", "trend_label": "不足",
+            "trend_ready": False, "seat_ready": False,
+            "reasons": ["店舗実績がまだありません"],
+        },
+    }
+    conn = _get_reports_conn()
+    if conn is None:
+        return empty
+
+    def table_exists(name: str) -> bool:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        return row is not None
+
+    def aggregate(table: str, date_column: str) -> dict:
+        if not table_exists(table):
+            return {"records": 0, "days": 0, "first_date": None, "latest_date": None}
+        row = conn.execute(
+            f"""SELECT COUNT(*) AS records,
+                       COUNT(DISTINCT {date_column}) AS days,
+                       MIN({date_column}) AS first_date,
+                       MAX({date_column}) AS latest_date
+                FROM {table} WHERE hall_name=?""",
+            (hall_name,),
+        ).fetchone()
+        return {
+            "records": int(row["records"] or 0),
+            "days": int(row["days"] or 0),
+            "first_date": row["first_date"],
+            "latest_date": row["latest_date"],
+        }
+
+    try:
+        machine = aggregate("hall_day_machine", "report_date")
+        seat = aggregate("hall_day_seat", "report_date")
+        installation = aggregate("hall_machine_snapshot", "snapshot_date")
+        events = aggregate("hall_event", "event_date")
+    finally:
+        conn.close()
+
+    latest_dates = [value for value in (machine["latest_date"], seat["latest_date"]) if value]
+    latest_date = max(latest_dates) if latest_dates else None
+    age_days = None
+    if latest_date:
+        try:
+            age_days = max(0, (date.today() - date.fromisoformat(latest_date)).days)
+        except ValueError:
+            pass
+    performance_days = max(machine["days"], seat["days"])
+    total_records = machine["records"] + seat["records"]
+    fresh = age_days is not None and age_days <= 14
+    reasonably_fresh = age_days is not None and age_days <= 30
+    if performance_days >= 60 and fresh:
+        trend_level, trend_label, trend_ready = "sufficient", "十分", True
+    elif performance_days >= 30 and reasonably_fresh:
+        trend_level, trend_label, trend_ready = "limited", "参考", True
+    elif performance_days >= 14:
+        trend_level, trend_label, trend_ready = "limited", "参考", False
+    else:
+        trend_level, trend_label, trend_ready = "insufficient", "不足", False
+    seat_ready = seat["days"] >= 30 and reasonably_fresh
+    reasons: list[str] = []
+    if performance_days == 0:
+        reasons.append("日別の差枚・勝率実績が未収集")
+    elif performance_days < 30:
+        reasons.append(f"実績は{performance_days}日分。曜日・特定日の比較には30日以上を推奨")
+    if age_days is not None and age_days > 30:
+        reasons.append(f"最新実績から{age_days}日経過しているため、現在傾向の信頼度は低め")
+    if seat["records"] == 0:
+        reasons.append("台番号別実績が未収集のため、熱い座席は分析不可")
+    if installation["records"] == 0:
+        reasons.append("設置機種スナップショットが未収集")
+    reasons.append("時間帯別の途中経過は未収集。時間帯戦略は現場ルールを表示")
+
+    return {
+        "hall_name": hall_name,
+        "performance": {
+            "machine_records": machine["records"], "machine_days": machine["days"],
+            "machine_first_date": machine["first_date"], "machine_latest_date": machine["latest_date"],
+            "seat_records": seat["records"], "seat_days": seat["days"],
+            "seat_first_date": seat["first_date"], "seat_latest_date": seat["latest_date"],
+            "total_records": total_records, "performance_days": performance_days,
+            "latest_date": latest_date, "age_days": age_days,
+        },
+        "installation": {
+            "records": installation["records"], "days": installation["days"],
+            "latest_date": installation["latest_date"],
+        },
+        "events": {
+            "records": events["records"], "days": events["days"],
+            "latest_date": events["latest_date"],
+        },
+        "intraday": {
+            "records": 0,
+            "ready": False,
+            "note": "現在は日次確定データのみ。時間帯別の途中経過は未収集です。",
+        },
+        "readiness": {
+            "trend_level": trend_level, "trend_label": trend_label,
+            "trend_ready": trend_ready, "seat_ready": seat_ready,
+            "reasons": reasons,
+        },
+    }
+
+
 @router.get("/api/hall/target_search", tags=["hall"])
 def get_target_search(
     visit_date: str = Query(..., description="狙い台を探す日 YYYY-MM-DD"),

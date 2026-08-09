@@ -37,8 +37,13 @@ assert.match(html, /id="catalog-scope"/, '現在の対象機種を明示する')
 assert.match(html, /スマスロ攻略ホーム/, 'スマスロ専門ツールであることを明示する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=1\.9\.8/);
-assert.match(html, /app\.js\?v=1\.9\.8/);
+assert.match(html, /app\.css\?v=1\.9\.9/);
+assert.match(html, /app\.js\?v=1\.9\.9/);
+assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
+assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
+assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
+assert.match(app, /TIME_STRATEGIES/, '朝一から閉店前までの戦略を切り替える');
+assert.match(app, /data_coverage/, '店舗ごとのデータ充足度APIを使用する');
 assert.match(html, /着席前30秒チェック/, 'ゲーム数だけで判断しない現場チェックが必要');
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');

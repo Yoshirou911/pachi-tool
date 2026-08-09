@@ -409,6 +409,8 @@ def get_installation_snapshot(hall_name: str = Query(...)) -> dict:
 @router.get("/api/hall/data_coverage", tags=["hall"])
 def get_data_coverage(hall_name: str = Query(...)) -> dict:
     """店舗分析に使えるデータ量と、現時点の分析可否を返す。"""
+    from opportunity.models import get_intraday_coverage
+    intraday = get_intraday_coverage(hall_name)
     empty = {
         "hall_name": hall_name,
         "performance": {
@@ -421,11 +423,7 @@ def get_data_coverage(hall_name: str = Query(...)) -> dict:
         },
         "installation": {"records": 0, "days": 0, "latest_date": None},
         "events": {"records": 0, "days": 0, "latest_date": None},
-        "intraday": {
-            "records": 0,
-            "ready": False,
-            "note": "現在は日次確定データのみ。時間帯別の途中経過は未収集です。",
-        },
+        "intraday": intraday,
         "readiness": {
             "trend_level": "insufficient", "trend_label": "不足",
             "trend_ready": False, "seat_ready": False,
@@ -500,7 +498,8 @@ def get_data_coverage(hall_name: str = Query(...)) -> dict:
         reasons.append("台番号別実績が未収集のため、熱い座席は分析不可")
     if installation["records"] == 0:
         reasons.append("設置機種スナップショットが未収集")
-    reasons.append("時間帯別の途中経過は未収集。時間帯戦略は現場ルールを表示")
+    if not intraday["ready"]:
+        reasons.append(f"時間帯別は{intraday['records']}件。30件・3日以上から実測分析を開始")
 
     return {
         "hall_name": hall_name,
@@ -520,11 +519,7 @@ def get_data_coverage(hall_name: str = Query(...)) -> dict:
             "records": events["records"], "days": events["days"],
             "latest_date": events["latest_date"],
         },
-        "intraday": {
-            "records": 0,
-            "ready": False,
-            "note": "現在は日次確定データのみ。時間帯別の途中経過は未収集です。",
-        },
+        "intraday": intraday,
         "readiness": {
             "trend_level": trend_level, "trend_label": trend_label,
             "trend_ready": trend_ready, "seat_ready": seat_ready,

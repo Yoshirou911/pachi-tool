@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.9"
+APP_VERSION = "2.0.0"
 RELEASE_DATE = "2026-08-10"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "2.0.0",
+        "released_on": "2026-08-10",
+        "title": "ハイエナ実戦支援を7項目強化",
+        "items": [
+            "機種別入力、前日G加算、消化時間・期待時給・閉店余裕を判定へ追加",
+            "現行3機種6条件、店内巡回セッション、台番号別の途中経過記録を追加",
+            "詳細実戦結果、ボーダー検証、iPhone・PC間のサーバー同期を追加",
+        ],
+    },
     {
         "version": "1.9.9",
         "released_on": "2026-08-10",

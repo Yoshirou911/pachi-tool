@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=1.9.9">
+  <link rel="stylesheet" href="./app.css?v=2.0.0">
   <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スマスロ攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v1.9.9</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v2.0.0</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -104,8 +104,15 @@
           <div class="field-step"><span>2</span><label for="quick-profile">狙う条件を選ぶ</label></div>
           <select id="quick-profile" class="primary-select" required></select>
 
+          <div class="quick-location-grid">
+            <label>店舗<select id="quick-hall"></select></label>
+            <label>台番号<input id="quick-seat" type="number" min="1" inputmode="numeric" placeholder="例：501"></label>
+          </div>
+
           <div class="field-step"><span>3</span><label id="quick-current-label" for="quick-current">現在値</label></div>
           <div class="number-field"><input id="quick-current" class="big-input" type="number" min="0" inputmode="numeric" placeholder="650" required><span id="quick-current-unit">G</span></div>
+          <div id="quick-extra-fields" class="quick-extra-fields"></div>
+          <div id="quick-effective-value" class="effective-value-note" hidden></div>
 
           <details class="advanced-options">
             <summary><span>交換条件・台の状態を確認</span><small>自動入力済み</small></summary>
@@ -154,6 +161,19 @@
         <div id="scan-time-tabs" class="strategy-time-tabs" aria-label="時間帯を選ぶ"></div>
         <div id="scan-time-strategy" class="time-strategy-result" aria-live="polite"></div>
         <p class="strategy-disclaimer">時間帯実績はまだ0件です。ここは収集データによる予測ではなく、閉店リスクと台の育ち方を基準にした運用ルールです。</p>
+      </article>
+
+      <article class="panel patrol-panel">
+        <div class="section-bar"><div><span class="page-step">PATROL LOG</span><h2>店内チェックを記録</h2></div><button id="patrol-session-button" class="secondary-button compact-button" type="button">巡回を開始</button></div>
+        <p id="patrol-session-status" class="fine-print">巡回を開始すると、台番号ごとの変化と確認時刻を残せます。</p>
+        <form id="patrol-observation-form" class="patrol-observation-form">
+          <label>台番号<input id="patrol-seat" type="number" min="1" inputmode="numeric" placeholder="例：512" required></label>
+          <label>機種<select id="patrol-machine" required><option value="">店舗を読み込んでください</option></select></label>
+          <label>現在値<input id="patrol-current" type="number" min="0" inputmode="numeric" placeholder="G数" required></label>
+          <label>状態<select id="patrol-status"><option value="watch">候補</option><option value="pass">通過</option><option value="occupied">稼働中</option></select></label>
+          <button class="primary-button" type="submit">この台を記録</button>
+        </form>
+        <div id="patrol-recent" class="patrol-recent"><p class="empty">巡回記録はまだありません。</p></div>
       </article>
 
       <div id="scan-summary" class="scope-note"><strong>店舗を選んで開始</strong><span>対応機種の島だけを確認します。</span></div>
@@ -369,6 +389,12 @@
         <p id="performance-note" class="performance-note"></p>
       </article>
 
+      <article class="panel validation-panel">
+        <div class="section-bar"><div><span class="page-step">BORDER CHECK</span><h2>期待値ボーダーの検証</h2></div><span class="rule-badge">自動集計</span></div>
+        <p class="fine-print">同じ条件を10件から観察し、30件から検証対象にします。短期収支だけでボーダーを自動変更しません。</p>
+        <div id="validation-summary" class="validation-summary"></div>
+      </article>
+
       <div class="section-bar result-heading"><h2>これまでの実戦</h2></div>
       <div id="result-list" class="stack-list"></div>
     </section>
@@ -377,11 +403,11 @@
       <div class="page-heading compact-heading">
         <span class="page-step">設定</span>
         <h1>資金とデータ</h1>
-        <p>判断に使う資金を設定します。データはこのiPhone内だけに保存されます。</p>
+        <p>判断に使う資金を設定します。通常は端末内保存、必要ならPCと安全な同期コードで共有できます。</p>
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v1.9.9・更新日 2026/08/10</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v2.0.0・更新日 2026/08/10</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
@@ -406,6 +432,16 @@
             <button id="export-button" class="secondary-button" type="button">バックアップを書き出す</button>
             <label class="secondary-button file-button">バックアップを読み込む<input id="import-file" type="file" accept="application/json,.json"></label>
           </div>
+        </div>
+      </details>
+
+      <details class="settings-group sync-group">
+        <summary><span><b>サーバー同期</b><small>iPhoneとPCで同じ記録を使う</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <p class="help">同期コードを知っている端末だけが復元できます。コードはパスワードと同じ扱いです。</p>
+          <label>同期コード<input id="sync-key" type="text" minlength="32" autocomplete="off" placeholder="未設定"></label>
+          <div class="button-stack"><button id="sync-enable-button" class="secondary-button" type="button">同期コードを作る</button><button id="sync-push-button" class="secondary-button" type="button">今のデータを送る</button><button id="sync-pull-button" class="secondary-button" type="button">サーバーから復元</button></div>
+          <p id="sync-status" class="fine-print">同期はオフです。</p>
         </div>
       </details>
 
@@ -442,14 +478,17 @@
     <form id="result-form" method="dialog">
       <div class="dialog-head"><div><span class="page-step">実戦終了</span><h2 id="result-machine">実戦結果</h2></div><button id="dialog-close" type="button" aria-label="閉じる">×</button></div>
       <input id="result-candidate-id" type="hidden">
+      <div id="result-context" class="result-context"></div>
       <div class="two-col"><label>投資<input id="result-investment" type="number" min="0" step="1000" inputmode="numeric" required><span class="input-suffix">円</span></label><label>回収<input id="result-returns" type="number" min="0" step="1000" inputmode="numeric" required><span class="input-suffix">円</span></label></div>
       <div class="two-col"><label>実戦日<input id="result-date" type="date" required></label><label>時間（分）<input id="result-minutes" type="number" min="0" max="1440" inputmode="numeric"></label></div>
+      <div class="two-col"><label>結果<select id="result-outcome"><option value="hit">当選</option><option value="stop">見切り</option><option value="closing">閉店終了</option></select></label><label>当選G<input id="result-hit-game" type="number" min="0" inputmode="numeric" placeholder="不明なら空欄"></label></div>
+      <div class="two-col"><label>終了G<input id="result-end-game" type="number" min="0" inputmode="numeric" placeholder="終了時の表示"></label><label>終了状態<input id="result-end-state" maxlength="80" placeholder="AT後・前兆なし等"></label></div>
       <label>メモ<input id="result-notes" maxlength="200" placeholder="当選契機・終了状況など"></label>
       <button class="primary-button" type="submit">結果を保存</button>
     </form>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=1.9.9"></script>
+  <script type="module" src="./app.js?v=2.0.0"></script>
 </body>
 </html>

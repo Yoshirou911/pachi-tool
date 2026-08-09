@@ -76,9 +76,32 @@ CREATE TABLE IF NOT EXISTS opportunity_budgets (
     updated_at         TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS mobile_sync_state (
+    sync_key       TEXT PRIMARY KEY,
+    payload_json   TEXT NOT NULL,
+    updated_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS opportunity_observations (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    sync_key       TEXT NOT NULL,
+    observation_id TEXT NOT NULL,
+    session_id     TEXT,
+    observed_at    TEXT NOT NULL,
+    hall_name      TEXT NOT NULL DEFAULT '',
+    seat_number    INTEGER,
+    machine_name   TEXT NOT NULL DEFAULT '',
+    current_value  REAL NOT NULL DEFAULT 0,
+    status         TEXT NOT NULL DEFAULT 'watch',
+    time_bucket    TEXT NOT NULL DEFAULT '',
+    extra_json     TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(sync_key, observation_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_opp_profiles_machine ON opportunity_profiles(machine_name, active);
 CREATE INDEX IF NOT EXISTS idx_opp_candidates_status ON opportunity_candidates(status, observed_at);
 CREATE INDEX IF NOT EXISTS idx_opp_results_date ON opportunity_results(played_on);
+CREATE INDEX IF NOT EXISTS idx_opp_observations_hall_time ON opportunity_observations(hall_name, observed_at);
 """
 
 
@@ -116,6 +139,58 @@ def init_db() -> None:
         for name, sql_type in migrations.items():
             if name not in columns:
                 con.execute(f"ALTER TABLE opportunity_profiles ADD COLUMN {name} {sql_type}")
+
+
+def save_mobile_sync(sync_key: str, state: dict) -> dict:
+    payload = json.dumps(state, ensure_ascii=False, separators=(",", ":"))
+    if len(payload.encode("utf-8")) > 2_000_000:
+        raise ValueError("同期データが2MBを超えています")
+    observations = state.get("patrol_observations") if isinstance(state, dict) else []
+    with _conn() as con:
+        con.execute(
+            """INSERT INTO mobile_sync_state(sync_key,payload_json) VALUES(?,?)
+               ON CONFLICT(sync_key) DO UPDATE SET payload_json=excluded.payload_json,updated_at=CURRENT_TIMESTAMP""",
+            (sync_key, payload),
+        )
+        for row in observations if isinstance(observations, list) else []:
+            if not isinstance(row, dict) or not row.get("id") or not row.get("observed_at"):
+                continue
+            con.execute(
+                """INSERT INTO opportunity_observations
+                   (sync_key,observation_id,session_id,observed_at,hall_name,seat_number,machine_name,current_value,status,time_bucket,extra_json)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(sync_key,observation_id) DO UPDATE SET
+                   session_id=excluded.session_id,observed_at=excluded.observed_at,hall_name=excluded.hall_name,
+                   seat_number=excluded.seat_number,machine_name=excluded.machine_name,current_value=excluded.current_value,
+                   status=excluded.status,time_bucket=excluded.time_bucket,extra_json=excluded.extra_json""",
+                (sync_key, str(row["id"]), str(row.get("session_id") or ""), str(row["observed_at"]),
+                 str(row.get("hall_name") or ""), row.get("seat_number"), str(row.get("machine_name") or ""),
+                 float(row.get("current_value") or 0), str(row.get("status") or "watch"),
+                 str(row.get("time_bucket") or ""), json.dumps(row, ensure_ascii=False)),
+            )
+        saved = con.execute("SELECT updated_at FROM mobile_sync_state WHERE sync_key=?", (sync_key,)).fetchone()
+    return {"ok": True, "updated_at": saved["updated_at"], "observation_count": len(observations or [])}
+
+
+def load_mobile_sync(sync_key: str) -> Optional[dict]:
+    with _conn() as con:
+        row = con.execute("SELECT payload_json,updated_at FROM mobile_sync_state WHERE sync_key=?", (sync_key,)).fetchone()
+    if not row:
+        return None
+    return {"state": json.loads(row["payload_json"]), "updated_at": row["updated_at"]}
+
+
+def get_intraday_coverage(hall_name: str) -> dict:
+    with _conn() as con:
+        row = con.execute(
+            """SELECT COUNT(*) AS records, COUNT(DISTINCT substr(observed_at,1,10)) AS days,
+                      MIN(substr(observed_at,1,10)) AS first_date, MAX(substr(observed_at,1,10)) AS latest_date
+               FROM opportunity_observations WHERE hall_name=?""", (hall_name,),
+        ).fetchone()
+    records, days = int(row["records"] or 0), int(row["days"] or 0)
+    return {"records": records, "days": days, "first_date": row["first_date"], "latest_date": row["latest_date"],
+            "ready": records >= 30 and days >= 3,
+            "note": "30件・3日以上で時間帯別の実測分析を開始します。"}
 
 
 def _row_dict(row: sqlite3.Row | None) -> Optional[dict]:

@@ -68,6 +68,31 @@ export function buildPerformanceSeries(results) {
   };
 }
 
+export function buildValidationSummary(results = []) {
+  const groups = new Map();
+  for (const result of results) {
+    if (result.expected_value_yen == null || !Number.isFinite(Number(result.expected_value_yen))) continue;
+    const key = result.catalog_key || result.machine_name || 'unknown';
+    if (!groups.has(key)) groups.set(key, {
+      catalog_key: result.catalog_key || '', machine_name: result.machine_name || '機種不明',
+      count: 0, expected_yen: 0, actual_yen: 0, minutes: 0,
+    });
+    const group = groups.get(key);
+    group.count += 1;
+    group.expected_yen += Number(result.expected_value_yen);
+    group.actual_yen += Number(result.returns_yen || 0) - Number(result.investment_yen || 0);
+    group.minutes += Number(result.played_minutes || 0);
+  }
+  return [...groups.values()].map(group => ({
+    ...group,
+    gap_yen: group.actual_yen - group.expected_yen,
+    avg_actual_yen: Math.round(group.actual_yen / group.count),
+    avg_minutes: group.minutes ? Math.round(group.minutes / group.count) : null,
+    sample_level: group.count >= 30 ? 'usable' : group.count >= 10 ? 'watch' : 'insufficient',
+    sample_label: group.count >= 30 ? '検証可能' : group.count >= 10 ? '要観察' : 'データ不足',
+  })).sort((a, b) => b.count - a.count || b.expected_yen - a.expected_yen);
+}
+
 export function curvePointAt(profile, currentValue) {
   const points = Array.isArray(profile?.curve_points)
     ? [...profile.curve_points].sort((a, b) => Number(a.value) - Number(b.value))
@@ -115,9 +140,35 @@ export function assessCandidate(profile, currentValue, riskCapacityYen) {
     actionable: true,
     expected_value_yen: Number(expected),
     worst_case_investment_yen: Number(worst),
+    estimated_play_minutes: minutes ? Number(minutes) : null,
     ev_per_hour_yen: minutes ? Math.round(Number(expected) * 60 / Number(minutes)) : null,
     matched_curve_value: point?.value ?? null,
   };
+}
+
+export function validateProfileInputs(profile, extraInputs = {}) {
+  const fields = Array.isArray(profile?.input_fields) ? profile.input_fields : [];
+  const requirements = Array.isArray(profile?.requirements) ? profile.requirements : [];
+  const errors = [];
+  for (const field of fields) {
+    const value = extraInputs[field.id];
+    if (field.required && (value === '' || value === null || value === undefined)) {
+      errors.push(`${field.label}が未入力`);
+    }
+  }
+  for (const rule of requirements) {
+    const raw = extraInputs[rule.field];
+    if (raw === '' || raw === null || raw === undefined) continue;
+    const numeric = Number(raw);
+    const expected = rule.value;
+    let matched = true;
+    if (rule.operator === 'gte') matched = Number.isFinite(numeric) && numeric >= Number(expected);
+    else if (rule.operator === 'lte') matched = Number.isFinite(numeric) && numeric <= Number(expected);
+    else if (rule.operator === 'eq') matched = String(raw) === String(expected);
+    else if (rule.operator === 'in') matched = Array.isArray(expected) && expected.map(String).includes(String(raw));
+    if (!matched) errors.push(rule.message || `${rule.field}が条件外`);
+  }
+  return errors;
 }
 
 export function assessQuick({
@@ -128,6 +179,7 @@ export function assessQuick({
   fundingMode,
   resetStatus,
   minutesUntilClose,
+  extraInputs = {},
   today = new Date(),
 }) {
   if (!profile) return { judgment: 'unknown', reason: '一致する狙い目ルールがありません', actionable: false, warnings: [] };
@@ -141,6 +193,7 @@ export function assessQuick({
   if (resetStatus === 'unknown') mismatches.push('据え置き／リセット状況が未確認');
   else if (ruleReset === 'unknown') mismatches.push('ルールのリセット条件が未登録');
   else if (!['any', resetStatus].includes(ruleReset)) mismatches.push('リセット条件がルールと不一致');
+  mismatches.push(...validateProfileInputs(profile, extraInputs));
   if (mismatches.length) {
     return { judgment: 'condition_mismatch', reason: mismatches.join('・'), actionable: false, warnings: [] };
   }
@@ -165,7 +218,7 @@ export function assessQuick({
     assessment.actionable = false;
     return assessment;
   }
-  const estimated = profile.estimated_play_minutes;
+  const estimated = assessment.estimated_play_minutes ?? profile.estimated_play_minutes;
   const required = estimated ? Number(estimated) + 30 : 120;
   assessment.required_minutes_with_buffer = required;
   if (assessment.judgment === 'target' && Number(minutesUntilClose) < required) {

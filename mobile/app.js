@@ -3,12 +3,13 @@ import {
   assessQuick,
   buildGuideRows,
   buildPerformanceSeries,
+  buildValidationSummary,
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs';
+} from './core.mjs?v=2.0.0';
 
-const APP_VERSION = '1.9.9';
+const APP_VERSION = '2.0.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -21,19 +22,22 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-10',
-    title: '時間帯戦略とデータ充足度を追加',
-    items: ['時刻ごとに優先行動・確認箇所・見送り条件を表示', '店舗別の実績日数と台別・設置・時間帯データ量を明示', 'データ不足時は分析できない理由を表示'],
+    title: 'ハイエナ実戦支援を7項目強化',
+    items: ['機種別入力と前日G合算、消化時間・期待時給・閉店余裕を追加', '現行3機種6条件と台番号別の巡回記録を追加', '詳細実戦結果・ボーダー検証・サーバー同期を追加'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
 const STORE_NAME = 'app-state';
 const STATE_KEY = 'main';
 const defaultState = {
-  version: 1,
+  version: 2,
   budget: { starting_bankroll: 0, loss_limit_yen: 0 },
   candidates: [],
   plans: [],
   results: [],
+  patrol_sessions: [],
+  patrol_observations: [],
+  sync: { key: '', enabled: false, last_synced_at: '' },
   settings: { closing_time: '22:45', scan_hall: 'キコーナ四條畷店' },
 };
 
@@ -56,6 +60,8 @@ let floorData = null;
 let floorEditorSeats = [];
 let targetHallOptions = [];
 let scanSnapshot = null;
+let syncTimer = null;
+let syncWriting = false;
 
 const TIME_STRATEGIES = [
   {
@@ -89,6 +95,67 @@ const TIME_STRATEGIES = [
     avoid: '消化時間不明・長いAT・低い期待値は見送り。取り切りを最優先する。',
   },
 ];
+
+const PLAY_MINUTES_BY_MACHINE = {
+  'スマスロ北斗の拳': 70,
+  'スマスロモンキーターン5': 80,
+  'スマスロ東京喰種': 95,
+  'スマスロ ゴッドイーター リザレクション': 85,
+  'スマスロ かぐや様は告らせたい': 75,
+  'スマスロ モンスターハンターライズ': 100,
+  'スマスロ からくりサーカス': 105,
+  'スマスロ 東京リベンジャーズ': 90,
+  'スマスロ 化物語': 75,
+  'スマスロ ミリオンゴッド-神々の軌跡-': 110,
+};
+
+const COMMON_PREVIOUS_FIELD = {
+  id: 'previous_day_games', label: '前日最終G（据え置き時だけ加算）', type: 'number',
+  min: 0, max: 5000, placeholder: '不明なら空欄', help: 'リセット確定時は加算しません。', add_to_primary: true,
+};
+
+function enrichProfile(profile) {
+  const fields = Array.isArray(profile.input_fields) ? [...profile.input_fields] : [];
+  const requirements = Array.isArray(profile.requirements) ? [...profile.requirements] : [];
+  if (profile.reset_status === 'normal' && String(profile.unit_label).includes('G')) fields.unshift(COMMON_PREVIOUS_FIELD);
+  if (profile.machine_name.includes('東京喰種')) {
+    fields.push({ id: 'counter_source', label: '確認したカウンター', type: 'select', required: true, options: [
+      { value: '', label: '選択してください' }, { value: 'cz', label: '液晶CZ間' }, { value: 'at', label: 'データカウンターAT間' },
+    ] });
+    requirements.push({ field: 'counter_source', operator: 'eq', value: profile.catalog_key.includes('-cz-') ? 'cz' : 'at', message: `${profile.metric_name}を確認してください` });
+  }
+  if (profile.machine_name.includes('かぐや様')) {
+    fields.push({ id: 'last_bonus', label: '直前ボーナス', type: 'select', required: true, options: [
+      { value: '', label: '選択してください' }, { value: 'big', label: 'BIG後' }, { value: 'reg', label: 'REG後' },
+    ] });
+    requirements.push({ field: 'last_bonus', operator: 'eq', value: profile.catalog_key.includes('-big-') ? 'big' : 'reg', message: '選んだBIG後・REG後条件と履歴が一致しません' });
+  }
+  if (profile.machine_name.includes('モンスターハンターライズ')) {
+    fields.push({ id: 'quest_misses', label: 'クエストスルー回数', type: 'number', min: 0, max: 20, placeholder: '例：3', help: 'メニュー画面で確認。4スルー以上は強い追加根拠です。' });
+  }
+  if (profile.machine_name.includes('からくりサーカス')) {
+    fields.push(
+      { id: 'counter_source', label: '入力したゲーム数', type: 'select', required: true, options: [
+        { value: '', label: '選択してください' }, { value: 'real', label: 'CZ間の実ゲーム数' }, { value: 'lcd', label: '液晶内部G' },
+      ] },
+      { id: 'cz_misses', label: 'CZスルー回数', type: 'number', min: 0, max: 20, placeholder: '例：2' },
+      { id: 'at_gap', label: 'AT間ゲーム数', type: 'number', min: 0, max: 5000, placeholder: '例：900' },
+    );
+    requirements.push({ field: 'counter_source', operator: 'eq', value: 'real', message: '液晶内部GではなくCZ間の実ゲーム数を入力してください' });
+  }
+  if (profile.machine_name.includes('バイオハザードRE:3')) {
+    fields.push({ id: 'cz_misses', label: 'CZスルー回数', type: 'number', min: 0, max: 6, placeholder: '例：5', help: '5スルー以降は追加の狙い根拠です。' });
+  }
+  if (profile.machine_name.includes('東京リベンジャーズ')) {
+    fields.push({ id: 'chance_misses', label: '東卍チャンススルー回数', type: 'number', min: 0, max: 4, placeholder: '例：3', help: '3スルー以上は追加根拠です。' });
+  }
+  return {
+    ...profile,
+    estimated_play_minutes: profile.estimated_play_minutes || PLAY_MINUTES_BY_MACHINE[profile.machine_name] || null,
+    input_fields: fields,
+    requirements,
+  };
+}
 
 function byId(id) { return document.getElementById(id); }
 function esc(value) {
@@ -183,7 +250,7 @@ async function readLocalState() {
 }
 
 async function writeLocalState() {
-  state.version = 1;
+  state.version = 2;
   try {
     const db = await openDatabase();
     await new Promise((resolve, reject) => {
@@ -193,6 +260,10 @@ async function writeLocalState() {
     });
   } catch (_) {
     localStorage.setItem(DB_NAME, JSON.stringify(state));
+  }
+  if (state.sync?.enabled && !syncWriting && navigator.onLine) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => pushMobileSync(true), 1200);
   }
 }
 
@@ -205,6 +276,9 @@ function normalizeState(saved) {
     candidates: Array.isArray(saved?.candidates) ? saved.candidates : [],
     plans: Array.isArray(saved?.plans) ? saved.plans : [],
     results: Array.isArray(saved?.results) ? saved.results : [],
+    patrol_sessions: Array.isArray(saved?.patrol_sessions) ? saved.patrol_sessions : [],
+    patrol_observations: Array.isArray(saved?.patrol_observations) ? saved.patrol_observations : [],
+    sync: { ...defaultState.sync, ...(saved?.sync || {}) },
   };
 }
 
@@ -212,11 +286,93 @@ async function loadCatalog() {
   const response = await fetch(`./catalog.json?v=${APP_VERSION}`);
   if (!response.ok) throw new Error(`期待値データを取得できません（${response.status}）`);
   const catalog = await response.json();
-  profiles = (catalog.profiles || []).map((profile, index) => ({ ...profile, id: index + 1 }));
+  profiles = (catalog.profiles || []).map((profile, index) => enrichProfile({ ...profile, id: index + 1 }));
 }
 
 function currentProfile() {
   return profiles.find(profile => profile.id === Number(byId('quick-profile').value));
+}
+
+async function pushMobileSync(silent = false) {
+  const key = (byId('sync-key')?.value || state.sync.key || '').trim();
+  if (key.length < 32) {
+    if (!silent) showToast('32文字以上の同期コードを設定してください');
+    return false;
+  }
+  try {
+    const response = await fetch(apiUrl('/api/opportunity/sync'), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Sync-Key': key },
+      body: JSON.stringify({ state }),
+    });
+    if (!response.ok) throw new Error(`同期API ${response.status}`);
+    state.sync = { key, enabled: true, last_synced_at: new Date().toISOString() };
+    syncWriting = true;
+    await writeLocalState();
+    syncWriting = false;
+    renderSettings();
+    if (!silent) showToast('サーバーへ同期しました');
+    return true;
+  } catch (error) {
+    syncWriting = false;
+    if (!silent) showToast(`同期失敗：${error.message}`);
+    return false;
+  }
+}
+
+async function pullMobileSync() {
+  const key = (byId('sync-key').value || '').trim();
+  if (key.length < 32) return showToast('同期コードを入力してください');
+  try {
+    const response = await fetch(apiUrl('/api/opportunity/sync'), { headers: { 'X-Sync-Key': key }, cache: 'no-store' });
+    if (!response.ok) throw new Error(response.status === 404 ? '保存データなし' : `同期API ${response.status}`);
+    const payload = await response.json();
+    state = normalizeState(payload.state);
+    state.sync = { key, enabled: true, last_synced_at: new Date().toISOString() };
+    syncWriting = true;
+    await writeLocalState();
+    syncWriting = false;
+    renderAll();
+    showToast('サーバーから復元しました');
+  } catch (error) {
+    syncWriting = false;
+    showToast(`復元失敗：${error.message}`);
+  }
+}
+
+function renderProfileInputFields(profile) {
+  const container = byId('quick-extra-fields');
+  const fields = Array.isArray(profile?.input_fields) ? profile.input_fields : [];
+  container.innerHTML = fields.map(field => {
+    const required = field.required ? ' required' : '';
+    const help = field.help ? `<small>${esc(field.help)}</small>` : '';
+    if (field.type === 'select') {
+      return `<label>${esc(field.label)}<select data-profile-input="${esc(field.id)}"${required}>${(field.options || []).map(option => `<option value="${esc(option.value)}">${esc(option.label)}</option>`).join('')}</select>${help}</label>`;
+    }
+    return `<label>${esc(field.label)}<input data-profile-input="${esc(field.id)}" type="number" inputmode="numeric" min="${Number(field.min ?? 0)}"${field.max == null ? '' : ` max="${Number(field.max)}"`} placeholder="${esc(field.placeholder || '')}"${required}>${help}</label>`;
+  }).join('');
+  updateEffectiveValue();
+}
+
+function collectProfileInputs() {
+  return Object.fromEntries([...document.querySelectorAll('[data-profile-input]')].map(input => [input.dataset.profileInput, input.value]));
+}
+
+function effectiveCurrentValue() {
+  const current = Number(byId('quick-current').value || 0);
+  const profile = currentProfile();
+  const inputs = collectProfileInputs();
+  const previousField = (profile?.input_fields || []).find(field => field.id === 'previous_day_games' && field.add_to_primary);
+  const previous = previousField && byId('quick-reset').value === 'normal' ? Number(inputs.previous_day_games || 0) : 0;
+  return { current, previous, effective: current + previous, inputs };
+}
+
+function updateEffectiveValue() {
+  const note = byId('quick-effective-value');
+  const values = effectiveCurrentValue();
+  note.hidden = values.previous <= 0;
+  note.innerHTML = values.previous > 0
+    ? `<b>宵越し合算</b><strong>${values.current.toLocaleString('ja-JP')}G + 前日${values.previous.toLocaleString('ja-JP')}G = ${values.effective.toLocaleString('ja-JP')}G</strong><span>据え置き前提。リセットの可能性がある場合は使用しません。</span>`
+    : '';
 }
 
 function syncConditions(profile) {
@@ -226,6 +382,7 @@ function syncConditions(profile) {
   if (['normal', 'reset_confirmed'].includes(profile.reset_status)) byId('quick-reset').value = profile.reset_status;
   byId('quick-current-label').textContent = `${profile.metric_name}（${profile.unit_label}）`;
   byId('quick-current-unit').textContent = profile.unit_label || 'G';
+  renderProfileInputFields(profile);
 }
 
 function populateMachines(preferredProfileId = null) {
@@ -318,6 +475,8 @@ function renderQuickResult(result, profile, currentValue) {
         <div><small>狙い始め</small><strong>${Number(profile.start_threshold).toLocaleString('ja-JP')}${esc(profile.unit_label)}〜</strong></div>
         <div><small>閉店まで</small><strong>${result.minutes_until_close}分</strong></div>
         <div><small>使える資金</small><strong>${money(calculateSummary(state).risk_capacity_yen)}</strong></div>
+        <div><small>消化目安</small><strong>${result.estimated_play_minutes ? `${result.estimated_play_minutes}分` : '--'}</strong></div>
+        <div><small>期待時給</small><strong>${money(result.ev_per_hour_yen, true)}</strong></div>
       </div>
       <div class="input-rule"><b>この判定で見る数字</b><strong>${esc(profile.metric_name)}（${esc(profile.unit_label)}）</strong>${profile.notes ? `<span>${esc(profile.notes)}</span>` : ''}</div>
       ${warnings ? `<ul class="warning-list">${warnings}</ul>` : ''}
@@ -338,7 +497,7 @@ function renderCandidates() {
   }
   list.innerHTML = state.candidates.map(candidate => `<article class="list-card">
     <div class="list-card-head"><span class="signal signal-target">候補</span><div class="list-card-main"><strong>${esc(candidate.machine_name)}</strong><small>${esc(candidate.condition_label)}</small></div></div>
-    <p class="card-meta">現在 ${Number(candidate.current_value).toLocaleString('ja-JP')}${esc(candidate.unit_label)}・期待値 ${money(candidate.expected_value_yen, true)}・必要資金 ${money(candidate.worst_case_investment_yen)}</p>
+    <p class="card-meta">${candidate.hall_name ? `${esc(candidate.hall_name)}・` : ''}${candidate.seat_number ? `${esc(candidate.seat_number)}番台・` : ''}現在 ${Number(candidate.current_value).toLocaleString('ja-JP')}${esc(candidate.unit_label)}・期待値 ${money(candidate.expected_value_yen, true)}・必要資金 ${money(candidate.worst_case_investment_yen)}</p>
     <div class="card-actions"><button class="play" type="button" data-result-candidate="${esc(candidate.id)}">実戦結果を入力</button><button class="skip" type="button" data-skip-candidate="${esc(candidate.id)}">見送る</button></div>
   </article>`).join('');
 }
@@ -521,7 +680,7 @@ async function loadTargetHallOptions() {
     ];
   }
   const options = targetHallOptions.map(row => `<option value="${esc(row.hall_name)}">${esc(row.hall_name)}</option>`).join('');
-  ['trend-hall', 'floor-hall', 'scan-hall'].forEach(id => {
+  ['trend-hall', 'floor-hall', 'scan-hall', 'quick-hall'].forEach(id => {
     const select = byId(id);
     const current = select.value;
     select.innerHTML = options;
@@ -598,7 +757,7 @@ function comparableMachineName(value) {
   return String(value || '')
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/[\s・･~〜～:：!！?？_\-]/g, '')
+    .replace(/[\s・･~〜～:：!！?？_\-‐]/g, '')
     .replace(/^(l|スマスロ|パチスロ)/, '')
     .replace(/モンキーターンv$/, 'モンキーターン5');
 }
@@ -643,6 +802,30 @@ function renderScanList(snapshot, fallback = false) {
         </div>`;
       }).join('')}</div>
     </article>`).join('');
+  const machineSelect = byId('patrol-machine');
+  const current = machineSelect.value;
+  machineSelect.innerHTML = '<option value="">機種を選ぶ</option>' + machineGroups.map(([machine]) => `<option value="${esc(machine)}">${esc(machine)}</option>`).join('');
+  if ([...machineSelect.options].some(option => option.value === current)) machineSelect.value = current;
+  renderPatrol();
+}
+
+function activePatrolSession() {
+  return state.patrol_sessions.find(session => !session.ended_at) || null;
+}
+
+function renderPatrol() {
+  const session = activePatrolSession();
+  const hall = byId('scan-hall')?.value || state.settings.scan_hall;
+  const rows = state.patrol_observations.filter(row => !session || row.session_id === session.id).slice(0, 8);
+  byId('patrol-session-button').textContent = session ? '巡回を終了' : '巡回を開始';
+  byId('patrol-session-status').textContent = session
+    ? `${session.hall_name}を巡回中・${state.patrol_observations.filter(row => row.session_id === session.id).length}台記録`
+    : `${hall || '店舗未選択'}・巡回を始めると確認時刻と台の変化を保存します。`;
+  byId('patrol-recent').innerHTML = rows.length ? rows.map(row => {
+    const previous = state.patrol_observations.find(item => item.id !== row.id && item.hall_name === row.hall_name && item.seat_number === row.seat_number && item.observed_at < row.observed_at);
+    const delta = previous ? Number(row.current_value) - Number(previous.current_value) : null;
+    return `<div class="patrol-log-row"><b>${esc(row.seat_number)}番</b><div><strong>${esc(row.machine_name)}</strong><small>${new Date(row.observed_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}・${row.status === 'watch' ? '候補' : row.status === 'pass' ? '通過' : '稼働中'}</small></div><em>${Number(row.current_value).toLocaleString('ja-JP')}G${delta == null ? '' : `<small>${delta >= 0 ? '+' : ''}${delta}G</small>`}</em></div>`;
+  }).join('') : '<p class="empty">巡回記録はまだありません。</p>';
 }
 
 async function loadScanHall() {
@@ -1005,14 +1188,28 @@ function renderResults() {
     const net = Number(result.returns_yen) - Number(result.investment_yen);
     const hasExpected = result.expected_value_yen !== null && result.expected_value_yen !== undefined && Number.isFinite(Number(result.expected_value_yen));
     const gap = hasExpected ? net - Number(result.expected_value_yen) : null;
-    return `<article class="list-card"><div class="list-card-head"><div class="list-card-main"><strong>${esc(result.machine_name)}</strong><small>${esc(result.played_on)}・${result.played_minutes || 0}分</small></div><strong class="${net >= 0 ? 'result-profit' : 'result-loss'}">${money(net, true)}</strong></div><p class="card-meta">投資 ${money(result.investment_yen)}・回収 ${money(result.returns_yen)}${hasExpected ? `・期待値 ${money(result.expected_value_yen, true)}・差 ${money(gap, true)}` : '・期待値記録なし'}${result.notes ? `・${esc(result.notes)}` : ''}</p></article>`;
+    const location = [result.hall_name, result.seat_number ? `${result.seat_number}番台` : ''].filter(Boolean).join('・');
+    const detail = [result.outcome === 'hit' ? '当選' : result.outcome === 'closing' ? '閉店終了' : result.outcome === 'stop' ? '見切り' : '', result.hit_game != null ? `当選${result.hit_game}G` : '', result.end_state].filter(Boolean).join('・');
+    return `<article class="list-card"><div class="list-card-head"><div class="list-card-main"><strong>${esc(result.machine_name)}</strong><small>${esc(result.played_on)}・${result.played_minutes || 0}分${location ? `・${esc(location)}` : ''}</small></div><strong class="${net >= 0 ? 'result-profit' : 'result-loss'}">${money(net, true)}</strong></div><p class="card-meta">投資 ${money(result.investment_yen)}・回収 ${money(result.returns_yen)}${hasExpected ? `・期待値 ${money(result.expected_value_yen, true)}・差 ${money(gap, true)}` : '・期待値記録なし'}${detail ? `・${esc(detail)}` : ''}${result.notes ? `・${esc(result.notes)}` : ''}</p></article>`;
   }).join('');
+}
+
+function renderValidation() {
+  const rows = buildValidationSummary(state.results);
+  byId('validation-summary').innerHTML = rows.length ? rows.map(row => `
+    <div class="validation-row"><div><strong>${esc(row.machine_name)} <small>${row.count}件</small></strong><span class="validation-status ${row.sample_level}">${row.sample_label}</span></div>
+    <p>累計期待値 ${money(row.expected_yen, true)}／実収支 ${money(row.actual_yen, true)}／差 ${money(row.gap_yen, true)}${row.avg_minutes ? `／平均${row.avg_minutes}分` : ''}</p></div>`).join('')
+    : '<p class="empty">期待値付きの実戦結果がまだありません。</p>';
 }
 
 function renderSettings() {
   byId('budget-bankroll').value = state.budget.starting_bankroll || '';
   byId('budget-loss').value = state.budget.loss_limit_yen || '';
   byId('quick-close').value = state.settings.closing_time || '22:45';
+  byId('sync-key').value = state.sync.key || '';
+  byId('sync-status').textContent = state.sync.enabled
+    ? `同期オン${state.sync.last_synced_at ? `・最終 ${new Date(state.sync.last_synced_at).toLocaleString('ja-JP')}` : ''}`
+    : '同期はオフです。';
   renderVersionInfo();
 }
 
@@ -1024,6 +1221,8 @@ function renderAll() {
   renderPlans();
   renderPerformance();
   renderResults();
+  renderValidation();
+  renderPatrol();
   renderSettings();
 }
 
@@ -1100,6 +1299,9 @@ byId('guide-search').addEventListener('input', renderGuide);
 byId('guide-mode').addEventListener('change', renderGuide);
 byId('quick-machine').addEventListener('change', () => populateProfileOptions());
 byId('quick-profile').addEventListener('change', () => syncConditions(currentProfile()));
+byId('quick-current').addEventListener('input', updateEffectiveValue);
+byId('quick-reset').addEventListener('change', updateEffectiveValue);
+byId('quick-extra-fields').addEventListener('input', updateEffectiveValue);
 byId('quick-close').addEventListener('change', async event => {
   state.settings.closing_time = event.target.value;
   await writeLocalState();
@@ -1116,12 +1318,41 @@ byId('scan-time-tabs').addEventListener('click', event => {
   byId('scan-strategy-time').value = button.dataset.strategyTime;
   renderTimeStrategy();
 });
+byId('patrol-session-button').addEventListener('click', async () => {
+  const active = activePatrolSession();
+  if (active) active.ended_at = new Date().toISOString();
+  else state.patrol_sessions.unshift({ id: newId(), hall_name: byId('scan-hall').value, started_at: new Date().toISOString(), ended_at: null });
+  await writeLocalState();
+  renderPatrol();
+  showToast(active ? '巡回を終了しました' : '巡回を開始しました');
+});
+byId('patrol-observation-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  let session = activePatrolSession();
+  if (!session) {
+    session = { id: newId(), hall_name: byId('scan-hall').value, started_at: new Date().toISOString(), ended_at: null };
+    state.patrol_sessions.unshift(session);
+  }
+  const observedAt = new Date().toISOString();
+  state.patrol_observations.unshift({
+    id: newId(), session_id: session.id, observed_at: observedAt,
+    time_bucket: `${String(new Date().getHours()).padStart(2, '0')}:00`, hall_name: session.hall_name,
+    seat_number: Number(byId('patrol-seat').value), machine_name: byId('patrol-machine').value,
+    current_value: Number(byId('patrol-current').value), status: byId('patrol-status').value,
+  });
+  await writeLocalState();
+  byId('patrol-seat').value = '';
+  byId('patrol-current').value = '';
+  renderPatrol();
+  showToast('台チェックを記録しました');
+});
 
 byId('scan-machine-list').addEventListener('click', event => {
   const button = event.target.closest('[data-scan-profile]');
   if (!button) return;
   const profileId = Number(button.dataset.scanProfile);
   populateMachines(profileId);
+  byId('quick-hall').value = byId('scan-hall').value;
   byId('quick-current').value = '';
   showScreen('check');
   setTimeout(() => byId('quick-current').focus(), 250);
@@ -1259,7 +1490,8 @@ byId('guide-list').addEventListener('click', event => {
 byId('quick-form').addEventListener('submit', event => {
   event.preventDefault();
   const profile = currentProfile();
-  const currentValue = Number(byId('quick-current').value);
+  const valueState = effectiveCurrentValue();
+  const currentValue = valueState.effective;
   const result = assessQuick({
     profile,
     currentValue,
@@ -1268,15 +1500,16 @@ byId('quick-form').addEventListener('submit', event => {
     fundingMode: byId('quick-funding').value,
     resetStatus: byId('quick-reset').value,
     minutesUntilClose: minutesUntilClosing(byId('quick-close').value),
+    extraInputs: valueState.inputs,
   });
-  lastAssessment = { result, profile, currentValue };
+  lastAssessment = { result, profile, currentValue, rawCurrentValue: valueState.current, extraInputs: valueState.inputs };
   renderQuickResult(result, profile, currentValue);
   setTimeout(() => byId('quick-result').scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
 });
 
 byId('quick-result').addEventListener('click', async event => {
   if (!event.target.closest('#save-candidate-button') || !lastAssessment?.result.actionable) return;
-  const { result, profile, currentValue } = lastAssessment;
+  const { result, profile, currentValue, rawCurrentValue, extraInputs } = lastAssessment;
   state.candidates.unshift({
     id: newId(),
     created_at: new Date().toISOString(),
@@ -1285,6 +1518,16 @@ byId('quick-result').addEventListener('click', async event => {
     condition_label: profile.condition_label,
     unit_label: profile.unit_label,
     current_value: currentValue,
+    raw_current_value: rawCurrentValue,
+    hall_name: byId('quick-hall').value,
+    seat_number: byId('quick-seat').value ? Number(byId('quick-seat').value) : null,
+    observed_at: new Date().toISOString(),
+    profile_inputs: extraInputs,
+    exchange_type: byId('quick-exchange').value,
+    funding_mode: byId('quick-funding').value,
+    reset_status: byId('quick-reset').value,
+    estimated_play_minutes: result.estimated_play_minutes,
+    ev_per_hour_yen: result.ev_per_hour_yen,
     expected_value_yen: result.expected_value_yen,
     worst_case_investment_yen: result.worst_case_investment_yen,
   });
@@ -1302,10 +1545,15 @@ byId('candidate-list').addEventListener('click', async event => {
     if (!candidate) return;
     byId('result-candidate-id').value = candidate.id;
     byId('result-machine').textContent = candidate.machine_name;
+    byId('result-context').textContent = [candidate.hall_name, candidate.seat_number ? `${candidate.seat_number}番台` : '', `${candidate.current_value}${candidate.unit_label || 'G'}から`, candidate.condition_label].filter(Boolean).join('・');
     byId('result-date').value = todayValue();
     byId('result-investment').value = '';
     byId('result-returns').value = '';
     byId('result-minutes').value = '';
+    byId('result-outcome').value = 'hit';
+    byId('result-hit-game').value = '';
+    byId('result-end-game').value = '';
+    byId('result-end-state').value = '';
     byId('result-notes').value = '';
     byId('result-dialog').showModal();
   } else if (skipButton) {
@@ -1369,11 +1617,24 @@ byId('result-form').addEventListener('submit', async event => {
     candidate_id: candidate.id,
     created_at: new Date().toISOString(),
     machine_name: candidate.machine_name,
+    catalog_key: candidate.catalog_key,
+    hall_name: candidate.hall_name || '',
+    seat_number: candidate.seat_number || null,
+    start_value: candidate.current_value,
+    condition_label: candidate.condition_label,
+    exchange_type: candidate.exchange_type,
+    funding_mode: candidate.funding_mode,
+    reset_status: candidate.reset_status,
+    profile_inputs: candidate.profile_inputs || {},
     played_on: byId('result-date').value,
     expected_value_yen: candidate.expected_value_yen !== null && candidate.expected_value_yen !== undefined ? Number(candidate.expected_value_yen) : null,
     investment_yen: Number(byId('result-investment').value),
     returns_yen: Number(byId('result-returns').value),
     played_minutes: Number(byId('result-minutes').value || 0),
+    outcome: byId('result-outcome').value,
+    hit_game: byId('result-hit-game').value === '' ? null : Number(byId('result-hit-game').value),
+    end_game: byId('result-end-game').value === '' ? null : Number(byId('result-end-game').value),
+    end_state: byId('result-end-state').value.trim(),
     notes: byId('result-notes').value.trim(),
   });
   state.candidates = state.candidates.filter(item => item.id !== candidate.id);
@@ -1392,6 +1653,20 @@ byId('budget-form').addEventListener('submit', async event => {
   renderAll();
   showScreen('check');
   showToast('資金設定を保存しました');
+});
+
+byId('sync-enable-button').addEventListener('click', async () => {
+  if (!byId('sync-key').value.trim()) byId('sync-key').value = `${newId().replace(/-/g, '')}${newId().replace(/-/g, '')}`;
+  state.sync.key = byId('sync-key').value.trim();
+  state.sync.enabled = true;
+  await pushMobileSync();
+});
+byId('sync-push-button').addEventListener('click', () => pushMobileSync());
+byId('sync-pull-button').addEventListener('click', () => {
+  if (state.results.length || state.candidates.length || state.patrol_observations.length) {
+    if (!confirm('この端末の現在データをサーバー保存データで置き換えますか？')) return;
+  }
+  pullMobileSync();
 });
 
 byId('export-button').addEventListener('click', () => {

@@ -8,7 +8,7 @@ import {
   money,
 } from './core.mjs';
 
-const APP_VERSION = '1.9.7';
+const APP_VERSION = '1.9.8';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -21,8 +21,8 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-10',
-    title: 'どこからでもホーム・全機能へ移動',
-    items: ['左上のPACHI TOOLからホームへ戻る', '右上に常時表示する全機能メニューを追加', 'ハイエナと狙い台の機能をメニュー内で整理'],
+    title: '店舗巡回モードを追加',
+    items: ['店舗ごとに見る機種だけを抽出', '通過ラインと打ち始めを並べて表示', '巡回リストから判定へワンタップ移動'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -34,7 +34,7 @@ const defaultState = {
   candidates: [],
   plans: [],
   results: [],
-  settings: { closing_time: '22:45' },
+  settings: { closing_time: '22:45', scan_hall: 'キコーナ四條畷店' },
 };
 
 function clone(value) {
@@ -55,6 +55,7 @@ let trendData = null;
 let floorData = null;
 let floorEditorSeats = [];
 let targetHallOptions = [];
+let scanSnapshot = null;
 
 function byId(id) { return document.getElementById(id); }
 function esc(value) {
@@ -487,13 +488,93 @@ async function loadTargetHallOptions() {
     ];
   }
   const options = targetHallOptions.map(row => `<option value="${esc(row.hall_name)}">${esc(row.hall_name)}</option>`).join('');
-  ['trend-hall', 'floor-hall'].forEach(id => {
+  ['trend-hall', 'floor-hall', 'scan-hall'].forEach(id => {
     const select = byId(id);
     const current = select.value;
     select.innerHTML = options;
     if ([...select.options].some(option => option.value === current)) select.value = current;
   });
+  const scanHall = byId('scan-hall');
+  if ([...scanHall.options].some(option => option.value === state.settings.scan_hall)) scanHall.value = state.settings.scan_hall;
   return targetHallOptions;
+}
+
+function comparableMachineName(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\s・･~〜～:：!！?？_\-]/g, '')
+    .replace(/^(l|スマスロ|パチスロ)/, '')
+    .replace(/モンキーターンv$/, 'モンキーターン5');
+}
+
+function isInstalledProfile(profileName, installedNames) {
+  const profileKey = comparableMachineName(profileName);
+  return installedNames.some(name => {
+    const installedKey = comparableMachineName(name);
+    return profileKey === installedKey || profileKey.includes(installedKey) || installedKey.includes(profileKey);
+  });
+}
+
+function renderScanList(snapshot, fallback = false) {
+  const installedNames = (snapshot?.machines || []).map(row => row.machine_name);
+  const availableProfiles = fallback || !installedNames.length
+    ? profiles
+    : profiles.filter(profile => isInstalledProfile(profile.machine_name, installedNames));
+  const grouped = new Map();
+  availableProfiles.forEach(profile => {
+    if (!grouped.has(profile.machine_name)) grouped.set(profile.machine_name, []);
+    grouped.get(profile.machine_name).push(profile);
+  });
+  const machineGroups = [...grouped.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ja'));
+  const hall = byId('scan-hall').value;
+  const dateLabel = snapshot?.snapshot_date ? `設置確認 ${snapshot.snapshot_date}` : '設置情報未取得';
+  byId('scan-summary').innerHTML = `<strong>${esc(hall)}：見るのは${machineGroups.length}機種だけ</strong><span>${esc(dateLabel)}・登録${profiles.length}条件から店舗設置機種を抽出。通過ライン未満は島を歩きながら数字だけ見て通過します。</span>`;
+  const list = byId('scan-machine-list');
+  if (!machineGroups.length) {
+    list.innerHTML = '<p class="empty">この店舗で対応機種を照合できませんでした。設置情報を更新するか、早見表を使用してください。</p>';
+    return;
+  }
+  list.innerHTML = machineGroups.map(([machine, machineProfiles], machineIndex) => `
+    <article class="scan-machine-card">
+      <div class="scan-machine-head"><span>${machineIndex + 1}</span><div><strong>${esc(machine)}</strong><small>${machineProfiles.length}条件を確認</small></div></div>
+      <div class="scan-condition-list">${machineProfiles.map(profile => {
+        const passLine = Math.max(0, Number(profile.start_threshold) - 100);
+        return `<div class="scan-condition-row">
+          <div><strong>${esc(profile.condition_label)}</strong><small>${esc(profile.metric_name)}</small></div>
+          <span class="scan-pass"><small>通過</small><b>${passLine.toLocaleString('ja-JP')}${esc(profile.unit_label)}未満</b></span>
+          <span class="scan-play"><small>打ち始め</small><b>${Number(profile.start_threshold).toLocaleString('ja-JP')}${esc(profile.unit_label)}〜</b><em>${money(profile.expected_value_yen, true)}</em></span>
+          <button type="button" data-scan-profile="${profile.id}">入力</button>
+        </div>`;
+      }).join('')}</div>
+    </article>`).join('');
+}
+
+async function loadScanHall() {
+  await loadTargetHallOptions();
+  const hall = byId('scan-hall').value;
+  const button = byId('scan-load-button');
+  const status = byId('scan-status');
+  button.disabled = true;
+  status.textContent = '店舗の設置機種と期待値カタログを照合中...';
+  state.settings.scan_hall = hall;
+  await writeLocalState();
+  try {
+    const response = await fetch(apiUrl(`/api/hall/installation_snapshot?hall_name=${encodeURIComponent(hall)}&ts=${Date.now()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error(`設置機種API ${response.status}`);
+    scanSnapshot = await response.json();
+    renderScanList(scanSnapshot);
+    status.textContent = scanSnapshot.snapshot_date
+      ? `${scanSnapshot.snapshot_date}取得分から、対応している島だけに絞りました。`
+      : '設置履歴がないため、登録済み全機種を表示します。';
+    if (!scanSnapshot.machines?.length) renderScanList(scanSnapshot, true);
+  } catch (error) {
+    scanSnapshot = { hall_name: hall, machines: [] };
+    renderScanList(scanSnapshot, true);
+    status.textContent = `設置情報を取得できないため全対応機種を表示：${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderProfileBars(rows, labelKey, valueKey = 'avg_diff') {
@@ -853,7 +934,7 @@ function setMobileMenu(open) {
 
 function showScreen(name) {
   if (name === 'home') activeModule = 'home';
-  else if (['check', 'guide'].includes(name)) activeModule = 'hyena';
+  else if (['check', 'scan', 'guide'].includes(name)) activeModule = 'hyena';
   else if (['planner', 'trend', 'target-map', 'floor-map', 'strategy'].includes(name)) activeModule = 'target';
   const navName = name;
   document.querySelectorAll('.screen').forEach(screen => screen.classList.toggle('active', screen.id === `screen-${name}`));
@@ -877,6 +958,7 @@ function showScreen(name) {
   document.body.dataset.module = activeModule;
   byId('brand-mode-label').textContent = activeModule === 'hyena' ? 'ハイエナ専用' : activeModule === 'target' ? '狙い台捜索専用' : 'スマスロ攻略ホーム';
   scrollTo({ top: 0, behavior: 'smooth' });
+  if (name === 'scan' && !scanSnapshot) setTimeout(loadScanHall, 80);
   if (name === 'target-map' && !targetMapData) setTimeout(loadTargetHeatMap, 80);
   if (name === 'trend' && !trendData) setTimeout(loadTrendProfile, 80);
   if (name === 'floor-map' && !floorData) setTimeout(loadFloorHeat, 80);
@@ -916,6 +998,22 @@ byId('quick-profile').addEventListener('change', () => syncConditions(currentPro
 byId('quick-close').addEventListener('change', async event => {
   state.settings.closing_time = event.target.value;
   await writeLocalState();
+});
+
+byId('scan-hall-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  await loadScanHall();
+});
+
+byId('scan-machine-list').addEventListener('click', event => {
+  const button = event.target.closest('[data-scan-profile]');
+  if (!button) return;
+  const profileId = Number(button.dataset.scanProfile);
+  populateMachines(profileId);
+  byId('quick-current').value = '';
+  showScreen('check');
+  setTimeout(() => byId('quick-current').focus(), 250);
+  showToast('近い台だけ履歴を確認して数値を入力');
 });
 
 byId('target-search-form').addEventListener('submit', async event => {

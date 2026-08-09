@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=1.9.7">
+  <link rel="stylesheet" href="./app.css?v=1.9.8">
   <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スマスロ攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v1.9.7</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v1.9.8</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -33,6 +33,7 @@
         <button class="menu-item menu-home" type="button" data-menu-screen data-screen-target="home"><span>⌂</span><b>ホーム</b><small>攻略モードを選ぶ</small></button>
         <p class="menu-section-label">ハイエナ</p>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="check"><span>◎</span><b>空き台判定</b><small>期待値と必要資金を確認</small></button>
+        <button class="menu-item" type="button" data-menu-screen data-screen-target="scan"><span>↻</span><b>店舗巡回</b><small>見る島とボーダーを絞る</small></button>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="guide"><span>☷</span><b>期待値早見表</b><small>狙い目を一覧で比較</small></button>
         <p class="menu-section-label">狙い台捜索</p>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="planner"><span>◇</span><b>狙い台捜索</b><small>行く日から候補を分析</small></button>
@@ -121,7 +122,34 @@
         <div id="quick-result" aria-live="polite"></div>
       </article>
 
+      <button class="text-action scan-shortcut" type="button" data-screen-target="scan">店舗巡回モードで見る台を絞る <span>→</span></button>
       <button class="text-action" type="button" data-screen-target="guide">ハイエナ早見表から選ぶ <span>→</span></button>
+    </section>
+
+    <section id="screen-scan" class="screen">
+      <button class="back-action" type="button" data-screen-target="check">← 空き台判定に戻る</button>
+      <div class="page-heading compact-heading">
+        <span class="module-tag module-hyena">ハイエナ</span>
+        <h1>店舗巡回モード</h1>
+        <p>その店にある対応機種だけに絞り、通過ラインと打ち始めを見ながら島を回ります。</p>
+      </div>
+
+      <article class="panel scan-control-panel">
+        <form id="scan-hall-form">
+          <label>いまいる店舗<select id="scan-hall" required></select></label>
+          <button id="scan-load-button" class="primary-button" type="submit">この店の巡回リストを作る</button>
+        </form>
+        <p id="scan-status" class="fine-print">店舗の最新設置機種と期待値カタログを照合します。</p>
+      </article>
+
+      <div id="scan-summary" class="scope-note"><strong>店舗を選んで開始</strong><span>対応機種の島だけを確認します。</span></div>
+
+      <div class="scan-legend">
+        <span><i class="scan-pass-dot"></i><b>通過ライン</b> 未満なら立ち止まらない</span>
+        <span><i class="scan-play-dot"></i><b>打ち始め</b> 条件確認後に判定</span>
+      </div>
+      <div id="scan-machine-list" class="scan-machine-list"><p class="empty">店舗を読み込むと巡回順の候補が表示されます。</p></div>
+      <p class="fine-print">通過ラインは素早く候補を拾うための目安です。打つ判断ではなく、近い台だけ履歴・スルー回数・液晶表示を詳しく確認してください。</p>
     </section>
 
     <section id="screen-guide" class="screen">
@@ -337,7 +365,7 @@
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v1.9.7・更新日 2026/08/10</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v1.9.8・更新日 2026/08/10</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
@@ -383,6 +411,7 @@
   <nav class="bottom-nav" aria-label="専用メニュー" hidden>
     <button class="nav-button active" data-screen="home" aria-current="page"><span class="nav-icon">⌂</span><span>ホーム</span></button>
     <button class="nav-button" data-module-nav="hyena" data-screen="check"><span class="nav-icon">◎</span><span>判定</span></button>
+    <button class="nav-button" data-module-nav="hyena" data-screen="scan"><span class="nav-icon">↻</span><span>巡回</span></button>
     <button class="nav-button" data-module-nav="hyena" data-screen="guide"><span class="nav-icon">☷</span><span>早見表</span></button>
     <button class="nav-button" data-module-nav="target" data-screen="planner"><span class="nav-icon">◇</span><span>捜索</span></button>
     <button class="nav-button" data-module-nav="target" data-screen="trend"><span class="nav-icon">▥</span><span>傾向</span></button>
@@ -405,6 +434,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=1.9.7"></script>
+  <script type="module" src="./app.js?v=1.9.8"></script>
 </body>
 </html>

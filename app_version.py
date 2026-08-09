@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "1.9.7"
+APP_VERSION = "1.9.8"
 RELEASE_DATE = "2026-08-10"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "1.9.8",
+        "released_on": "2026-08-10",
+        "title": "店舗巡回モードを追加",
+        "items": [
+            "店舗の設置情報と期待値カタログを照合し、見る機種だけを抽出",
+            "通過ライン未満は立ち止まらず、ボーダーに近い台だけ詳しく確認",
+            "巡回リストからワンタップで条件を引き継いで空き台判定へ移動",
+        ],
+    },
     {
         "version": "1.9.7",
         "released_on": "2026-08-10",

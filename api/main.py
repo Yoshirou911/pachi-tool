@@ -54,7 +54,16 @@ _TOKEN_HEADER = "x-pachi-token"
 # CORS: フロントは同一オリジン（StaticFilesで配信）なので本来クロスオリジンは
 # 不要。開発などで別オリジンから叩きたい場合のみ CORS_ALLOW_ORIGINS
 # (カンマ区切り) で明示的に許可する。未設定時はワイルドカードにしない。
-_cors_origins = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
+_configured_cors_origins = [
+    o.strip()
+    for o in os.environ.get("CORS_ALLOW_ORIGINS", "").split(",")
+    if o.strip()
+]
+# GitHub Pages で配布する iPhone PWA は別オリジンになるため、この公開元だけを常時許可する。
+_cors_origins = list(dict.fromkeys([
+    "https://yoshirou911.github.io",
+    *_configured_cors_origins,
+]))
 
 
 @asynccontextmanager

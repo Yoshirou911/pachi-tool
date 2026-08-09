@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const html = readFileSync(new URL('../mobile/index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../mobile/app.css', import.meta.url), 'utf8');
+const app = readFileSync(new URL('../mobile/app.js', import.meta.url), 'utf8');
 
 for (const id of ['screen-home', 'screen-check', 'screen-guide', 'screen-planner', 'screen-trend', 'screen-target-map', 'screen-floor-map', 'screen-strategy', 'screen-results', 'screen-settings']) {
   assert.match(html, new RegExp(`id="${id}"`), `${id} が必要`);
@@ -34,8 +35,10 @@ assert.match(html, /id="catalog-scope"/, '現在の対象機種を明示する')
 assert.match(html, /スマスロ攻略ホーム/, 'スマスロ専門ツールであることを明示する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=1\.9\.2/);
-assert.match(html, /app\.js\?v=1\.9\.2/);
+assert.match(html, /app\.css\?v=1\.9\.3/);
+assert.match(html, /app\.js\?v=1\.9\.3/);
+assert.match(app, /hostname === 'yoshirou911\.github\.io'/, '公開PWAではAPI接続先を切り替える');
+assert.match(app, /https:\/\/pachi-tool\.fly\.dev/, '公開PWAの分析API接続先が必要');
 assert.match(css, /min-height:\s*calc\(68px \+ var\(--safe-bottom\)\)/, '下部メニューのタップ領域を確保する');
 
 console.log('mobile UI contract tests passed');

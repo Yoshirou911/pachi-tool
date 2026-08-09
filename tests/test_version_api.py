@@ -23,3 +23,15 @@ def test_patch_note_versions_are_unique():
     notes = client.get("/api/version").json()["patch_notes"]
     versions = [note["version"] for note in notes]
     assert len(versions) == len(set(versions))
+
+
+def test_public_iphone_pwa_origin_is_allowed_by_cors():
+    response = client.options(
+        "/api/version",
+        headers={
+            "Origin": "https://yoshirou911.github.io",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://yoshirou911.github.io"

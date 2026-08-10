@@ -37,23 +37,36 @@ assert.match(html, /id="catalog-scope"/, '現在の対象機種を明示する')
 assert.match(html, /スマスロ攻略ホーム/, 'スマスロ専門ツールであることを明示する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=2\.0\.0/);
-assert.match(html, /app\.js\?v=2\.0\.0/);
+assert.match(html, /app\.css\?v=2\.4\.1/);
+assert.match(html, /app\.js\?v=2\.4\.1/);
 assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
 assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
 assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
 assert.match(app, /TIME_STRATEGIES/, '朝一から閉店前までの戦略を切り替える');
 assert.match(app, /data_coverage/, '店舗ごとのデータ充足度APIを使用する');
 assert.match(html, /着席前30秒チェック/, 'ゲーム数だけで判断しない現場チェックが必要');
+assert.match(html, /今日の使い方/, '店内での実戦手順をスマホから確認できる');
+assert.match(app, /data-seat-confirm/, '着席候補を保存する前に現物確認を要求する');
+assert.match(app, /データ信頼度/, '判定結果からデータの信頼度を確認できる');
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');
 assert.match(app, /catalog\.json\?v=\$\{APP_VERSION\}/, '機種追加時に古いカタログキャッシュを使わない');
-assert.match(app, /core\.mjs\?v=2\.0\.0/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /core\.mjs\?v=2\.4\.1/, '内部判定ロジックも更新時にキャッシュを破棄する');
 assert.match(app, /installation_snapshot/, '店舗の設置機種を使って巡回対象を絞る');
 assert.match(app, /start_threshold\) - 100/, 'ボーダー100G手前を通過ラインとして表示する');
 assert.match(html, /id="patrol-observation-form"/, '台番号別の巡回記録を入力できる');
 assert.match(html, /id="validation-summary"/, '期待値ボーダーを実戦結果で検証できる');
 assert.match(html, /id="sync-push-button"/, '端末間のサーバー同期を操作できる');
+assert.match(html, /id="quick-section-diff"/, '有利区間差枚を入力できる');
+assert.match(html, /id="quick-replay-used"/, '再プレイ使用枚数を保持できる');
+assert.match(html, /id="quick-templates"/, '頻出入力をワンタップで反映できる');
+assert.match(html, /id="quick-ocr-file"/, 'カメラOCR入力を利用できる');
+assert.match(html, /id="reset-record-form"/, '店舗別リセット・据え置き癖を記録できる');
+assert.match(html, /id="archive-collector-group"/, '設定から過去データ収集を管理できる');
+assert.match(html, /id="mobile-archive-pause"/, 'iPhoneから収集を一時停止できる');
+assert.match(html, /id="mobile-archive-resume"/, 'iPhoneから収集を再開できる');
+assert.match(app, /api\/scrape\/archive\/status/, '過去データ収集の進捗APIを利用する');
+assert.match(app, /pending_count/, 'オフライン変更を未送信キューとして保持する');
 assert.match(html, /id="result-hit-game"/, '当選ゲーム数を詳細記録できる');
 assert.match(html, /id="brand-home"[^>]*data-screen-target="home"/, '左上ブランドからホームへ戻れる');
 assert.match(html, /id="mobile-menu-button"/, '全画面共通のメニューボタンが必要');
@@ -64,5 +77,7 @@ for (const target of ['home', 'check', 'scan', 'guide', 'planner', 'trend', 'tar
 assert.match(app, /hostname === 'yoshirou911\.github\.io'/, '公開PWAではAPI接続先を切り替える');
 assert.match(app, /https:\/\/pachi-tool\.fly\.dev/, '公開PWAの分析API接続先が必要');
 assert.match(css, /min-height:\s*calc\(68px \+ var\(--safe-bottom\)\)/, '下部メニューのタップ領域を確保する');
+
+assert.match(html, /id="quick-exchange-rate"[^>]*min="5"[^>]*step="0\.1"/);
 
 console.log('mobile UI contract tests passed');

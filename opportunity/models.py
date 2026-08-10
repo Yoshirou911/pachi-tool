@@ -8,6 +8,12 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Generator, Optional
 
+from opportunity.machine_models import (
+    apply_catalog_enrichment,
+    calculate_machine_adjustment,
+    estimate_duration,
+)
+
 try:
     from config import OPPORTUNITIES_DB as DB_PATH
 except ImportError:
@@ -35,6 +41,14 @@ CREATE TABLE IF NOT EXISTS opportunity_profiles (
     source_url                 TEXT NOT NULL DEFAULT '',
     source_urls_json           TEXT NOT NULL DEFAULT '[]',
     curve_json                 TEXT NOT NULL DEFAULT '[]',
+    duration_model_json        TEXT NOT NULL DEFAULT '{}',
+    input_fields_json          TEXT NOT NULL DEFAULT '[]',
+    requirements_json          TEXT NOT NULL DEFAULT '[]',
+    duration_basis             TEXT NOT NULL DEFAULT '',
+    duration_confidence        TEXT NOT NULL DEFAULT 'unknown',
+    safe_play_minutes          INTEGER,
+    crawler_approved_at        TEXT,
+    crawler_source_hash        TEXT,
     discrepancy_note           TEXT NOT NULL DEFAULT '',
     verified_on                TEXT,
     confidence                 TEXT NOT NULL DEFAULT 'unverified',
@@ -98,10 +112,28 @@ CREATE TABLE IF NOT EXISTS opportunity_observations (
     UNIQUE(sync_key, observation_id)
 );
 
+CREATE TABLE IF NOT EXISTS opportunity_reset_records (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    sync_key       TEXT NOT NULL,
+    record_id      TEXT NOT NULL,
+    recorded_on    TEXT NOT NULL,
+    hall_name      TEXT NOT NULL,
+    machine_name   TEXT NOT NULL DEFAULT '',
+    seat_number    INTEGER,
+    weekday        INTEGER NOT NULL,
+    reset_status   TEXT NOT NULL,
+    evidence       TEXT NOT NULL DEFAULT '',
+    notes          TEXT NOT NULL DEFAULT '',
+    context_json   TEXT NOT NULL DEFAULT '{}',
+    created_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(sync_key, record_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_opp_profiles_machine ON opportunity_profiles(machine_name, active);
 CREATE INDEX IF NOT EXISTS idx_opp_candidates_status ON opportunity_candidates(status, observed_at);
 CREATE INDEX IF NOT EXISTS idx_opp_results_date ON opportunity_results(played_on);
 CREATE INDEX IF NOT EXISTS idx_opp_observations_hall_time ON opportunity_observations(hall_name, observed_at);
+CREATE INDEX IF NOT EXISTS idx_opp_reset_hall_weekday ON opportunity_reset_records(hall_name, weekday, machine_name);
 """
 
 
@@ -135,10 +167,21 @@ def init_db() -> None:
             "source_urls_json": "TEXT NOT NULL DEFAULT '[]'",
             "curve_json": "TEXT NOT NULL DEFAULT '[]'",
             "discrepancy_note": "TEXT NOT NULL DEFAULT ''",
+            "duration_model_json": "TEXT NOT NULL DEFAULT '{}'",
+            "input_fields_json": "TEXT NOT NULL DEFAULT '[]'",
+            "requirements_json": "TEXT NOT NULL DEFAULT '[]'",
+            "duration_basis": "TEXT NOT NULL DEFAULT ''",
+            "duration_confidence": "TEXT NOT NULL DEFAULT 'unknown'",
+            "safe_play_minutes": "INTEGER",
+            "crawler_approved_at": "TEXT",
+            "crawler_source_hash": "TEXT",
         }
         for name, sql_type in migrations.items():
             if name not in columns:
                 con.execute(f"ALTER TABLE opportunity_profiles ADD COLUMN {name} {sql_type}")
+        candidate_columns = {row["name"] for row in con.execute("PRAGMA table_info(opportunity_candidates)").fetchall()}
+        if "context_json" not in candidate_columns:
+            con.execute("ALTER TABLE opportunity_candidates ADD COLUMN context_json TEXT NOT NULL DEFAULT '{}'")
 
 
 def save_mobile_sync(sync_key: str, state: dict) -> dict:
@@ -146,6 +189,7 @@ def save_mobile_sync(sync_key: str, state: dict) -> dict:
     if len(payload.encode("utf-8")) > 2_000_000:
         raise ValueError("同期データが2MBを超えています")
     observations = state.get("patrol_observations") if isinstance(state, dict) else []
+    reset_records = state.get("hall_reset_records") if isinstance(state, dict) else []
     with _conn() as con:
         con.execute(
             """INSERT INTO mobile_sync_state(sync_key,payload_json) VALUES(?,?)
@@ -168,8 +212,31 @@ def save_mobile_sync(sync_key: str, state: dict) -> dict:
                  float(row.get("current_value") or 0), str(row.get("status") or "watch"),
                  str(row.get("time_bucket") or ""), json.dumps(row, ensure_ascii=False)),
             )
+        for row in reset_records if isinstance(reset_records, list) else []:
+            if not isinstance(row, dict) or not row.get("id") or not row.get("recorded_on") or not row.get("hall_name"):
+                continue
+            try:
+                recorded = date.fromisoformat(str(row["recorded_on"])[:10])
+            except ValueError:
+                continue
+            status = str(row.get("reset_status") or "unknown")
+            if status not in {"reset_confirmed", "normal", "unknown"}:
+                continue
+            con.execute(
+                """INSERT INTO opportunity_reset_records
+                   (sync_key,record_id,recorded_on,hall_name,machine_name,seat_number,weekday,reset_status,evidence,notes)
+                   VALUES(?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(sync_key,record_id) DO UPDATE SET
+                   recorded_on=excluded.recorded_on,hall_name=excluded.hall_name,machine_name=excluded.machine_name,
+                   seat_number=excluded.seat_number,weekday=excluded.weekday,reset_status=excluded.reset_status,
+                   evidence=excluded.evidence,notes=excluded.notes""",
+                (sync_key, str(row["id"]), recorded.isoformat(), str(row["hall_name"]),
+                 str(row.get("machine_name") or ""), row.get("seat_number"), recorded.weekday(), status,
+                 str(row.get("evidence") or ""), str(row.get("notes") or "")),
+            )
         saved = con.execute("SELECT updated_at FROM mobile_sync_state WHERE sync_key=?", (sync_key,)).fetchone()
-    return {"ok": True, "updated_at": saved["updated_at"], "observation_count": len(observations or [])}
+    return {"ok": True, "updated_at": saved["updated_at"], "observation_count": len(observations or []),
+            "reset_record_count": len(reset_records or [])}
 
 
 def load_mobile_sync(sync_key: str) -> Optional[dict]:
@@ -193,6 +260,47 @@ def get_intraday_coverage(hall_name: str) -> dict:
             "note": "30件・3日以上で時間帯別の実測分析を開始します。"}
 
 
+def get_reset_tendency(hall_name: str, machine_name: str = "", weekday: int | None = None) -> dict:
+    """店舗・曜日・機種別のリセット率と安全側の自動候補を返す。"""
+    with _conn() as con:
+        rows = con.execute(
+            """SELECT recorded_on,machine_name,weekday,reset_status,evidence,notes
+               FROM opportunity_reset_records WHERE hall_name=?
+                 AND reset_status IN ('reset_confirmed','normal')
+               ORDER BY recorded_on DESC,id DESC""",
+            (hall_name,),
+        ).fetchall()
+    records = [dict(row) for row in rows]
+
+    def summarize(items: list[dict]) -> dict:
+        total = len(items)
+        resets = sum(1 for item in items if item["reset_status"] == "reset_confirmed")
+        rate = resets / total if total else None
+        suggestion = "unknown"
+        if total >= 3 and rate is not None:
+            if rate >= 0.70:
+                suggestion = "reset_confirmed"
+            elif rate <= 0.30:
+                suggestion = "normal"
+        return {"samples": total, "resets": resets, "carryovers": total - resets,
+                "reset_rate": round(rate * 100, 1) if rate is not None else None,
+                "suggestion": suggestion}
+
+    selected = records
+    if weekday is not None:
+        selected = [item for item in selected if int(item["weekday"]) == int(weekday)]
+    if machine_name:
+        machine_selected = [item for item in selected if item["machine_name"] == machine_name]
+        if len(machine_selected) >= 3:
+            selected = machine_selected
+    by_weekday = {str(day): summarize([item for item in records if int(item["weekday"]) == day]) for day in range(7)}
+    machines = sorted({item["machine_name"] for item in records if item["machine_name"]})
+    by_machine = {name: summarize([item for item in records if item["machine_name"] == name]) for name in machines}
+    return {"hall_name": hall_name, "machine_name": machine_name, "weekday": weekday,
+            "overall": summarize(records), "selected": summarize(selected),
+            "by_weekday": by_weekday, "by_machine": by_machine, "recent": records[:20]}
+
+
 def _row_dict(row: sqlite3.Row | None) -> Optional[dict]:
     return dict(row) if row is not None else None
 
@@ -201,11 +309,17 @@ def _deserialize_profile(row: sqlite3.Row | dict | None) -> Optional[dict]:
     if row is None:
         return None
     result = dict(row)
-    for source_key, target_key in (("source_urls_json", "source_urls"), ("curve_json", "curve_points")):
+    for source_key, target_key, fallback in (
+        ("source_urls_json", "source_urls", []),
+        ("curve_json", "curve_points", []),
+        ("duration_model_json", "duration_model", {}),
+        ("input_fields_json", "input_fields", []),
+        ("requirements_json", "requirements", []),
+    ):
         try:
-            result[target_key] = json.loads(result.get(source_key) or "[]")
+            result[target_key] = json.loads(result.get(source_key) or json.dumps(fallback))
         except (TypeError, json.JSONDecodeError):
-            result[target_key] = []
+            result[target_key] = fallback
         result.pop(source_key, None)
     return result
 
@@ -216,6 +330,8 @@ def save_profile(data: dict) -> dict:
         "metric_name", "unit_label", "start_threshold",
         "ceiling_threshold", "expected_value_yen", "estimated_play_minutes", "worst_case_investment_yen",
         "stop_rule", "source_name", "source_url", "source_urls_json", "curve_json",
+        "duration_model_json", "input_fields_json", "requirements_json",
+        "duration_basis", "duration_confidence", "safe_play_minutes",
         "verified_on", "confidence", "discrepancy_note", "notes",
     )
     values = dict(data)
@@ -228,6 +344,11 @@ def save_profile(data: dict) -> dict:
     source_urls = data.get("source_urls") or ([data["source_url"]] if data.get("source_url") else [])
     values["source_urls_json"] = json.dumps(source_urls, ensure_ascii=False)
     values["curve_json"] = json.dumps(data.get("curve_points", []), ensure_ascii=False)
+    values["duration_model_json"] = json.dumps(data.get("duration_model", {}), ensure_ascii=False)
+    values["input_fields_json"] = json.dumps(data.get("input_fields", []), ensure_ascii=False)
+    values["requirements_json"] = json.dumps(data.get("requirements", []), ensure_ascii=False)
+    values["duration_basis"] = data.get("duration_basis") or ""
+    values["duration_confidence"] = data.get("duration_confidence") or "unknown"
     with _conn() as con:
         cur = con.execute(
             f"INSERT INTO opportunity_profiles ({','.join(columns)}) VALUES ({','.join('?' for _ in columns)})",
@@ -264,12 +385,15 @@ def seed_catalog(path: Path | None = None) -> int:
         return 0
     raw = json.loads(catalog_path.read_text(encoding="utf-8-sig"))
     count = 0
-    for profile in raw.get("profiles", []):
+    for raw_profile in raw.get("profiles", []):
+        profile = apply_catalog_enrichment(raw_profile)
         key = profile.get("catalog_key")
         if not key:
             continue
         with _conn() as con:
-            row = con.execute("SELECT id FROM opportunity_profiles WHERE catalog_key = ?", (key,)).fetchone()
+            row = con.execute(
+                "SELECT id,verified_on,crawler_approved_at FROM opportunity_profiles WHERE catalog_key = ?", (key,)
+            ).fetchone()
         if row:
             values = dict(profile)
             values["condition_label"] = profile.get("condition_label") or "条件未設定"
@@ -280,13 +404,22 @@ def seed_catalog(path: Path | None = None) -> int:
                 values[field] = profile.get(field) or ""
             values["source_urls_json"] = json.dumps(profile.get("source_urls", []), ensure_ascii=False)
             values["curve_json"] = json.dumps(profile.get("curve_points", []), ensure_ascii=False)
+            values["duration_model_json"] = json.dumps(profile.get("duration_model", {}), ensure_ascii=False)
+            values["input_fields_json"] = json.dumps(profile.get("input_fields", []), ensure_ascii=False)
+            values["requirements_json"] = json.dumps(profile.get("requirements", []), ensure_ascii=False)
+            values["duration_basis"] = profile.get("duration_basis") or ""
+            values["duration_confidence"] = profile.get("duration_confidence") or "unknown"
             columns = (
                 "machine_name", "condition_label", "exchange_type", "funding_mode", "reset_status",
                 "metric_name", "unit_label", "start_threshold",
                 "ceiling_threshold", "expected_value_yen", "estimated_play_minutes", "worst_case_investment_yen",
                 "stop_rule", "source_name", "source_url", "source_urls_json", "curve_json",
+                "duration_model_json", "input_fields_json", "requirements_json",
+                "duration_basis", "duration_confidence", "safe_play_minutes",
                 "verified_on", "confidence", "discrepancy_note", "notes",
             )
+            if row["crawler_approved_at"] and str(profile.get("verified_on") or "") <= str(row["verified_on"] or ""):
+                columns = tuple(column for column in columns if column not in {"expected_value_yen", "curve_json", "verified_on"})
             with _conn() as con:
                 sets = ",".join(f"{column} = ?" for column in columns)
                 con.execute(
@@ -326,10 +459,11 @@ def save_candidate(data: dict) -> dict:
         profile_id = data.get("profile_id") or _best_profile(con, data["machine_name"])
         cur = con.execute(
             """INSERT INTO opportunity_candidates
-               (observed_at,hall_name,machine_name,seat_number,current_value,profile_id,notes)
-               VALUES (?,?,?,?,?,?,?)""",
+               (observed_at,hall_name,machine_name,seat_number,current_value,profile_id,notes,context_json)
+               VALUES (?,?,?,?,?,?,?,?)""",
             (observed_at, data.get("hall_name", ""), data["machine_name"], data.get("seat_number"),
-             data["current_value"], profile_id, data.get("notes", "")),
+             data["current_value"], profile_id, data.get("notes", ""),
+             json.dumps(data.get("context") or {}, ensure_ascii=False)),
         )
         return _row_dict(con.execute("SELECT * FROM opportunity_candidates WHERE id = ?", (cur.lastrowid,)).fetchone()) or {}
 
@@ -415,11 +549,120 @@ def get_budget_summary(month: str) -> dict:
     }
 
 
-def assess_candidate(candidate: dict, profile: dict | None, risk_capacity_yen: int) -> dict:
-    """根拠不足を勝手に補完せず、候補台を判定する。"""
+def _finite_number(value, default=None):
+    if value in (None, ""):
+        return default
+    try:
+        number = float(value)
+        return number if number == number and number not in (float("inf"), float("-inf")) else default
+    except (TypeError, ValueError):
+        return default
+
+
+def calculate_section_adjustment(profile: dict, section_difference_coins=None, context: dict | None = None) -> dict:
+    """機種専用ルールを優先し、未確認の汎用差枚補正は着席許可に使わない。"""
+    combined = dict(context or {})
+    if section_difference_coins not in (None, ""):
+        combined["section_difference_coins"] = section_difference_coins
+    difference = _finite_number(section_difference_coins)
+    # 旧来の線形補正は、カタログ側に明示した検証済みルールだけ互換利用する。
+    enabled = bool(profile.get("section_cut_enabled") or profile.get("section_cut_verified")
+                   or profile.get("section_cut_target_coins") is not None
+                   or (not profile.get("catalog_key") and "スマスロ" in str(profile.get("machine_name") or "")))
+    if not enabled:
+        return calculate_machine_adjustment(profile, combined)
+    if difference is None:
+        return {"active": False}
+    target = _finite_number(profile.get("section_cut_target_coins"), 2400.0)
+    window = max(1.0, _finite_number(profile.get("section_cut_window_coins"), 1200.0))
+    max_reduction = max(0.0, _finite_number(profile.get("section_cut_max_border_reduction"), 100.0))
+    remaining = target - difference
+    if remaining <= 0 or remaining > window:
+        return {"active": False, "current_difference_coins": difference,
+                "remaining_to_cut_coins": max(0, round(remaining)), "target_coins": target}
+    proximity = max(0.0, min(1.0, 1.0 - remaining / window))
+    reduction = int(max_reduction * proximity // 10 * 10)
+    return {
+        "active": reduction > 0,
+        "verified": bool(profile.get("section_cut_verified")),
+        "current_difference_coins": difference,
+        "remaining_to_cut_coins": round(remaining),
+        "target_coins": target,
+        "proximity": proximity,
+        "border_reduction": reduction,
+    }
+
+
+def calculate_replay_adjustment(
+    profile: dict,
+    exchange_type: str = "equivalent",
+    funding_mode: str = "cash",
+    replay_limit_medals=0,
+    replay_used_medals=0,
+    exchange_rate=None,
+) -> dict:
+    """再プレイ上限を超える現金投資の交換ギャップを期待値から控除する。"""
+    rate = _finite_number(exchange_rate, 5.6 if exchange_type == "56" else None)
+    limit = max(0.0, _finite_number(replay_limit_medals, 0.0))
+    used = max(0.0, _finite_number(replay_used_medals, 0.0))
+    if exchange_type == "equivalent" or funding_mode != "medals" or not rate or rate <= 5 or limit <= 0:
+        return {"active": False, "remaining_replay_medals": max(0, limit - used), "cash_gap_yen": 0}
+    remaining = max(0.0, limit - used)
+    gap_per_medal = max(0.0, 20.0 - 100.0 / rate)
+    target_ev = max(0.0, _finite_number(profile.get("expected_value_yen"), 0.0))
+    points = []
+    for point in sorted(profile.get("curve_points") or [], key=lambda item: float(item["value"])):
+        worst = max(0.0, _finite_number(point.get("worst_case_yen"), profile.get("worst_case_investment_yen") or 0))
+        required = int(-(-worst // 20))
+        cash_medals = max(0.0, required - remaining)
+        cash_gap = round(cash_medals * gap_per_medal)
+        points.append({**point, "required_medals": required, "cash_medals": cash_medals,
+                       "cash_gap_yen": cash_gap, "adjusted_ev_yen": int(point.get("ev_yen") or 0) - cash_gap})
+    threshold = next((point for point in points if point["adjusted_ev_yen"] >= target_ev), None)
+    return {
+        "active": True,
+        "exchange_rate": rate,
+        "replay_limit_medals": limit,
+        "replay_used_medals": used,
+        "remaining_replay_medals": remaining,
+        "gap_per_cash_medal_yen": gap_per_medal,
+        "adjusted_start_threshold": float(threshold["value"]) if threshold else None,
+        "adjusted_points": points,
+    }
+
+
+def validate_profile_inputs(profile: dict, extra_inputs: dict | None = None) -> list[str]:
+    values = extra_inputs or {}
+    errors: list[str] = []
+    for field in profile.get("input_fields") or []:
+        value = values.get(field.get("id"))
+        if field.get("required") and value in (None, ""):
+            errors.append(f"{field.get('label') or field.get('id')}が未入力")
+    for rule in profile.get("requirements") or []:
+        raw = values.get(rule.get("field"))
+        if raw in (None, ""):
+            continue
+        operator, expected = rule.get("operator"), rule.get("value")
+        matched = True
+        if operator in {"gte", "lte"}:
+            actual = _finite_number(raw)
+            target = _finite_number(expected)
+            matched = actual is not None and target is not None and (actual >= target if operator == "gte" else actual <= target)
+        elif operator == "eq":
+            matched = str(raw) == str(expected)
+        elif operator == "in":
+            matched = str(raw) in {str(item) for item in (expected or [])}
+        if not matched:
+            errors.append(str(rule.get("message") or f"{rule.get('field')}が条件外"))
+    return errors
+
+
+def assess_candidate(candidate: dict, profile: dict | None, risk_capacity_yen: int, context: dict | None = None) -> dict:
+    """根拠不足を勝手に補完せず、動的補正を含めて候補台を判定する。"""
     if not profile:
         return {"judgment": "unknown", "reason": "狙い目ルールが未登録です", "actionable": False, "priority": -1000}
 
+    context = context or {}
     current = float(candidate["current_value"])
     start = float(profile["start_threshold"])
     ceiling = profile.get("ceiling_threshold")
@@ -428,10 +671,39 @@ def assess_candidate(candidate: dict, profile: dict | None, risk_capacity_yen: i
     if ceiling is not None and float(ceiling) > 0:
         progress = min(100, max(0, round(current / float(ceiling) * 100)))
 
-    if current < start:
+    section = calculate_section_adjustment(profile, context.get("section_difference_coins"), context)
+    if section.get("active") and section.get("adjusted_start_threshold") is not None:
+        section_start = max(0, float(section["adjusted_start_threshold"]))
+    else:
+        section_start = max(0, start - section.get("border_reduction", 0)) if section.get("active") else start
+    replay = calculate_replay_adjustment(
+        profile,
+        exchange_type=context.get("exchange_type", "equivalent"),
+        funding_mode=context.get("funding_mode", "cash"),
+        replay_limit_medals=context.get("replay_limit_medals", 0),
+        replay_used_medals=context.get("replay_used_medals", 0),
+        exchange_rate=context.get("exchange_rate"),
+    )
+    replay_start = replay.get("adjusted_start_threshold") if replay.get("active") else None
+    if replay.get("active") and replay_start is None:
         return {
-            "judgment": "wait", "reason": f"開始ラインまであと{start - current:g}{profile['unit_label']}",
+            "judgment": "verify",
+            "reason": "現金ギャップを含めた安全な着席ラインを算出できません",
+            "actionable": False,
+            "priority": -60 + delta,
+            "progress_pct": progress,
+            "base_start_threshold": start,
+            "adjusted_start_threshold": None,
+            "section_adjustment": section,
+            "replay_adjustment": replay,
+        }
+    adjusted_start = section_start if replay_start is None else max(section_start, replay_start)
+    if current < adjusted_start:
+        return {
+            "judgment": "wait", "reason": f"補正後ラインまであと{adjusted_start - current:g}{profile['unit_label']}",
             "actionable": False, "priority": -100 + delta, "progress_pct": progress,
+            "base_start_threshold": start, "adjusted_start_threshold": adjusted_start,
+            "section_adjustment": section, "replay_adjustment": replay,
         }
 
     if (profile.get("confidence") not in {"official", "verified"}
@@ -443,10 +715,13 @@ def assess_candidate(candidate: dict, profile: dict | None, risk_capacity_yen: i
 
     curve = sorted(profile.get("curve_points") or [], key=lambda point: float(point["value"]))
     curve_point = next((point for point in reversed(curve) if float(point["value"]) <= current), None)
-    expected = (curve_point.get("ev_yen") if curve_point else None)
-    if expected is None:
-        expected = profile.get("expected_value_yen")
-    minutes = (curve_point.get("minutes") if curve_point else None) or profile.get("estimated_play_minutes")
+    base_expected = (curve_point.get("ev_yen") if curve_point else None)
+    if base_expected is None:
+        base_expected = profile.get("expected_value_yen")
+    if base_expected is None:
+        return {"judgment": "verify", "reason": "期待値が未登録です", "actionable": False, "priority": -40 + delta}
+    duration = estimate_duration(profile, current)
+    minutes = (curve_point.get("minutes") if curve_point else None) or duration.get("estimated_play_minutes")
     worst = (curve_point.get("worst_case_yen") if curve_point else None)
     if worst is None:
         worst = profile.get("worst_case_investment_yen")
@@ -455,21 +730,60 @@ def assess_candidate(candidate: dict, profile: dict | None, risk_capacity_yen: i
             "judgment": "verify", "reason": "最悪投資額が未登録です",
             "actionable": False, "priority": -40 + delta, "progress_pct": progress,
         }
+
+    cash_gap = 0
+    if replay.get("active"):
+        adjusted_point = next((point for point in reversed(replay.get("adjusted_points") or [])
+                               if float(point["value"]) <= current), None)
+        required = int(-(-float(worst) // 20))
+        cash_medals = max(0, required - float(replay.get("remaining_replay_medals") or 0))
+        cash_gap = int(adjusted_point["cash_gap_yen"]) if adjusted_point else round(
+            cash_medals * float(replay.get("gap_per_cash_medal_yen") or 0)
+        )
+    expected = int(base_expected) - cash_gap
+    if expected <= 0:
+        return {
+            "judgment": "wait", "reason": "現金ギャップ反映後の期待値がプラスになりません",
+            "actionable": False, "priority": -80 + delta, "progress_pct": progress,
+            "base_expected_value_yen": int(base_expected), "expected_value_yen": expected,
+            "cash_gap_yen": cash_gap, "base_start_threshold": start,
+            "adjusted_start_threshold": adjusted_start, "section_adjustment": section,
+            "replay_adjustment": replay,
+        }
     if int(worst) > risk_capacity_yen:
         return {
             "judgment": "insufficient_funds",
             "reason": f"必要資金{int(worst):,}円に対し許容{risk_capacity_yen:,}円",
             "actionable": False, "priority": -20 + delta, "progress_pct": progress,
+            "expected_value_yen": expected, "base_expected_value_yen": int(base_expected),
+            "cash_gap_yen": cash_gap, "worst_case_investment_yen": worst,
+            "base_start_threshold": start, "adjusted_start_threshold": adjusted_start,
+            "section_adjustment": section, "replay_adjustment": replay,
         }
 
-    ev_per_hour = round(int(expected) * 60 / int(minutes)) if expected is not None and minutes else None
-    priority = ev_per_hour if ev_per_hour is not None else (int(expected) if expected is not None else 0)
+    ev_per_hour = round(expected * 60 / int(minutes)) if minutes else None
+    priority = ev_per_hour if ev_per_hour is not None else expected
+    section_needs_verification = current < start and section.get("active") and not section.get("verified")
     return {
-        "judgment": "target", "reason": "登録条件と資金条件を満たしています",
-        "actionable": True, "priority": priority, "progress_pct": progress,
-        "expected_value_yen": expected, "worst_case_investment_yen": worst,
+        "judgment": "verify" if section_needs_verification else "target",
+        "reason": ("有利区間差枚でボーダーが浅くなりますが、機種固有の補正値が未検証です"
+                   if section_needs_verification else
+                   (section.get("reason") if section.get("active") and section.get("reason") else
+                    ("現金ギャップを差し引いても条件を満たしています" if cash_gap else "登録条件と資金条件を満たしています"))),
+        "actionable": not section_needs_verification,
+        "priority": priority if not section_needs_verification else -45,
+        "progress_pct": progress,
+        "expected_value_yen": expected, "base_expected_value_yen": int(base_expected),
+        "cash_gap_yen": cash_gap, "worst_case_investment_yen": worst,
         "ev_per_hour_yen": ev_per_hour,
+        "estimated_play_minutes": int(minutes) if minutes else None,
+        "safe_play_minutes": duration.get("safe_play_minutes"),
+        "duration_breakdown": duration.get("breakdown", {}),
+        "duration_confidence": duration.get("confidence"),
+        "duration_basis": duration.get("basis"),
         "matched_curve_value": curve_point.get("value") if curve_point else None,
+        "base_start_threshold": start, "adjusted_start_threshold": adjusted_start,
+        "section_adjustment": section, "replay_adjustment": replay,
     }
 
 
@@ -481,6 +795,11 @@ def assess_quick_decision(
     funding_mode: str,
     reset_status: str,
     minutes_until_close: int,
+    section_difference_coins=None,
+    replay_limit_medals=0,
+    replay_used_medals=0,
+    exchange_rate=None,
+    extra_inputs: dict | None = None,
 ) -> dict:
     """現場入力とルール条件を照合し、閉店時間を含めて安全側に判定する。"""
     if not profile:
@@ -505,6 +824,7 @@ def assess_quick_decision(
         mismatches.append("ルールのリセット条件が未登録")
     elif profile_reset not in {"any", reset_status}:
         mismatches.append("リセット条件がルールと不一致")
+    mismatches.extend(validate_profile_inputs(profile, extra_inputs))
     if mismatches:
         return {
             "judgment": "condition_mismatch", "reason": "・".join(mismatches),
@@ -513,10 +833,24 @@ def assess_quick_decision(
 
     assessment = assess_candidate(
         {"current_value": current_value}, profile, max(0, int(risk_capacity_yen)),
+        {
+            "section_difference_coins": section_difference_coins,
+            "replay_limit_medals": replay_limit_medals,
+            "replay_used_medals": replay_used_medals,
+            "exchange_rate": exchange_rate,
+            "exchange_type": exchange_type,
+            "funding_mode": funding_mode,
+            **(extra_inputs or {}),
+        },
     )
     assessment["warnings"] = []
     assessment["minutes_until_close"] = minutes_until_close
-    assessment["estimated_play_minutes"] = profile.get("estimated_play_minutes")
+    duration = estimate_duration(profile, current_value)
+    assessment["estimated_play_minutes"] = assessment.get("estimated_play_minutes") or duration.get("estimated_play_minutes")
+    assessment["safe_play_minutes"] = assessment.get("safe_play_minutes") or duration.get("safe_play_minutes")
+    assessment["duration_breakdown"] = assessment.get("duration_breakdown") or duration.get("breakdown", {})
+    assessment["duration_confidence"] = assessment.get("duration_confidence") or duration.get("confidence")
+    assessment["duration_basis"] = assessment.get("duration_basis") or duration.get("basis")
 
     verified_on = profile.get("verified_on")
     if verified_on:
@@ -538,12 +872,12 @@ def assess_quick_decision(
         })
         return assessment
 
-    estimated_minutes = profile.get("estimated_play_minutes")
-    required_minutes = int(estimated_minutes) + 30 if estimated_minutes else 120
+    estimated_minutes = assessment.get("estimated_play_minutes")
+    required_minutes = int(assessment.get("safe_play_minutes") or 120)
     assessment["required_minutes_with_buffer"] = required_minutes
     if assessment.get("judgment") == "target" and minutes_until_close < required_minutes:
         detail = (
-            f"消化目安{int(estimated_minutes)}分＋余裕30分に対し、閉店まで{minutes_until_close}分"
+            f"平均{int(estimated_minutes)}分・安全側{required_minutes}分に対し、閉店まで{minutes_until_close}分"
             if estimated_minutes else
             f"消化時間が未登録のため、閉店2時間以内は見送り（残り{minutes_until_close}分）"
         )
@@ -564,6 +898,8 @@ def get_dashboard(month: str) -> dict:
                       p.condition_label, p.expected_value_yen, p.estimated_play_minutes,
                       p.worst_case_investment_yen, p.stop_rule, p.source_name, p.source_url,
                       p.source_urls_json, p.curve_json, p.discrepancy_note, p.verified_on, p.confidence
+                      ,p.duration_model_json,p.input_fields_json,p.requirements_json,
+                      p.duration_basis,p.duration_confidence,p.safe_play_minutes
                FROM opportunity_candidates c
                LEFT JOIN opportunity_profiles p ON p.id = c.profile_id
                WHERE c.status = 'open' ORDER BY c.observed_at DESC, c.id DESC"""
@@ -580,9 +916,10 @@ def get_dashboard(month: str) -> dict:
 
     candidates = []
     profile_keys = {
-        "metric_name", "unit_label", "start_threshold", "ceiling_threshold",
+        "machine_name", "metric_name", "unit_label", "start_threshold", "ceiling_threshold",
         "condition_label", "expected_value_yen", "estimated_play_minutes", "worst_case_investment_yen", "stop_rule",
         "source_name", "source_url", "discrepancy_note", "verified_on", "confidence",
+        "duration_basis", "duration_confidence", "safe_play_minutes",
     }
     for row in rows:
         item = dict(row)
@@ -591,11 +928,23 @@ def get_dashboard(month: str) -> dict:
             try:
                 profile["source_urls"] = json.loads(item.get("source_urls_json") or "[]")
                 profile["curve_points"] = json.loads(item.get("curve_json") or "[]")
+                profile["duration_model"] = json.loads(item.get("duration_model_json") or "{}")
+                profile["input_fields"] = json.loads(item.get("input_fields_json") or "[]")
+                profile["requirements"] = json.loads(item.get("requirements_json") or "[]")
             except json.JSONDecodeError:
                 profile["source_urls"], profile["curve_points"] = [], []
-        assessment = assess_candidate(item, profile, summary["risk_capacity_yen"])
+                profile["duration_model"], profile["input_fields"], profile["requirements"] = {}, [], []
+        try:
+            context = json.loads(item.get("context_json") or "{}")
+        except json.JSONDecodeError:
+            context = {}
+        assessment = assess_candidate(item, profile, summary["risk_capacity_yen"], context)
+        item.pop("context_json", None)
         item.pop("source_urls_json", None)
         item.pop("curve_json", None)
+        item.pop("duration_model_json", None)
+        item.pop("input_fields_json", None)
+        item.pop("requirements_json", None)
         candidates.append({**item, **assessment})
     candidates.sort(key=lambda item: (item["actionable"], item["priority"]), reverse=True)
     for rank, item in enumerate(candidates, 1):

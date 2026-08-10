@@ -1487,3 +1487,17 @@ tr[style*="cursor: pointer"]:active { background: rgba(124,127,245,.12) !importa
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+.opp-quick-templates { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:-2px 0 12px; }
+.opp-quick-templates button, .opp-quick-templates label { display:grid; place-items:center; min-height:40px; margin:0; padding:6px; color:var(--accent); border:1px solid rgba(139,124,246,.28); border-radius:9px; background:rgba(139,124,246,.07); font-size:.73rem; font-weight:800; cursor:pointer; }
+.opp-dynamic-conditions { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
+.opp-adjustment-summary { display:grid; gap:6px; margin:10px 0; padding:10px; border:1px solid var(--border); border-radius:10px; background:rgba(255,255,255,.025); font-size:.76rem; }
+@media (max-width:600px) { .opp-quick-templates { grid-template-columns:1fr 1fr; } }
+.opp-crawler-card { border-color:rgba(34,197,94,.2); }
+.opp-crawler-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+.opp-crawler-list { display:grid; gap:9px; }
+.opp-crawler-item { padding:12px; border:1px solid var(--border); border-radius:10px; background:rgba(255,255,255,.02); }
+.opp-crawler-item-head, .opp-crawler-item-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.opp-crawler-item-head { justify-content:space-between; }
+.opp-crawler-item p { margin:7px 0; color:var(--text2); font-size:.72rem; line-height:1.5; }
+.opp-crawler-item .opp-crawler-conflict { color:#fde68a; }
+.opp-crawler-item-actions .btn { margin:0; }

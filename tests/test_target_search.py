@@ -60,6 +60,36 @@ def test_target_search_rejects_invalid_date():
     assert exc.value.status_code == 400
 
 
+def test_target_search_weights_daily_average_by_installed_units(tmp_path, monkeypatch):
+    db_path = tmp_path / "weighted.db"
+    conn = _connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE scrape_hall_config (hall_name TEXT PRIMARY KEY, enabled INTEGER);
+        CREATE TABLE hall_day_machine (
+            hall_name TEXT, report_date TEXT, machine_name TEXT,
+            avg_diff_coins INTEGER, win_rate_pct REAL, unit_count INTEGER,
+            source_url TEXT
+        );
+        INSERT INTO scrape_hall_config VALUES ('加重店', 1);
+        """
+    )
+    rows = []
+    for day in ("2026-08-01", "2026-08-02", "2026-08-03"):
+        rows.extend([
+            ("加重店", day, "L主力", 100, 55, 20, "https://source/main"),
+            ("加重店", day, "L少数", -1000, 0, 1, "https://source/minor"),
+        ])
+    conn.executemany("INSERT INTO hall_day_machine VALUES (?,?,?,?,?,?,?)", rows)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(hall_router, "_get_reports_conn", lambda: _connect(db_path))
+    result = hall_router.get_target_search("2026-08-10", days=120, limit=8)
+
+    assert result["halls"][0]["baseline_avg"] == 48
+
+
 def test_target_heat_map_returns_date_score_and_long_term_trends(tmp_path, monkeypatch):
     db_path = tmp_path / "heat.db"
     conn = _connect(db_path)

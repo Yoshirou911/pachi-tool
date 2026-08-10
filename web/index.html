@@ -1027,6 +1027,24 @@
                 <span id="anaslo-status-bar" style="font-size:.68rem;color:var(--text3)"></span>
               </div>
             </div>
+            <!-- 過去データ収集セクション -->
+            <div id="archive-collector" style="margin-bottom:12px;padding:10px;background:var(--bg2);border:1px solid rgba(124,127,245,.25);border-radius:8px">
+              <div style="font-size:.76rem;font-weight:700;color:var(--text1);margin-bottom:4px">🗂 過去データ収集</div>
+              <div style="font-size:.65rem;color:var(--text3);line-height:1.55;margin-bottom:8px">公開レポートの前日・翌日をたどって保存します。途中で閉じても再開できます。取得元の掲載範囲・利用条件に従います。</div>
+              <div style="display:grid;grid-template-columns:minmax(150px,1.4fr) repeat(2,minmax(120px,1fr));gap:6px;margin-bottom:6px">
+                <select id="archive-hall" class="form-select" aria-label="収集店舗"></select>
+                <input id="archive-date-from" type="date" class="form-input" aria-label="収集開始日">
+                <input id="archive-date-to" type="date" class="form-input" aria-label="収集終了日">
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <select id="archive-max-pages" class="form-select" style="width:auto" aria-label="最大ページ数"><option value="60">最大60日</option><option value="120" selected>最大120日</option><option value="240">最大240日</option><option value="365">最大365日</option></select>
+                <button id="archive-start-btn" class="btn btn-primary" style="font-size:.72rem;padding:4px 11px">収集開始</button>
+                <button id="archive-pause-btn" class="btn btn-ghost" style="font-size:.72rem;padding:4px 11px">一時停止</button>
+                <button id="archive-resume-btn" class="btn btn-ghost" style="font-size:.72rem;padding:4px 11px">再開</button>
+              </div>
+              <div id="archive-status" style="margin-top:8px;font-size:.68rem;color:var(--text3);line-height:1.55">状態を読み込んでいます...</div>
+              <div id="archive-coverage" style="margin-top:6px;font-size:.63rem;color:var(--text3)"></div>
+            </div>
             <!-- 全店舗実行セクション -->
             <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
               <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">全店舗一括実行</div>
@@ -1298,19 +1316,43 @@
               <div><label class="form-label">機種</label><select id="opp-quick-machine" class="form-select" required><option value="">機種を選択</option></select></div>
               <div><label class="form-label">条件別ルール</label><select id="opp-quick-profile" class="form-select" required disabled><option value="">機種を先に選択</option></select></div>
             </div>
-            <div class="form-row">
-              <label id="opp-quick-current-label" class="form-label">現在値</label>
-              <input id="opp-quick-current" class="form-input form-input-lg" type="number" min="0" step="1" inputmode="numeric" required placeholder="例：650">
-            </div>
-            <div class="opp-quick-conditions">
+              <div class="form-row">
+                <label id="opp-quick-current-label" class="form-label">現在値</label>
+                <input id="opp-quick-current" class="form-input form-input-lg" type="number" min="0" step="1" inputmode="numeric" required placeholder="例：650">
+              </div>
+              <div class="opp-quick-templates">
+                <button type="button" data-opp-template="zero">0G</button><button type="button" data-opp-template="heaven">天国抜け</button><button type="button" data-opp-template="ceiling">天井到達</button>
+                <label class="btn btn-secondary btn-sm">📷 OCR<input id="opp-quick-ocr" type="file" accept="image/*" capture="environment" hidden></label>
+              </div>
+              <div class="opp-quick-conditions">
               <div><label class="form-label">交換条件</label><select id="opp-quick-exchange" class="form-select"><option value="equivalent">等価</option><option value="56">5.6枚</option><option value="other">その他</option></select></div>
               <div><label class="form-label">投資方法</label><select id="opp-quick-funding" class="form-select"><option value="cash">現金</option><option value="medals">持ちメダル</option></select></div>
               <div><label class="form-label">台の状態</label><select id="opp-quick-reset" class="form-select"><option value="normal">通常・据え置き</option><option value="reset_confirmed">リセット確定</option><option value="unknown">不明</option></select></div>
-              <div><label class="form-label">閉店時刻</label><input id="opp-quick-close" class="form-input" type="time" value="22:45" required></div>
-            </div>
-            <button class="btn btn-primary btn-full opp-quick-submit" type="submit">この台を判定</button>
+                <div><label class="form-label">閉店時刻</label><input id="opp-quick-close" class="form-input" type="time" value="22:45" required></div>
+              </div>
+              <div class="opp-quick-conditions opp-dynamic-conditions">
+                <div><label class="form-label">有利区間の現在差枚</label><input id="opp-section-diff" class="form-input" type="number" min="-20000" max="20000" step="100" placeholder="不明なら空欄"></div>
+                <div><label class="form-label">交換率</label><input id="opp-exchange-rate" class="form-input" type="number" min="5" max="20" step="0.1" value="5.6"></div>
+                <div><label class="form-label">再プレイ上限（枚）</label><input id="opp-replay-limit" class="form-input" type="number" min="0" max="10000" step="10" value="460"></div>
+                <div><label class="form-label">今日使用済み（枚）</label><input id="opp-replay-used" class="form-input" type="number" min="0" max="50000" step="10" value="0"></div>
+              </div>
+              <div id="opp-quick-extra-fields" class="opp-quick-conditions opp-dynamic-conditions"></div>
+              <button class="btn btn-primary btn-full opp-quick-submit" type="submit">この台を判定</button>
           </form>
           <div id="opp-quick-result" class="opp-quick-result" aria-live="polite"></div>
+        </div>
+
+        <div class="card opp-crawler-card">
+          <div class="card-title card-title-row">
+            <span>期待値データ更新</span>
+            <span id="opp-crawler-status" class="optional-note">未確認</span>
+          </div>
+          <p class="hint" style="margin-bottom:12px">公開ページから見つけた変更候補です。数値は自動反映せず、出典と差分を確認して承認したものだけを採用します。</p>
+          <div class="opp-crawler-actions">
+            <button id="opp-crawler-run" class="btn btn-secondary btn-sm" type="button">公開ソースを確認</button>
+            <span id="opp-crawler-supabase" class="hint">Supabase未設定</span>
+          </div>
+          <div id="opp-crawler-candidates" class="opp-crawler-list"><p class="hint center">更新候補はありません</p></div>
         </div>
 
         <div class="card opp-budget-card">

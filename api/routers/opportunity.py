@@ -32,6 +32,7 @@ from opportunity.models import (
     get_budget_summary as get_opportunity_budget_summary,
     get_dashboard as get_opportunity_dashboard,
     get_profile as get_opportunity_profile,
+    get_reset_tendency,
     load_mobile_sync,
     save_budget as save_opportunity_budget,
     save_candidate as save_opportunity_candidate,
@@ -39,6 +40,13 @@ from opportunity.models import (
     save_result as save_opportunity_result,
     save_mobile_sync,
     set_candidate_status as set_opportunity_candidate_status,
+)
+from scraper.opportunity_crawler import (
+    approve_candidate as approve_crawl_candidate,
+    crawler_status,
+    list_candidates as list_crawl_candidates,
+    reject_candidate as reject_crawl_candidate,
+    run_crawl,
 )
 
 router = APIRouter()
@@ -61,6 +69,10 @@ class OpportunityProfileCreate(BaseModel):
     ceiling_threshold: Optional[float] = Field(default=None, ge=0)
     expected_value_yen: Optional[int] = Field(default=None, ge=0)
     estimated_play_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
+    safe_play_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
+    duration_model: dict = Field(default_factory=dict)
+    duration_basis: str = Field(default="", max_length=1000)
+    duration_confidence: Literal["modeled", "verified", "legacy", "unknown"] = "unknown"
     worst_case_investment_yen: Optional[int] = Field(default=None, ge=0)
     stop_rule: str = Field(min_length=1, max_length=300)
     source_name: str = Field(default="", max_length=120)
@@ -71,6 +83,8 @@ class OpportunityProfileCreate(BaseModel):
     confidence: Literal["official", "verified", "reference", "unverified"] = "unverified"
     notes: str = Field(default="", max_length=500)
     discrepancy_note: str = Field(default="", max_length=1000)
+    input_fields: list[dict] = Field(default_factory=list, max_length=20)
+    requirements: list[dict] = Field(default_factory=list, max_length=20)
 
 class OpportunityCandidateCreate(BaseModel):
     machine_name: str = Field(min_length=1, max_length=120)
@@ -80,6 +94,13 @@ class OpportunityCandidateCreate(BaseModel):
     profile_id: Optional[int] = Field(default=None, ge=1)
     observed_at: Optional[str] = Field(default=None, max_length=30)
     notes: str = Field(default="", max_length=500)
+    section_difference_coins: Optional[int] = Field(default=None, ge=-20000, le=20000)
+    replay_limit_medals: int = Field(default=0, ge=0, le=10000)
+    replay_used_medals: int = Field(default=0, ge=0, le=50000)
+    exchange_rate: Optional[float] = Field(default=None, gt=5, le=20)
+    extra_inputs: dict = Field(default_factory=dict)
+    exchange_type: Literal["equivalent", "56", "other"] = "equivalent"
+    funding_mode: Literal["cash", "medals"] = "cash"
 
 class OpportunityCandidateStatus(BaseModel):
     status: Literal["open", "skipped"]
@@ -99,6 +120,10 @@ class OpportunityBudgetUpdate(BaseModel):
 
 class MobileSyncUpdate(BaseModel):
     state: dict
+
+
+class CrawlReview(BaseModel):
+    note: str = Field(default="", max_length=500)
 
 
 def _checked_sync_key(value: str) -> str:
@@ -124,6 +149,55 @@ def read_mobile_sync(x_sync_key: str = Header(...)) -> dict:
     return saved
 
 
+@router.get("/api/opportunity/reset-tendency", tags=["opportunity"])
+def opportunity_reset_tendency(
+    hall_name: str = Query(..., min_length=1, max_length=120),
+    machine_name: str = Query(default="", max_length=120),
+    weekday: Optional[int] = Query(default=None, ge=0, le=6),
+) -> dict:
+    return get_reset_tendency(hall_name, machine_name, weekday)
+
+
+@router.get("/api/opportunity/crawler/status", tags=["opportunity"])
+def opportunity_crawler_status() -> dict:
+    return crawler_status()
+
+
+@router.get("/api/opportunity/crawler/candidates", tags=["opportunity"])
+def opportunity_crawler_candidates(
+    status: Optional[Literal["pending", "conflict", "approved", "rejected"]] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> list[dict]:
+    return list_crawl_candidates(status, limit)
+
+
+@router.post("/api/opportunity/crawler/run", tags=["opportunity"])
+def opportunity_crawler_run(
+    background_tasks: BackgroundTasks,
+    max_profiles: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    background_tasks.add_task(run_crawl, max_profiles)
+    return {"accepted": True, "message": "期待値ソース確認を開始しました"}
+
+
+@router.post("/api/opportunity/crawler/candidates/{candidate_id}/approve", tags=["opportunity"])
+def opportunity_crawler_approve(candidate_id: int, body: CrawlReview) -> dict:
+    try:
+        return approve_crawl_candidate(candidate_id, body.note)
+    except KeyError:
+        raise HTTPException(404, "更新候補が見つかりません")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+
+
+@router.post("/api/opportunity/crawler/candidates/{candidate_id}/reject", tags=["opportunity"])
+def opportunity_crawler_reject(candidate_id: int, body: CrawlReview) -> dict:
+    try:
+        return reject_crawl_candidate(candidate_id, body.note)
+    except KeyError:
+        raise HTTPException(404, "未レビューの更新候補が見つかりません")
+
+
 class OpportunityQuickAssess(BaseModel):
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
     machine_name: str = Field(min_length=1, max_length=120)
@@ -133,6 +207,11 @@ class OpportunityQuickAssess(BaseModel):
     funding_mode: Literal["cash", "medals"]
     reset_status: Literal["normal", "reset_confirmed", "unknown"]
     minutes_until_close: int = Field(ge=0, le=1440)
+    section_difference_coins: Optional[int] = Field(default=None, ge=-20000, le=20000)
+    replay_limit_medals: int = Field(default=0, ge=0, le=10000)
+    replay_used_medals: int = Field(default=0, ge=0, le=50000)
+    exchange_rate: Optional[float] = Field(default=None, gt=5, le=20)
+    extra_inputs: dict = Field(default_factory=dict)
 
 
 @router.get("/api/opportunity/dashboard", tags=["opportunity"])
@@ -157,6 +236,11 @@ def opportunity_quick_assess(body: OpportunityQuickAssess) -> dict:
         funding_mode=body.funding_mode,
         reset_status=body.reset_status,
         minutes_until_close=body.minutes_until_close,
+        section_difference_coins=body.section_difference_coins,
+        replay_limit_medals=body.replay_limit_medals,
+        replay_used_medals=body.replay_used_medals,
+        exchange_rate=body.exchange_rate,
+        extra_inputs=body.extra_inputs,
     )
     return {
         **assessment,
@@ -202,7 +286,14 @@ def create_opportunity_candidate(body: OpportunityCandidateCreate) -> dict:
             raise HTTPException(404, "狙い目ルールが見つかりません")
         if profile["machine_name"] != body.machine_name:
             raise HTTPException(422, "機種と狙い目ルールが一致しません")
-    return save_opportunity_candidate(body.model_dump())
+    data = body.model_dump()
+    extra_inputs = data.pop("extra_inputs", {})
+    data["context"] = {key: data.pop(key) for key in (
+        "section_difference_coins", "replay_limit_medals", "replay_used_medals",
+        "exchange_rate", "exchange_type", "funding_mode",
+    )}
+    data["context"].update(extra_inputs)
+    return save_opportunity_candidate(data)
 
 
 @router.patch("/api/opportunity/candidates/{candidate_id}", tags=["opportunity"])

@@ -119,6 +119,55 @@ def test_quick_decision_uses_safe_limit_when_duration_unknown(opportunity_db):
     assert late["judgment"] == "closing_risk"
 
 
+def test_dynamic_section_border_is_safe_until_machine_rule_verified(opportunity_db):
+    profile = _profile(machine_name="スマスロ テスト機", curve_points=[
+        {"value": 400, "ev_yen": 300, "worst_case_yen": 22000},
+        {"value": 500, "ev_yen": 2500, "worst_case_yen": 20000},
+    ])
+    reference = models.assess_quick_decision(
+        profile, 450, 30000, "equivalent", "cash", "normal", 180,
+        section_difference_coins=2300,
+    )
+    assert reference["adjusted_start_threshold"] == 410
+    assert reference["judgment"] == "verify"
+    assert reference["actionable"] is False
+
+    profile["section_cut_verified"] = True
+    verified = models.assess_quick_decision(
+        profile, 450, 30000, "equivalent", "cash", "normal", 180,
+        section_difference_coins=2300,
+    )
+    assert verified["judgment"] == "target"
+
+
+def test_replay_limit_recalculates_cash_gap_and_deeper_border(opportunity_db):
+    profile = _profile(exchange_type="56", funding_mode="medals", expected_value_yen=1200, curve_points=[
+        {"value": 500, "ev_yen": 1200, "worst_case_yen": 10000},
+        {"value": 600, "ev_yen": 2200, "worst_case_yen": 7000},
+    ])
+    shallow = models.assess_quick_decision(
+        profile, 500, 30000, "56", "medals", "normal", 180,
+        replay_limit_medals=460, replay_used_medals=460, exchange_rate=5.6,
+    )
+    assert shallow["judgment"] == "wait"
+    assert shallow["adjusted_start_threshold"] == 600
+
+    target = models.assess_quick_decision(
+        profile, 600, 30000, "56", "medals", "normal", 180,
+        replay_limit_medals=460, replay_used_medals=460, exchange_rate=5.6,
+    )
+    assert target["judgment"] == "target"
+    assert target["cash_gap_yen"] > 0
+    assert target["expected_value_yen"] < target["base_expected_value_yen"]
+
+    unresolved = models.assess_quick_decision(
+        {**profile, "curve_points": []}, 900, 30000, "56", "medals", "normal", 180,
+        replay_limit_medals=460, replay_used_medals=460, exchange_rate=5.6,
+    )
+    assert unresolved["judgment"] == "verify"
+    assert unresolved["actionable"] is False
+
+
 def test_seed_catalog_updates_without_duplicates(opportunity_db, tmp_path):
     catalog_path = tmp_path / "catalog.json"
     catalog = {

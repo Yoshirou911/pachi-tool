@@ -27,10 +27,22 @@ assert.match(desktopCss, /\.home-mode-grid/, 'ホームのモード選択レイ�
 assert.match(desktopHtml, /id="desktop-version-button"/, 'PC・ソフト版のヘッダーにバージョンを表示する');
 assert.match(desktopHtml, /id="version-overlay"/, 'PC・ソフト版にパッチノート画面が必要');
 assert.match(desktopJs, /api\/version/, '共通のバージョンAPIを利用する');
+assert.match(desktopHtml, /id="opp-section-diff"/, 'PC・ソフト版でも有利区間差枚を入力できる');
+assert.match(desktopHtml, /id="opp-replay-used"/, 'PC・ソフト版でも再プレイ上限を計算できる');
+assert.match(desktopHtml, /id="opp-quick-ocr"/, 'PC・ソフト版でも画像OCRを利用できる');
+assert.match(desktopHtml, /id="opp-crawler-candidates"/, 'PC・ソフト版で期待値更新候補を確認できる');
+assert.match(desktopJs, /data-opp-crawler-approve/, '期待値更新は利用者が承認してから反映する');
+assert.match(desktopJs, /api\/opportunity\/crawler\/run/, '公開ソース確認APIを利用する');
+assert.match(desktopHtml, /id="archive-collector"/, 'PC・ソフト版に過去データ収集管理が必要');
+assert.match(desktopHtml, /id="archive-pause-btn"/, '収集を一時停止できる');
+assert.match(desktopHtml, /id="archive-resume-btn"/, '収集を再開できる');
+assert.match(desktopJs, /api\/scrape\/archive\/jobs/, '永続キューの収集APIを利用する');
 
 for (const label of ['ハイエナ', '狙い台捜索']) {
   assert.match(desktopHtml, new RegExp(label), `PC・ソフト版に${label}が必要`);
   assert.match(mobileHtml, new RegExp(label), `iPhone版に${label}が必要`);
 }
+
+assert.match(desktopHtml, /id="opp-exchange-rate"[^>]*min="5"[^>]*step="0\.1"/);
 
 console.log('web UI contract tests passed');

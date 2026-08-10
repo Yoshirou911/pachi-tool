@@ -63,6 +63,11 @@ const api = {
   updateOpportunityCandidate: (id, body) => apiFetch(`/api/opportunity/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   createOpportunityResult: (id, body) => apiFetch(`/api/opportunity/candidates/${id}/result`, { method: 'POST', body: JSON.stringify(body) }),
   updateOpportunityBudget: (body) => apiFetch('/api/opportunity/budget', { method: 'PUT', body: JSON.stringify(body) }),
+  getOpportunityCrawlerStatus: () => apiFetch('/api/opportunity/crawler/status'),
+  getOpportunityCrawlerCandidates: () => apiFetch('/api/opportunity/crawler/candidates?limit=50'),
+  runOpportunityCrawler: () => apiFetch('/api/opportunity/crawler/run?max_profiles=100', { method: 'POST' }),
+  approveOpportunityCrawlerCandidate: (id) => apiFetch(`/api/opportunity/crawler/candidates/${id}/approve`, { method: 'POST', body: JSON.stringify({ note: 'PC画面で出典と差分を確認して承認' }) }),
+  rejectOpportunityCrawlerCandidate: (id) => apiFetch(`/api/opportunity/crawler/candidates/${id}/reject`, { method: 'POST', body: JSON.stringify({ note: 'PC画面で不採用' }) }),
 };
 
 const VERSION_SEEN_KEY = 'pachi-version-seen';
@@ -91,7 +96,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.0.0';
+    document.getElementById('desktop-version-label').textContent = 'v2.4.1';
   }
 }
 
@@ -354,7 +359,7 @@ function renderDesktopTargetSearch(data) {
       <div class="desktop-target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>実績日数</small><b>${hall.sample_days}日</b></span><span><small>信頼度</small><b class="target-confidence-${hall.confidence === '高' ? 'high' : hall.confidence === '中' ? 'mid' : 'low'}">${esc(hall.confidence)}</b></span></div>
       <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="desktop-target-machines">
-        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
+        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
       </div>
     </article>`).join('')}
     ${insufficient.length ? `<details class="desktop-insufficient"><summary>データ不足の店舗 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}
@@ -456,7 +461,7 @@ function renderDesktopTrendProfile(aiResult = null) {
     </div>
     <article class="card"><div class="card-title card-title-row"><span>直近42日の実績カレンダー</span><small>点数は店舗内の相対評価</small></div><div class="desktop-trend-calendar">${(data.calendar || []).slice(-42).map(day => `<div style="--calendar-score:${Math.max(0, Math.min(100, Number(day.score || 0)))}%"><span>${esc(day.date.slice(5).replace('-', '/'))}</span><b>${day.score}</b><small class="${day.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(day.avg_diff)}</small></div>`).join('')}</div></article>
     <article class="card"><div class="card-title">次の注目日</div><div class="desktop-next-dates">${(data.next_dates || []).map(day => `<div class="${day.score >= 60 ? 'hot' : ''}"><strong>${esc(day.date.slice(5).replace('-', '/'))}</strong><span>${esc(day.weekday)}曜</span><b>${day.score}点</b><small>${esc(day.evidence)}</small></div>`).join('')}</div></article>
-    <article class="card"><div class="card-title">扱いが強い機種</div><div class="desktop-profile-machines">${(data.machine_profile || []).slice(0, 12).map((machine, index) => `<div><span>${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('')}</div></article>
+    <article class="card"><div class="card-title">扱いが強い機種</div><div class="desktop-profile-machines">${(data.machine_profile || []).slice(0, 12).map((machine, index) => `<div><span>${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('')}</div></article>
     <details class="card desktop-analysis-sources"><summary>出典と注意事項</summary><div>${sources || '<span>データ内に出典URLはありません。</span>'}<p>${esc(data.notice)}</p></div></details>`;
 }
 
@@ -4176,6 +4181,60 @@ function renderPinnedSeatsCard() {
 // ---------------------------------------------------------------------------
 let opportunityState = { profiles: [], candidates: [], recent_results: [], summary: null };
 let opportunityQuickResult = null;
+let opportunityCrawlerRunning = false;
+
+function opportunityCrawlerDate(value) {
+  if (!value) return '未実行';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('ja-JP');
+}
+
+function renderOpportunityCrawler(status, candidates) {
+  const counts = status?.candidate_counts || {};
+  const pending = (Number(counts.pending) || 0) + (Number(counts.conflict) || 0);
+  const lastRun = status?.last_run;
+  document.getElementById('opp-crawler-status').textContent = opportunityCrawlerRunning
+    ? '確認中…'
+    : `${pending}件 未確認・最終 ${opportunityCrawlerDate(lastRun?.finished_at || lastRun?.started_at)}`;
+  document.getElementById('opp-crawler-supabase').textContent = status?.supabase_configured
+    ? 'Supabase同期：設定済み'
+    : 'Supabase同期：未設定（この端末には保存されます）';
+  const list = document.getElementById('opp-crawler-candidates');
+  const reviewable = (candidates || []).filter(item => item.status === 'pending' || item.status === 'conflict');
+  if (!reviewable.length) {
+    list.innerHTML = '<p class="hint center">未確認の更新候補はありません</p>';
+    return;
+  }
+  list.innerHTML = reviewable.map(item => {
+    const extracted = item.extracted || {};
+    const points = extracted.curve_points || [];
+    const preview = points.slice(0, 4).map(point => `${Number(point.value).toLocaleString()}G: ${opportunityMoney(point.ev_yen, true)}`).join(' / ');
+    const conflicts = (item.conflicts || []).map(conflict => esc(conflict.message || conflict)).join('・');
+    return `<article class="opp-crawler-item">
+      <div class="opp-crawler-item-head"><strong>${esc(item.machine_name || item.catalog_key)}</strong><span class="opp-judgment ${item.status === 'conflict' ? 'opp-judgment-caution' : ''}">${item.status === 'conflict' ? '要注意' : '更新候補'}</span></div>
+      <p>${esc(extracted.condition_label || '')}${preview ? `・${esc(preview)}` : ''}</p>
+      ${conflicts ? `<p class="opp-crawler-conflict">差異：${conflicts}</p>` : ''}
+      <div class="opp-crawler-item-actions">
+        <a class="btn btn-secondary btn-sm" href="${esc(item.source_url)}" target="_blank" rel="noopener noreferrer">出典を開く</a>
+        <button class="btn btn-primary btn-sm" type="button" data-opp-crawler-approve="${item.id}">この数値を承認</button>
+        <button class="btn btn-secondary btn-sm" type="button" data-opp-crawler-reject="${item.id}">不採用</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function loadOpportunityCrawler() {
+  try {
+    const [status, candidates] = await Promise.all([
+      api.getOpportunityCrawlerStatus(),
+      api.getOpportunityCrawlerCandidates(),
+    ]);
+    renderOpportunityCrawler(status, candidates);
+  } catch (error) {
+    document.getElementById('opp-crawler-status').textContent = '確認失敗';
+    document.getElementById('opp-crawler-candidates').innerHTML = `<p class="hint center">${esc(error.message)}</p>`;
+  }
+}
 
 function currentMonthValue() {
   const now = new Date();
@@ -4217,6 +4276,27 @@ function syncQuickConditions(profile) {
   }
 }
 
+function renderOpportunityExtraFields(profile) {
+  const container = document.getElementById('opp-quick-extra-fields');
+  if (!container) return;
+  const fields = Array.isArray(profile?.input_fields) ? profile.input_fields : [];
+  container.innerHTML = fields.map(field => {
+    const required = field.required ? ' required' : '';
+    const help = field.help ? `<small class="hint">${esc(field.help)}</small>` : '';
+    if (field.type === 'select') {
+      return `<div><label class="form-label">${esc(field.label)}</label><select class="form-select" data-opp-profile-input="${esc(field.id)}"${required}>${(field.options || []).map(option => `<option value="${esc(option.value)}">${esc(option.label)}</option>`).join('')}</select>${help}</div>`;
+    }
+    return `<div><label class="form-label">${esc(field.label)}</label><input class="form-input" data-opp-profile-input="${esc(field.id)}" type="number" inputmode="numeric" min="${Number(field.min ?? 0)}"${field.max == null ? '' : ` max="${Number(field.max)}"`} placeholder="${esc(field.placeholder || '')}"${required}>${help}</div>`;
+  }).join('');
+}
+
+function collectOpportunityExtraInputs() {
+  return Object.fromEntries([...document.querySelectorAll('[data-opp-profile-input]')].map(input => [
+    input.dataset.oppProfileInput,
+    input.value === 'true' ? true : input.value,
+  ]));
+}
+
 function updateOpportunityQuickProfileSelect(syncConditions = true) {
   const machine = document.getElementById('opp-quick-machine').value;
   const select = document.getElementById('opp-quick-profile');
@@ -4229,6 +4309,7 @@ function updateOpportunityQuickProfileSelect(syncConditions = true) {
   if (profiles.some(profile => profile.id === previous)) select.value = String(previous);
   const profile = profiles.find(item => item.id === Number(select.value)) || profiles[0];
   if (syncConditions) syncQuickConditions(profile);
+  renderOpportunityExtraFields(profile);
   document.getElementById('opp-quick-current-label').textContent = profile
     ? `${profile.metric_name}（${profile.unit_label}）`
     : '現在値';
@@ -4252,6 +4333,7 @@ function autoSelectOpportunityQuickProfile() {
     select.value = String(matches[0].id);
   }
   const profile = opportunityState.profiles.find(item => item.id === Number(select.value));
+  renderOpportunityExtraFields(profile);
   document.getElementById('opp-quick-current-label').textContent = profile
     ? `${profile.metric_name}（${profile.unit_label}）`
     : '現在値';
@@ -4382,6 +4464,16 @@ function renderOpportunityQuickResult(result) {
   const saveButton = result.actionable
     ? '<button class="btn btn-secondary btn-full" type="button" data-opp-quick-save>候補台として保存</button>'
     : '';
+  const adjustments = [
+    result.section_adjustment?.active
+      ? (result.section_adjustment.rule && !result.section_adjustment.border_reduction
+        ? `機種別条件：${esc(result.section_adjustment.reason || '専用条件一致')}`
+        : `有利区間差枚：切断目安まで約${Number(result.section_adjustment.remaining_to_cut_coins).toLocaleString()}枚／ボーダー-${Number(result.section_adjustment.border_reduction)}${esc(result.unit_label)}`)
+      : '',
+    result.replay_adjustment?.active
+      ? `再プレイ残り${Number(result.replay_adjustment.remaining_replay_medals || 0).toLocaleString()}枚／現金ギャップ-${opportunityMoney(result.cash_gap_yen)}`
+      : '',
+  ].filter(Boolean);
   el.innerHTML = `
     <div class="opp-quick-result-head">
       <div><small>${esc(result.machine_name)}・${esc(result.condition_label)}</small><strong>${esc(labels[result.judgment] || result.judgment)}</strong></div>
@@ -4390,12 +4482,15 @@ function renderOpportunityQuickResult(result) {
     <p class="opp-quick-reason">${esc(result.reason)}</p>
     <div class="opp-quick-metrics">
       <div><small>現在</small><strong>${Number(result.current_value).toLocaleString()}${esc(result.unit_label)}</strong></div>
-      <div><small>開始</small><strong>${Number(result.start_threshold).toLocaleString()}${esc(result.unit_label)}</strong></div>
+      <div><small>補正後開始</small><strong>${Number(result.adjusted_start_threshold ?? result.start_threshold).toLocaleString()}${esc(result.unit_label)}</strong></div>
       <div><small>期待値</small><strong>${expected}</strong></div>
       <div><small>必要資金</small><strong>${opportunityMoney(result.worst_case_investment_yen)}</strong></div>
       <div><small>閉店まで</small><strong>${result.minutes_until_close}分</strong></div>
       <div><small>許容資金</small><strong>${opportunityMoney(result.risk_capacity_yen)}</strong></div>
+      <div><small>平均 / 閉店安全側</small><strong>${result.estimated_play_minutes || '--'}分 / ${result.safe_play_minutes || '--'}分</strong></div>
+      <div><small>期待時給</small><strong>${opportunityMoney(result.ev_per_hour_yen, true)}</strong></div>
     </div>
+    ${adjustments.length ? `<div class="opp-adjustment-summary">${adjustments.map(item => `<span>${item}</span>`).join('')}</div>` : ''}
     ${warnings ? `<ul class="opp-quick-warnings">${warnings}</ul>` : ''}
     <div class="opp-quick-stop"><b>やめどき</b>${esc(result.stop_rule || '未登録')}</div>
     ${result.discrepancy_note ? `<div class="opp-discrepancy">数値差の扱い：${esc(result.discrepancy_note)}</div>` : ''}
@@ -4581,6 +4676,7 @@ async function loadOpportunityPage() {
     renderOpportunityCandidates(opportunityState.candidates);
     renderOpportunityResults(opportunityState.recent_results || []);
     updateOpportunityProfileSelect();
+    loadOpportunityCrawler();
 
     const alert = document.getElementById('opp-alert');
     if (!opportunityState.summary.configured) {
@@ -4598,6 +4694,21 @@ async function loadOpportunityPage() {
 }
 
 document.getElementById('opp-month').addEventListener('change', loadOpportunityPage);
+document.getElementById('opp-crawler-run').addEventListener('click', async event => {
+  if (opportunityCrawlerRunning) return;
+  opportunityCrawlerRunning = true;
+  event.currentTarget.disabled = true;
+  document.getElementById('opp-crawler-status').textContent = '確認中…';
+  try {
+    await api.runOpportunityCrawler();
+    showToast('公開ソースの確認を開始しました。少し待ってから更新候補を確認してください');
+    setTimeout(loadOpportunityCrawler, 4000);
+  } catch (error) { showToast(error.message, 'error'); }
+  finally {
+    opportunityCrawlerRunning = false;
+    event.currentTarget.disabled = false;
+  }
+});
 document.getElementById('opp-guide-search').addEventListener('input', renderOpportunityGuide);
 document.getElementById('opp-guide-mode').addEventListener('change', renderOpportunityGuide);
 document.getElementById('opp-quick-machine').addEventListener('change', event => {
@@ -4605,6 +4716,31 @@ document.getElementById('opp-quick-machine').addEventListener('change', event =>
   updateOpportunityQuickProfileSelect(true);
 });
 document.getElementById('opp-quick-profile').addEventListener('change', () => updateOpportunityQuickProfileSelect(true));
+document.querySelector('.opp-quick-templates').addEventListener('click', event => {
+  const button = event.target.closest('[data-opp-template]');
+  if (!button) return;
+  const profile = opportunityState.profiles.find(item => item.id === Number(document.getElementById('opp-quick-profile').value));
+  if (button.dataset.oppTemplate === 'zero') document.getElementById('opp-quick-current').value = 0;
+  if (button.dataset.oppTemplate === 'heaven') {
+    document.getElementById('opp-quick-current').value = Number(profile?.heaven_exit_games ?? 32);
+    showToast('天国抜け32Gは機種の画面と照合してください');
+  }
+  if (button.dataset.oppTemplate === 'ceiling') {
+    if (profile?.ceiling_threshold == null) return showToast('天井値が未登録です', 'error');
+    document.getElementById('opp-quick-current').value = Number(profile.ceiling_threshold);
+  }
+});
+document.getElementById('opp-quick-ocr').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.4.1');
+    const result = await recognizeNumberFromFile(file);
+    document.getElementById('opp-quick-current').value = result.value;
+    showToast(`OCR候補 ${result.value}G。表示と照合してください`);
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { event.target.value = ''; }
+});
 ['opp-quick-exchange', 'opp-quick-funding', 'opp-quick-reset'].forEach(id => {
   document.getElementById(id).addEventListener('change', autoSelectOpportunityQuickProfile);
 });
@@ -4646,6 +4782,11 @@ document.getElementById('opp-quick-form').addEventListener('submit', async event
       funding_mode: document.getElementById('opp-quick-funding').value,
       reset_status: document.getElementById('opp-quick-reset').value,
       minutes_until_close: minutesUntilClosing(document.getElementById('opp-quick-close').value),
+      section_difference_coins: nullableNumber('opp-section-diff'),
+      replay_limit_medals: Number(document.getElementById('opp-replay-limit').value || 0),
+      replay_used_medals: Number(document.getElementById('opp-replay-used').value || 0),
+      exchange_rate: Number(document.getElementById('opp-exchange-rate').value || 5.6),
+      extra_inputs: collectOpportunityExtraInputs(),
     };
     const response = await api.quickAssessOpportunity(request);
     opportunityQuickResult = { ...response, ...request };
@@ -4712,6 +4853,25 @@ document.getElementById('opp-candidate-form').addEventListener('submit', async e
 });
 
 document.getElementById('page-opportunity').addEventListener('click', async event => {
+  const crawlerApprove = event.target.closest('[data-opp-crawler-approve]');
+  if (crawlerApprove) {
+    if (!window.confirm('出典の数値を期待値表へ反映しますか？')) return;
+    try {
+      await api.approveOpportunityCrawlerCandidate(Number(crawlerApprove.dataset.oppCrawlerApprove));
+      showToast('確認済みの期待値データを反映しました');
+      await loadOpportunityPage();
+    } catch (error) { showToast(error.message, 'error'); }
+    return;
+  }
+  const crawlerReject = event.target.closest('[data-opp-crawler-reject]');
+  if (crawlerReject) {
+    try {
+      await api.rejectOpportunityCrawlerCandidate(Number(crawlerReject.dataset.oppCrawlerReject));
+      showToast('更新候補を不採用にしました');
+      await loadOpportunityCrawler();
+    } catch (error) { showToast(error.message, 'error'); }
+    return;
+  }
   const guideButton = event.target.closest('[data-opp-guide-profile]');
   if (guideButton) {
     const profile = opportunityState.profiles.find(item => item.id === Number(guideButton.dataset.oppGuideProfile));
@@ -4737,6 +4897,13 @@ document.getElementById('page-opportunity').addEventListener('click', async even
         current_value: opportunityQuickResult.current_value,
         profile_id: opportunityQuickResult.profile_id,
         notes: `10秒判定・閉店まで${opportunityQuickResult.minutes_until_close}分`,
+        section_difference_coins: opportunityQuickResult.section_difference_coins,
+        replay_limit_medals: opportunityQuickResult.replay_limit_medals,
+        replay_used_medals: opportunityQuickResult.replay_used_medals,
+        exchange_rate: opportunityQuickResult.exchange_rate,
+        exchange_type: opportunityQuickResult.exchange_type,
+        funding_mode: opportunityQuickResult.funding_mode,
+        extra_inputs: opportunityQuickResult.extra_inputs || {},
       });
       showToast('候補台として保存しました');
       opportunityQuickResult = null;
@@ -6419,6 +6586,7 @@ document.getElementById('hall-ai-btn').addEventListener('click', async () => {
 
 async function loadScrapeManager() {
   loadCacheStats();
+  loadArchiveCollector();
   // DBデータ統計サマリー
   try {
     const st = await apiFetch('/api/stats').catch(() => null);
@@ -6545,6 +6713,91 @@ async function loadScrapeManager() {
     console.error('scrape manager load error:', e);
   }
 }
+
+let _archivePollTimer = null;
+
+function _archiveDateOffset(days) {
+  const value = new Date();
+  value.setDate(value.getDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+async function loadArchiveCollector() {
+  const statusEl = document.getElementById('archive-status');
+  if (!statusEl) return;
+  try {
+    const data = await apiFetch('/api/scrape/archive/status');
+    const hallSelect = document.getElementById('archive-hall');
+    const previousHall = hallSelect.value;
+    hallSelect.innerHTML = (data.supported_halls || []).map(item =>
+      `<option value="${esc(item.hall_name)}">${esc(item.hall_name)}</option>`
+    ).join('');
+    if (previousHall && [...hallSelect.options].some(option => option.value === previousHall)) hallSelect.value = previousHall;
+    const fromInput = document.getElementById('archive-date-from');
+    const toInput = document.getElementById('archive-date-to');
+    if (!fromInput.value) fromInput.value = _archiveDateOffset(-365);
+    if (!toInput.value) toInput.value = _archiveDateOffset(-1);
+
+    const job = data.job;
+    if (!job) {
+      statusEl.innerHTML = 'まだ過去データ収集は実行されていません。店舗と期間を選んで開始してください。';
+    } else {
+      const labels = { queued: '開始待ち', collecting: '収集中', paused: '一時停止', completed: '完了', failed: '失敗' };
+      const tone = job.status === 'completed' ? 'var(--success)' : job.status === 'paused' ? 'var(--warning)' : job.status === 'collecting' ? 'var(--primary-h)' : 'var(--text2)';
+      statusEl.innerHTML = `<strong style="color:${tone}">${labels[job.status] || esc(job.status)}</strong>　${esc(job.hall_name)} ${esc(job.date_from)}〜${esc(job.date_to)}<br>` +
+        `処理 ${job.processed}/${job.discovered}ページ（${job.progress_pct}%）・新規 機種${job.machine_rows}件 / 台${job.seat_rows}件・失敗${job.failed_count}件` +
+        (job.error ? `<br><span style="color:var(--warning)">${esc(job.error)}</span>` : '');
+    }
+    const coverage = document.getElementById('archive-coverage');
+    coverage.innerHTML = (data.coverage || []).map(item =>
+      `${esc(item.hall_name)}：${item.days || 0}日${item.oldest ? `（${esc(item.oldest)}〜${esc(item.newest)}）` : ''}`
+    ).join('<br>');
+    const running = job && ['queued', 'collecting'].includes(job.status);
+    document.getElementById('archive-start-btn').disabled = Boolean(running || job?.status === 'paused');
+    document.getElementById('archive-pause-btn').disabled = !running;
+    document.getElementById('archive-resume-btn').disabled = job?.status !== 'paused';
+    clearTimeout(_archivePollTimer);
+    if (running) _archivePollTimer = setTimeout(loadArchiveCollector, 3000);
+  } catch (error) {
+    statusEl.innerHTML = `<span style="color:var(--danger)">進捗取得に失敗：${esc(error.message)}</span>`;
+  }
+}
+
+document.getElementById('archive-start-btn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('archive-start-btn');
+  const body = {
+    hall_name: document.getElementById('archive-hall').value,
+    date_from: document.getElementById('archive-date-from').value,
+    date_to: document.getElementById('archive-date-to').value,
+    max_pages: Number(document.getElementById('archive-max-pages').value),
+  };
+  if (!body.hall_name || !body.date_from || !body.date_to) return showToast('店舗と期間を指定してください', 'error');
+  btn.disabled = true;
+  try {
+    await apiFetch('/api/scrape/archive/jobs', { method: 'POST', body: JSON.stringify(body) });
+    showToast('過去データ収集を開始しました');
+    await loadArchiveCollector();
+  } catch (error) {
+    showToast(error.message, 'error');
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('archive-pause-btn')?.addEventListener('click', async () => {
+  try {
+    const data = await apiFetch('/api/scrape/archive/pause', { method: 'POST' });
+    showToast(data.message, data.ok ? 'success' : 'error');
+    setTimeout(loadArchiveCollector, 500);
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('archive-resume-btn')?.addEventListener('click', async () => {
+  try {
+    const data = await apiFetch('/api/scrape/archive/resume', { method: 'POST' });
+    showToast(data.message, data.ok ? 'success' : 'error');
+    await loadArchiveCollector();
+  } catch (error) { showToast(error.message, 'error'); }
+});
 
 async function loadCacheStats() {
   const el = document.getElementById('cache-stats-text');

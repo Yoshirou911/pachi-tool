@@ -155,6 +155,13 @@ def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     ).fetchone() is not None
 
 
+def _column_exists(conn: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    return any(
+        row[1] == column_name
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    )
+
+
 def _ensure_seat_result_tables(conn: sqlite3.Connection) -> None:
     """手入力結果と取込履歴を保存できる最低限のテーブルを保証する。"""
     conn.executescript(
@@ -221,8 +228,12 @@ def _layout_machine_by_seat(conn: sqlite3.Connection, hall_name: str, report_dat
 def _daily_source_rows(conn: sqlite3.Connection, hall_name: str, start: date, end: date) -> tuple[list[dict], str]:
     machine_rows = []
     if _table_exists(conn, "hall_day_machine"):
+        unit_expression = "COALESCE(NULLIF(unit_count, 0), 1)" if _column_exists(
+            conn, "hall_day_machine", "unit_count"
+        ) else "1"
         machine_rows = conn.execute(
-            """SELECT report_date, machine_name, avg_diff_coins AS diff, win_rate_pct, source_url
+            f"""SELECT report_date, machine_name, avg_diff_coins AS diff, win_rate_pct,
+                       source_url, {unit_expression} AS unit_count
                FROM hall_day_machine
                WHERE hall_name=? AND report_date BETWEEN ? AND ?
                  AND machine_name != '_NODATA_' AND avg_diff_coins IS NOT NULL
@@ -288,12 +299,20 @@ def get_hall_trend_profile(
 
     daily = []
     for day_value, day_rows in sorted(by_day.items()):
-        diffs = [float(item["diff"] or 0) for item in day_rows]
+        weighted_diffs = [
+            (float(item["diff"] or 0), max(1, int(item.get("unit_count") or 1)))
+            for item in day_rows
+        ]
+        total_units = sum(units for _, units in weighted_diffs)
         daily.append({
             "date": day_value,
-            "avg_diff": round(_average(diffs)),
-            "positive_rate": round(sum(value > 0 for value in diffs) / len(diffs) * 100, 1),
+            "avg_diff": round(sum(value * units for value, units in weighted_diffs) / total_units),
+            "positive_rate": round(
+                sum(units for value, units in weighted_diffs if value > 0) / total_units * 100,
+                1,
+            ),
             "machine_count": len(day_rows),
+            "unit_count": total_units,
         })
     day_values = [float(item["avg_diff"]) for item in daily]
     baseline = _average(day_values)
@@ -333,17 +352,28 @@ def get_hall_trend_profile(
     machine_profile = []
     for machine_name, machine_rows in by_machine.items():
         values = [float(row["diff"] or 0) for row in machine_rows]
+        weighted_values = [
+            (float(row["diff"] or 0), max(1, int(row.get("unit_count") or 1)))
+            for row in machine_rows
+        ]
         recent = [float(row["diff"] or 0) for row in machine_rows if date.fromisoformat(row["report_date"]) >= cutoff_recent]
         older = [float(row["diff"] or 0) for row in machine_rows if date.fromisoformat(row["report_date"]) < cutoff_recent]
-        avg = _average(values)
+        avg = sum(value * units for value, units in weighted_values) / sum(
+            units for _, units in weighted_values
+        )
+        sample_days = len({row["report_date"] for row in machine_rows})
+        reliability = min(1.0, sample_days / 20)
+        adjusted_avg = avg * reliability + baseline * (1 - reliability)
         machine_profile.append({
             "machine_name": machine_name,
-            "avg_diff": round(avg),
+            "avg_diff": round(adjusted_avg),
+            "raw_avg_diff": round(avg),
             "positive_rate": round(sum(value > 0 for value in values) / len(values) * 100, 1),
-            "sample_days": len({row["report_date"] for row in machine_rows}),
+            "sample_days": sample_days,
+            "reliability_pct": round(reliability * 100),
             "recent_avg": round(_average(recent)) if recent else None,
             "trend": round(_average(recent) - _average(older)) if recent and older else None,
-            "score": max(0, min(100, round(50 + (avg - baseline) / max(scale, 100) * 18))),
+            "score": max(0, min(100, round(50 + (adjusted_avg - baseline) / max(scale, 100) * 18))),
         })
     machine_profile.sort(key=lambda item: (item["score"], item["sample_days"]), reverse=True)
 

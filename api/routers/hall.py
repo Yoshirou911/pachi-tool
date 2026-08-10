@@ -440,15 +440,16 @@ def get_data_coverage(hall_name: str = Query(...)) -> dict:
         ).fetchone()
         return row is not None
 
-    def aggregate(table: str, date_column: str) -> dict:
+    def aggregate(table: str, date_column: str, value_column: str | None = None) -> dict:
         if not table_exists(table):
             return {"records": 0, "days": 0, "first_date": None, "latest_date": None}
+        value_filter = f" AND {value_column} IS NOT NULL" if value_column else ""
         row = conn.execute(
             f"""SELECT COUNT(*) AS records,
                        COUNT(DISTINCT {date_column}) AS days,
                        MIN({date_column}) AS first_date,
                        MAX({date_column}) AS latest_date
-                FROM {table} WHERE hall_name=?""",
+                FROM {table} WHERE hall_name=?{value_filter}""",
             (hall_name,),
         ).fetchone()
         return {
@@ -459,8 +460,8 @@ def get_data_coverage(hall_name: str = Query(...)) -> dict:
         }
 
     try:
-        machine = aggregate("hall_day_machine", "report_date")
-        seat = aggregate("hall_day_seat", "report_date")
+        machine = aggregate("hall_day_machine", "report_date", "avg_diff_coins")
+        seat = aggregate("hall_day_seat", "report_date", "diff_coins")
         installation = aggregate("hall_machine_snapshot", "snapshot_date")
         events = aggregate("hall_event", "event_date")
     finally:
@@ -592,11 +593,17 @@ def get_target_search(
 
     def _date_weighted_estimate(source_rows: list) -> dict:
         """全体傾向に、指定曜日・日付末尾・直近傾向を縮小推定で重ねる。"""
-        daily: dict[str, list[float]] = {}
+        daily: dict[str, list[tuple[float, int]]] = {}
         for source_row in source_rows:
-            daily.setdefault(source_row["report_date"], []).append(float(source_row["avg_diff_coins"]))
+            unit_count = max(1, int(source_row["unit_count"] or 1))
+            daily.setdefault(source_row["report_date"], []).append(
+                (float(source_row["avg_diff_coins"]), unit_count)
+            )
         points = [
-            (date.fromisoformat(day), sum(values) / len(values))
+            (
+                date.fromisoformat(day),
+                sum(value * units for value, units in values) / sum(units for _, units in values),
+            )
             for day, values in daily.items() if values
         ]
         points.sort(key=lambda item: item[0])
@@ -653,17 +660,17 @@ def get_target_search(
         positive_rate = estimate["positive_rate"]
         latest_date = estimate["latest_date"]
         stale_days = max(0, (reference_date - date.fromisoformat(latest_date)).days)
-        freshness_points = 15 if stale_days <= 7 else 10 if stale_days <= 30 else 5 if stale_days <= 90 else 0
+        freshness_points = 10 if stale_days <= 7 else 6 if stale_days <= 30 else 2 if stale_days <= 90 else 0
         score = round(
-            max(0, min(40, 20 + avg_diff / 50))
-            + positive_rate * 0.25
-            + min(20, estimate["sample_days"] / 8 * 20)
+            max(0, min(50, 25 + avg_diff / 20))
+            + max(0, min(30, positive_rate * 0.30))
+            + min(10, estimate["sample_days"] / 60 * 10)
             + freshness_points
         )
         score = max(0, min(100, score))
         confidence = (
-            "高" if estimate["sample_days"] >= 10 and estimate["weekday_days"] >= 2 and stale_days <= 14
-            else "中" if estimate["sample_days"] >= 5 and stale_days <= 45
+            "高" if estimate["sample_days"] >= 60 and estimate["weekday_days"] >= 8 and stale_days <= 14
+            else "中" if estimate["sample_days"] >= 30 and estimate["weekday_days"] >= 4 and stale_days <= 30
             else "低"
         )
 
@@ -677,18 +684,27 @@ def get_target_search(
                 continue
             diffs = [float(row["avg_diff_coins"]) for row in machine_rows]
             machine_estimate = _date_weighted_estimate(machine_rows)
-            machine_avg = machine_estimate["projected"]
-            machine_positive = machine_estimate["positive_rate"]
+            reliability = min(1.0, len(machine_dates) / 20)
+            machine_avg = round(
+                machine_estimate["projected"] * reliability
+                + estimate["base_avg"] * (1 - reliability)
+            )
+            machine_positive = round(
+                machine_estimate["positive_rate"] * reliability
+                + estimate["positive_rate"] * (1 - reliability)
+            )
             machine_score = round(
-                max(0, min(60, 30 + machine_avg / 35))
-                + machine_positive * 0.25
-                + min(15, len(machine_dates) / 6 * 15)
+                max(0, min(55, 27.5 + machine_avg / 30))
+                + max(0, min(25, machine_positive * 0.25))
+                + min(20, len(machine_dates) / 20 * 20)
             )
             machine_candidates.append({
                 "machine_name": machine_name,
                 "score": max(0, min(100, machine_score)),
                 "avg_diff": machine_avg,
+                "raw_avg_diff": machine_estimate["projected"],
                 "positive_rate": machine_positive,
+                "reliability_pct": round(reliability * 100),
                 "sample_days": len(machine_dates),
                 "latest_date": max(machine_dates),
                 "weekday_days": machine_estimate["weekday_days"],

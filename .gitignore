@@ -13,6 +13,11 @@ data/opportunities.db
 data/logs/
 build/
 dist/
+build-v*/
+dist-v*/
+.tmp-*.log
+data/*.db-shm
+data/*.db-wal
 
 # OS
 .DS_Store

@@ -36,6 +36,14 @@ class CookieBody(BaseModel):
     cookie_str: str
 
 
+class ArchiveCollectionBody(BaseModel):
+    hall_name: str = Field(..., min_length=1, max_length=100)
+    date_from: date
+    date_to: date
+    seed_url: str = Field("", max_length=200)
+    max_pages: int = Field(120, ge=1, le=800)
+
+
 _BULK_PROGRESS: dict = {
     "running": False,
     "started_at": None,
@@ -43,6 +51,57 @@ _BULK_PROGRESS: dict = {
     "days": 0,
     "halls": [],   # [{name, status, records, error, sources}]
 }
+
+
+@router.get("/api/scrape/archive/status", tags=["scrape"])
+def get_archive_collection_status() -> dict:
+    """過去データ収集の進捗、対応店舗、既存データ範囲を返す。"""
+    from scraper.minrepo_archive import get_status
+    try:
+        return {"ok": True, **get_status()}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/api/scrape/archive/jobs", tags=["scrape"])
+def start_archive_collection(body: ArchiveCollectionBody) -> dict:
+    """永続キューを作成し、みんレポの過去レポート収集を開始する。"""
+    from scraper.minrepo_archive import create_job, launch_job
+    try:
+        job_id = create_job(
+            body.hall_name,
+            body.date_from.isoformat(),
+            body.date_to.isoformat(),
+            body.seed_url,
+            body.max_pages,
+        )
+        launched = launch_job(job_id)
+        return {"ok": True, "job_id": job_id, "started": launched}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/api/scrape/archive/pause", tags=["scrape"])
+def pause_archive_collection() -> dict:
+    """現在のページ処理が終わった時点で安全に一時停止する。"""
+    from scraper.minrepo_archive import pause_latest
+    paused = pause_latest()
+    return {
+        "ok": paused,
+        "message": "一時停止を予約しました" if paused else "実行中の収集はありません",
+    }
+
+
+@router.post("/api/scrape/archive/resume", tags=["scrape"])
+def resume_archive_collection() -> dict:
+    """アプリ終了を含む一時停止状態から収集を再開する。"""
+    from scraper.minrepo_archive import resume_latest
+    job_id = resume_latest()
+    return {
+        "ok": job_id is not None,
+        "job_id": job_id,
+        "message": "収集を再開しました" if job_id is not None else "再開できる収集はありません",
+    }
 
 
 @router.post("/api/scrape/cookie", tags=["scrape"])

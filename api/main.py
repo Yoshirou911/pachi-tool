@@ -70,6 +70,13 @@ _cors_origins = list(dict.fromkeys([
 async def _lifespan(_app: FastAPI):
     """起動時の初期化: キャッシュウォームアップ + 夜間スクレイプスケジューラ起動"""
 
+    # API受付開始前に、前回終了時の収集だけを確実に「再開待ち」へ戻す。
+    try:
+        from scraper.minrepo_archive import recover_interrupted_jobs
+        recover_interrupted_jobs()
+    except Exception as exc:
+        logger.warning(f"[過去データ収集] 再開準備に失敗: {exc}")
+
     def _init() -> None:
         # デフォルトホールをDBへシード（DBが空の場合のみ）
         try:

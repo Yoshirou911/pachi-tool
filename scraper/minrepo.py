@@ -122,6 +122,16 @@ def _float(s: str) -> Optional[float]:
         return None
 
 
+def _has_meaningful_performance(rows: list[dict]) -> bool:
+    """全行0枚・出率100%だけの非公開表を実績0枚と誤認しない。"""
+    return any(
+        row.get("avg_diff_coins") not in (None, 0)
+        or row.get("win_rate_pct") is not None
+        or row.get("ev_pct") not in (None, 100.0)
+        for row in rows
+    )
+
+
 def parse_report_page(html: str, url: str) -> tuple[list[dict], list[dict]]:
     """
     1日のレポートページをパースして機種別・台別データを返す。
@@ -134,6 +144,14 @@ def parse_report_page(html: str, url: str) -> tuple[list[dict], list[dict]]:
     seat_rows: list[dict] = []
 
     tables = soup.find_all("table")
+
+    def _column_groups(headers: list[str]) -> list[tuple[int, int]]:
+        """横並びで繰り返される「機種…出率」の列範囲を返す。"""
+        starts = [i for i, header in enumerate(headers) if "機種" in header]
+        return [
+            (start, starts[index + 1] if index + 1 < len(starts) else len(headers))
+            for index, start in enumerate(starts)
+        ]
 
     for table in tables:
         headers = [th.get_text(strip=True) for th in table.find_all("th")]
@@ -151,84 +169,81 @@ def parse_report_page(html: str, url: str) -> tuple[list[dict], list[dict]]:
         has_avg_g    = any("G数" in h for h in headers)
         has_seat     = any("台番" in h for h in headers)
 
-        if has_avg_diff and has_avg_g and not has_seat:
-            idx = {}
-            for i, h in enumerate(headers):
-                idx[h] = i
-                # 短縮マッチング
-                if "差枚" in h: idx.setdefault("__diff__", i)
-                if "G数"  in h: idx.setdefault("__games__", i)
-                if "出率"  in h: idx.setdefault("__ev__", i)
-                if "勝率"  in h: idx.setdefault("__wr__", i)
-
+        if has_avg_diff and has_avg_g and not has_seat and _column_groups(headers):
             for tr in table.find_all("tr")[1:]:
                 tds = tr.find_all("td")
-                if len(tds) < 2:
-                    continue
-                machine_name = tds[0].get_text(strip=True)
-                if not machine_name:
-                    continue
+                for start, end in _column_groups(headers):
+                    if start >= len(tds):
+                        continue
+                    local_headers = headers[start:end]
+                    local_cells = tds[start:min(end, len(tds))]
+                    idx: dict[str, int] = {}
+                    for i, header in enumerate(local_headers):
+                        if "機種" in header: idx.setdefault("__machine__", i)
+                        if "差枚" in header: idx.setdefault("__diff__", i)
+                        if "G数" in header: idx.setdefault("__games__", i)
+                        if "出率" in header: idx.setdefault("__ev__", i)
+                        if "勝率" in header: idx.setdefault("__wr__", i)
 
-                unit_count = None
-                unit_match = re.search(r'[\(（](\d+)台[\)）]', machine_name)
-                if unit_match:
-                    unit_count = int(unit_match.group(1))
-                    machine_name = re.sub(r'[\(（]\d+台[\)）]', '', machine_name).strip()
+                    machine_name = _td(local_cells, "__machine__", idx) or ""
+                    machine_name = machine_name.strip()
+                    if not machine_name:
+                        continue
 
-                avg_diff = _int(_td(tds, "__diff__", idx) or "")
-                avg_g    = _int(_td(tds, "__games__", idx) or "")
-                ev_pct   = _float(_td(tds, "__ev__", idx) or "")
+                    unit_count = None
+                    unit_match = re.search(r'[\(（](\d+)(?:台)?[\)）]', machine_name)
+                    if unit_match:
+                        unit_count = int(unit_match.group(1))
+                        machine_name = re.sub(r'[\(（]\d+(?:台)?[\)）]', '', machine_name).strip()
 
-                wr_pct = None
-                wr_text = _td(tds, "__wr__", idx) or ""
-                m2 = re.match(r'(\d+)/(\d+)', wr_text)
-                if m2:
-                    wr_pct = round(int(m2.group(1)) / int(m2.group(2)) * 100, 1)
+                    wr_pct = None
+                    wr_text = _td(local_cells, "__wr__", idx) or ""
+                    win_match = re.match(r'(\d+)\s*/\s*(\d+)', wr_text)
+                    if win_match:
+                        wins, total = int(win_match.group(1)), int(win_match.group(2))
+                        unit_count = unit_count or total
+                        if total:
+                            wr_pct = round(wins / total * 100, 1)
 
-                machine_rows.append({
-                    "machine_name": machine_name,
-                    "unit_count": unit_count,
-                    "avg_diff_coins": avg_diff,
-                    "avg_games": avg_g,
-                    "win_rate_pct": wr_pct,
-                    "ev_pct": ev_pct,
-                    "source_url": url,
-                })
+                    machine_rows.append({
+                        "machine_name": machine_name,
+                        "unit_count": unit_count,
+                        "avg_diff_coins": _int(_td(local_cells, "__diff__", idx) or ""),
+                        "avg_games": _int(_td(local_cells, "__games__", idx) or ""),
+                        "win_rate_pct": wr_pct,
+                        "ev_pct": _float(_td(local_cells, "__ev__", idx) or ""),
+                        "source_url": url,
+                    })
 
         # 台別データテーブル（台番・差枚・G数・出率 列）
-        elif has_seat and has_avg_diff:
-            idx = {}
-            for i, h in enumerate(headers):
-                idx[h] = i
-                if "台番" in h: idx.setdefault("__seat__", i)
-                if "差枚" in h: idx.setdefault("__diff__", i)
-                if "G数"  in h: idx.setdefault("__games__", i)
-                if "出率"  in h: idx.setdefault("__ev__", i)
-
-            machine_name = ""
-            prev = table.find_previous(["h2", "h3", "caption", "strong", "p"])
-            if prev:
-                machine_name = prev.get_text(strip=True)
-
+        elif has_seat and has_avg_diff and _column_groups(headers):
             for tr in table.find_all("tr")[1:]:
                 tds = tr.find_all("td")
-                if len(tds) < 2:
-                    continue
-                seat = _int(_td(tds, "__seat__", idx) or "")
-                diff = _int(_td(tds, "__diff__", idx) or "")
-                games = _int(_td(tds, "__games__", idx) or "")
-                ev_pct = _float(_td(tds, "__ev__", idx) or "")
+                for start, end in _column_groups(headers):
+                    if start >= len(tds):
+                        continue
+                    local_headers = headers[start:end]
+                    local_cells = tds[start:min(end, len(tds))]
+                    idx: dict[str, int] = {}
+                    for i, header in enumerate(local_headers):
+                        if "機種" in header: idx.setdefault("__machine__", i)
+                        if "台番" in header: idx.setdefault("__seat__", i)
+                        if "差枚" in header: idx.setdefault("__diff__", i)
+                        if "G数" in header: idx.setdefault("__games__", i)
+                        if "出率" in header: idx.setdefault("__ev__", i)
 
-                if seat is None:
-                    continue
-                seat_rows.append({
-                    "machine_name": machine_name,
-                    "seat_number": seat,
-                    "diff_coins": diff,
-                    "games": games,
-                    "ev_pct": ev_pct,
-                    "source_url": url,
-                })
+                    seat = _int(_td(local_cells, "__seat__", idx) or "")
+                    machine_name = (_td(local_cells, "__machine__", idx) or "").strip()
+                    if seat is None or not machine_name:
+                        continue
+                    seat_rows.append({
+                        "machine_name": machine_name,
+                        "seat_number": seat,
+                        "diff_coins": _int(_td(local_cells, "__diff__", idx) or ""),
+                        "games": _int(_td(local_cells, "__games__", idx) or ""),
+                        "ev_pct": _float(_td(local_cells, "__ev__", idx) or ""),
+                        "source_url": url,
+                    })
 
     return machine_rows, seat_rows
 
@@ -293,48 +308,106 @@ def fetch_report_links(
     return unique
 
 
-def scrape_report(url: str, hall_name: str, report_date_str: str, conn: sqlite3.Connection) -> int:
+def scrape_report(
+    url: str,
+    hall_name: str,
+    report_date_str: str,
+    conn: sqlite3.Connection,
+    replace_day: bool = False,
+) -> int:
     """1日分のレポートをスクレイプしてDBに保存。保存件数を返す"""
     resp = _get_page(url)
     if resp.status_code != 200:
         print(f"  レポート取得失敗: {resp.status_code} {url}")
         return 0
 
-    soup = BeautifulSoup(resp.text, "lxml")
+    result = save_report_html(
+        resp.text,
+        url,
+        hall_name,
+        report_date_str,
+        conn,
+        replace_day=replace_day,
+    )
+    return int(result["machine_rows"])
+
+
+def save_report_html(
+    html: str,
+    url: str,
+    hall_name: str,
+    report_date_str: str,
+    conn: sqlite3.Connection,
+    replace_day: bool = False,
+    preserve_existing: bool = False,
+) -> dict[str, int | bool]:
+    """取得済みHTMLを検証・解析して保存する。
+
+    過去データ収集では同じページを隣接リンク探索にも使うため、再通信せずに
+    保存できる入口を分けている。``preserve_existing`` は手入力や既存取得値を
+    上書きしないための指定。
+    """
+
+    soup = BeautifulSoup(html, "lxml")
     heading = soup.find("h1")
     heading_text = heading.get_text(" ", strip=True) if heading else ""
     if _normalize_hall_name(hall_name) not in _normalize_hall_name(heading_text):
         print(f"  店舗不一致のため破棄: {heading_text or '見出しなし'}")
-        return 0
+        return {"valid": False, "machine_rows": 0, "seat_rows": 0}
 
-    machine_rows, seat_rows = parse_report_page(resp.text, url)
+    machine_rows, seat_rows = parse_report_page(html, url)
     machine_rows = [row for row in machine_rows if is_smartslot_machine(row["machine_name"])]
     seat_rows = [row for row in seat_rows if is_smartslot_machine(row["machine_name"])]
 
+    if machine_rows and not _has_meaningful_performance(machine_rows):
+        for row in machine_rows:
+            row["avg_diff_coins"] = None
+            row["win_rate_pct"] = None
+            row["ev_pct"] = None
+        for row in seat_rows:
+            row["diff_coins"] = None
+            row["ev_pct"] = None
+
+    # 再取得時は、ページ取得と解析に成功してから古い同日データを置き換える。
+    if replace_day and machine_rows:
+        conn.execute(
+            "DELETE FROM hall_day_machine WHERE hall_name=? AND report_date=?",
+            (hall_name, report_date_str),
+        )
+        conn.execute(
+            "DELETE FROM hall_day_seat WHERE hall_name=? AND report_date=?",
+            (hall_name, report_date_str),
+        )
+
+    insert_mode = "IGNORE" if preserve_existing else "REPLACE"
     saved = 0
     for row in machine_rows:
         try:
-            conn.execute("""
-                INSERT OR REPLACE INTO hall_day_machine
+            before = conn.total_changes
+            conn.execute(f"""
+                INSERT OR {insert_mode} INTO hall_day_machine
                 (hall_name, report_date, machine_name, unit_count, avg_diff_coins,
                  avg_games, win_rate_pct, ev_pct, source_url)
                 VALUES (?,?,?,?,?,?,?,?,?)
             """, (hall_name, report_date_str, row["machine_name"], row["unit_count"],
                   row["avg_diff_coins"], row["avg_games"], row["win_rate_pct"],
                   row["ev_pct"], row["source_url"]))
-            saved += 1
+            saved += conn.total_changes - before
         except Exception as e:
             print(f"  DB保存エラー: {e}")
 
+    seat_saved = 0
     for row in seat_rows:
         try:
-            conn.execute("""
-                INSERT OR REPLACE INTO hall_day_seat
+            before = conn.total_changes
+            conn.execute(f"""
+                INSERT OR {insert_mode} INTO hall_day_seat
                 (hall_name, report_date, machine_name, seat_number, diff_coins,
                  games, ev_pct, source_url)
                 VALUES (?,?,?,?,?,?,?,?)
             """, (hall_name, report_date_str, row["machine_name"], row["seat_number"],
                   row["diff_coins"], row["games"], row["ev_pct"], row["source_url"]))
+            seat_saved += conn.total_changes - before
         except Exception:
             pass
 
@@ -346,7 +419,7 @@ def scrape_report(url: str, hall_name: str, report_date_str: str, conn: sqlite3.
         """, (hall_name, report_date_str, url))
 
     conn.commit()
-    return saved
+    return {"valid": True, "machine_rows": saved, "seat_rows": seat_saved}
 
 
 def build_tag_url(hall_name: str) -> str:
@@ -380,6 +453,7 @@ def main():
     parser.add_argument("--hall", default="ベガスベガス大東店", help="ホール名")
     parser.add_argument("--days", type=int, default=30, help="最大取得日数")
     parser.add_argument("--url-id", type=int, default=None, help="特定レポートID (テスト用)")
+    parser.add_argument("--refresh", action="store_true", help="取得済みの日も再解析して置き換える")
     args = parser.parse_args()
 
     conn = init_db()
@@ -414,12 +488,12 @@ def main():
             "SELECT COUNT(*) FROM hall_day_machine WHERE hall_name=? AND report_date=?",
             (hall, date_str)
         ).fetchone()[0]
-        if existing > 0:
+        if existing > 0 and not args.refresh:
             print(f"  [{i+1}/{min(len(links), args.days)}] {date_str} スキップ（取得済み {existing}件）")
             continue
 
         print(f"  [{i+1}/{min(len(links), args.days)}] {date_str} 取得中... {report_url}")
-        saved = scrape_report(report_url, hall, date_str, conn)
+        saved = scrape_report(report_url, hall, date_str, conn, replace_day=args.refresh)
         print(f"    → {saved}件保存")
         total_saved += saved
         time.sleep(REQUEST_DELAY)

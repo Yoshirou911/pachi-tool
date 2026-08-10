@@ -79,6 +79,7 @@ def _run_nightly_scrape() -> None:
         # ② みんレポ（機種別差枚） - 循環import回避のため遅延import
         from api.routers.hall import _run_minrepo_nightly
         _run_minrepo_nightly(halls, days=3)
+        _run_public_machine_scrape()
         # ③ P-WORLD（現在の設置スマスロ）。差枚データがない店舗も対象機種を蓄積する。
         _run_snapshot_scrape()
     except Exception as e:
@@ -97,6 +98,30 @@ def _run_snapshot_scrape() -> None:
         logger.warning(f"[設置機種] 日次スナップショットエラー: {e}")
 
 
+def _run_public_machine_scrape() -> None:
+    """公開機種別データを、6時間に1回までの低頻度で補完する。"""
+    try:
+        from scraper.anoslot_public import is_refresh_due, scrape_all
+        if not is_refresh_due(max_age_hours=6):
+            logger.info("[公開機種データ] 6時間以内に更新済みのためスキップ")
+            return
+        results = scrape_all()
+        saved = sum(int(item.get("rows", 0)) for item in results if item.get("status") == "ok")
+        logger.info(f"[公開機種データ] 更新完了: {saved}機種日")
+    except Exception as e:
+        logger.warning(f"[公開機種データ] 更新エラー: {e}")
+
+
+def _run_opportunity_source_check() -> None:
+    """期待値公開元を低頻度で確認し、差分を承認キューへ保存する。"""
+    try:
+        from scraper.opportunity_crawler import run_crawl
+        result = run_crawl()
+        logger.info(f"[期待値ソース] 確認完了: {result}")
+    except Exception as e:
+        logger.warning(f"[期待値ソース] 確認エラー: {e}")
+
+
 def _run_startup_refresh() -> None:
     """4時にアプリが閉じていた場合も、次回起動時に直近データを補う。"""
     if is_scrape_running():
@@ -106,6 +131,7 @@ def _run_startup_refresh() -> None:
         halls = _get_active_halls()
         from api.routers.hall import _run_minrepo_nightly
         _run_minrepo_nightly(halls, days=3)
+        _run_public_machine_scrape()
         _run_snapshot_scrape()
     except Exception as e:
         logger.warning(f"[起動時更新] エラー: {e}")
@@ -125,6 +151,12 @@ def _start_scrape_scheduler() -> None:
             _run_nightly_scrape,
             CronTrigger(hour=4, minute=0, timezone="Asia/Tokyo"),
             id="nightly_scrape",
+            replace_existing=True,
+        )
+        _SCHEDULER.add_job(
+            _run_opportunity_source_check,
+            CronTrigger(hour=3, minute=20, day_of_week="mon", timezone="Asia/Tokyo"),
+            id="weekly_opportunity_source_check",
             replace_existing=True,
         )
         # イベント自動取得: 毎日12:00(JST)
@@ -157,6 +189,6 @@ def _start_scrape_scheduler() -> None:
             replace_existing=True,
         )
         _SCHEDULER.start()
-        logger.info("[スクレイプ] 起動時補完/差枚04:00/イベント12:00/設置機種12:15(JST)")
+        logger.info("[スクレイプ] 期待値月曜03:20/差枚04:00/イベント12:00/設置機種12:15(JST)")
     except Exception as e:
         logger.warning(f"[スクレイプ] スケジューラー起動失敗: {e}")

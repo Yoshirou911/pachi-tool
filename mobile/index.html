@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=2.0.0">
+  <link rel="stylesheet" href="./app.css?v=2.4.1">
   <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スマスロ攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v2.0.0</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v2.4.1</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -96,6 +96,17 @@
         <p><b>重要：</b>データカウンターの現在Gと、台内部のG数が違う機種があります。入力欄に表示される「何のゲーム数か」を必ず合わせてください。</p>
       </details>
 
+      <details class="field-runbook">
+        <summary><div><strong>今日の使い方</strong><small>店に着いてから実戦記録まで</small></div><span>⌄</span></summary>
+        <ol>
+          <li><b>1　設定</b><span>最初に「設定」で運用資金と損失上限を保存</span></li>
+          <li><b>2　台を見る</b><span>データランプと台メニューでG数・スルー・示唆を確認</span></li>
+          <li><b>3　判定</b><span>不明項目は推測せず「不明」または空欄で判定</span></li>
+          <li><b>4　記録</b><span>投資・回収・実時間・終了状態を実戦後に保存</span></li>
+        </ol>
+        <div class="judgment-legend"><span><b>打つ候補</b>最終確認へ</span><span><b>要確認</b>不足情報を確認</span><span><b>見送り</b>座らない</span><span><b>閉店リスク</b>時間不足</span></div>
+      </details>
+
       <article class="panel judge-panel">
         <form id="quick-form">
           <div class="field-step"><span>1</span><label for="quick-machine">機種を選ぶ</label></div>
@@ -111,6 +122,16 @@
 
           <div class="field-step"><span>3</span><label id="quick-current-label" for="quick-current">現在値</label></div>
           <div class="number-field"><input id="quick-current" class="big-input" type="number" min="0" inputmode="numeric" placeholder="650" required><span id="quick-current-unit">G</span></div>
+          <div id="quick-templates" class="quick-template-row" aria-label="クイック入力">
+            <button type="button" data-quick-template="zero">0G</button>
+            <button type="button" data-quick-template="heaven">天国抜け</button>
+            <button type="button" data-quick-template="ceiling">天井到達</button>
+            <button type="button" data-quick-template="miss">スルー＋1</button>
+          </div>
+          <div class="ocr-entry">
+            <label class="secondary-button ocr-button">📷 データランプを読む<input id="quick-ocr-file" type="file" accept="image/*" capture="environment"></label>
+            <small id="quick-ocr-status">数字部分を大きく、正面から撮影してください。読取後は必ず画面と照合します。</small>
+          </div>
           <div id="quick-extra-fields" class="quick-extra-fields"></div>
           <div id="quick-effective-value" class="effective-value-note" hidden></div>
 
@@ -122,6 +143,13 @@
               <label>台の状態<select id="quick-reset"><option value="normal">通常・据え置き</option><option value="reset_confirmed">リセット確定</option><option value="unknown">不明</option></select></label>
               <label>閉店時刻<input id="quick-close" type="time" value="22:45" required></label>
             </div>
+            <div class="dynamic-adjustment-grid">
+              <label>有利区間の現在差枚<input id="quick-section-diff" type="number" min="-20000" max="20000" step="100" inputmode="numeric" placeholder="例：+1800"><small>不明なら空欄。ホールの当日差枚と同一とは限りません。</small></label>
+              <label>交換率<input id="quick-exchange-rate" type="number" min="5" max="20" step="0.1" inputmode="decimal" value="5.6"><small>5.6枚交換なら5.6</small></label>
+              <label>再プレイ上限<input id="quick-replay-limit" type="number" min="0" max="10000" step="10" inputmode="numeric" value="460"><span>枚</span></label>
+              <label>今日使った再プレイ<input id="quick-replay-used" type="number" min="0" max="50000" step="10" inputmode="numeric" value="0"><span>枚</span></label>
+            </div>
+            <p id="quick-adjustment-note" class="fine-print">等価交換では現金ギャップ補正は行いません。</p>
           </details>
 
           <button class="primary-button judge-button" type="submit"><span>判定する</span><small>期待値・資金・閉店時間を確認</small></button>
@@ -174,6 +202,20 @@
           <button class="primary-button" type="submit">この台を記録</button>
         </form>
         <div id="patrol-recent" class="patrol-recent"><p class="empty">巡回記録はまだありません。</p></div>
+      </article>
+
+      <article class="panel reset-tendency-panel">
+        <div class="section-bar"><div><span class="page-step">RESET DATABASE</span><h2>リセット・据え置き癖</h2></div><span id="reset-tendency-badge" class="count-badge">0件</span></div>
+        <p class="fine-print">確定できた事実だけを記録します。曜日・機種ごとの率から次回の候補を出します。</p>
+        <form id="reset-record-form" class="reset-record-form">
+          <label>確認日<input id="reset-record-date" type="date" required></label>
+          <label>機種<select id="reset-record-machine" required><option value="">店舗を読み込んでください</option></select></label>
+          <label>台番号<input id="reset-record-seat" type="number" min="1" inputmode="numeric" placeholder="任意"></label>
+          <label>判定<select id="reset-record-status"><option value="reset_confirmed">リセット確定</option><option value="normal">据え置き確定</option><option value="unknown">不明</option></select></label>
+          <label class="reset-evidence">根拠<input id="reset-record-evidence" maxlength="120" placeholder="例：朝一短縮天井・前日G引継ぎ"></label>
+          <button class="primary-button" type="submit">店舗の癖として記録</button>
+        </form>
+        <div id="reset-tendency-summary" class="reset-tendency-summary"><p class="empty">確定記録がまだありません。</p></div>
       </article>
 
       <div id="scan-summary" class="scope-note"><strong>店舗を選んで開始</strong><span>対応機種の島だけを確認します。</span></div>
@@ -407,10 +449,37 @@
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v2.0.0・更新日 2026/08/10</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v2.4.1・更新日 2026/08/10</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
+        </div>
+      </details>
+
+      <details id="archive-collector-group" class="settings-group archive-collector-group">
+        <summary><span><b>過去データ収集</b><small>公開レポートを自動でたどって蓄積</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <p class="help">PCまたは公開サーバー側で収集します。iPhoneは開始・一時停止・進捗確認に使え、画面を閉じても待ち一覧は残ります。</p>
+          <label>店舗<select id="mobile-archive-hall"></select></label>
+          <div class="archive-date-grid">
+            <label>開始日<input id="mobile-archive-from" type="date"></label>
+            <label>終了日<input id="mobile-archive-to" type="date"></label>
+          </div>
+          <label>最大取得日数<select id="mobile-archive-max"><option value="60">60日</option><option value="120" selected>120日</option><option value="240">240日</option><option value="365">365日</option></select></label>
+          <div class="archive-actions"><button id="mobile-archive-start" class="primary-button" type="button">収集開始</button><button id="mobile-archive-pause" class="secondary-button" type="button">一時停止</button><button id="mobile-archive-resume" class="secondary-button" type="button">再開</button></div>
+          <div id="mobile-archive-status" class="archive-status">状態を読み込んでいます...</div>
+          <div id="mobile-archive-coverage" class="archive-coverage"></div>
+          <p class="fine-print">対象は公開情報のみです。差枚非公開日は実績0として扱わず、既存・手入力データは上書きしません。</p>
+        </div>
+      </details>
+
+      <details id="value-crawler-group" class="settings-group">
+        <summary><span><b>期待値ソース更新</b><small>週1回確認・承認してから反映</small></span><i>⌄</i></summary>
+        <div class="settings-body">
+          <p class="help">登録済みの公開元だけを低頻度で確認します。取得値は自動で着席判定へ入らず、PC側で承認後に反映されます。</p>
+          <button id="mobile-value-crawl-run" class="secondary-button" type="button">今すぐ公開元を確認</button>
+          <div id="mobile-value-crawl-status" class="archive-status">状態を読み込んでいます...</div>
+          <p class="fine-print">robots.txtと取得間隔を守ります。Supabaseはサーバー側に接続情報を設定した場合だけ同期されます。</p>
         </div>
       </details>
 
@@ -489,6 +558,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=2.0.0"></script>
+  <script type="module" src="./app.js?v=2.4.1"></script>
 </body>
 </html>

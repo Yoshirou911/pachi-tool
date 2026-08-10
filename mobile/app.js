@@ -7,9 +7,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.0.0';
+} from './core.mjs?v=2.4.1';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.4.1';
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.4.1';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -22,22 +23,24 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-10',
-    title: 'ハイエナ実戦支援を7項目強化',
-    items: ['機種別入力と前日G合算、消化時間・期待時給・閉店余裕を追加', '現行3機種6条件と台番号別の巡回記録を追加', '詳細実戦結果・ボーダー検証・サーバー同期を追加'],
+    title: '機種別ツラヌキ・閉店精度・期待値自動更新',
+    items: ['14条件の消化時間を完全補完', '主力3機種と専用条件を追加', '期待値表の承認付き自動更新を追加'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
 const STORE_NAME = 'app-state';
 const STATE_KEY = 'main';
 const defaultState = {
-  version: 2,
+  version: 3,
   budget: { starting_bankroll: 0, loss_limit_yen: 0 },
   candidates: [],
   plans: [],
   results: [],
   patrol_sessions: [],
   patrol_observations: [],
-  sync: { key: '', enabled: false, last_synced_at: '' },
+  hall_reset_records: [],
+  replay_usage: {},
+  sync: { key: '', enabled: false, last_synced_at: '', pending: false, pending_count: 0, last_error: '' },
   settings: { closing_time: '22:45', scan_hall: 'キコーナ四條畷店' },
 };
 
@@ -62,6 +65,7 @@ let targetHallOptions = [];
 let scanSnapshot = null;
 let syncTimer = null;
 let syncWriting = false;
+let syncHeartbeat = null;
 
 const TIME_STRATEGIES = [
   {
@@ -140,8 +144,16 @@ function enrichProfile(profile) {
       ] },
       { id: 'cz_misses', label: 'CZスルー回数', type: 'number', min: 0, max: 20, placeholder: '例：2' },
       { id: 'at_gap', label: 'AT間ゲーム数', type: 'number', min: 0, max: 5000, placeholder: '例：900' },
+      { id: 'fate_progress', label: '運命の一劇の状態', type: 'select', options: [
+        { value: '', label: '権利なし/不明' }, { value: 'ready', label: '権利獲得済み' },
+      ] },
     );
     requirements.push({ field: 'counter_source', operator: 'eq', value: 'real', message: '液晶内部GではなくCZ間の実ゲーム数を入力してください' });
+  }
+  if (profile.machine_name.includes('ゴッドイーター') || profile.machine_name.includes('かぐや様')) {
+    fields.push({ id: 'section_reset_confirmed', label: '有利区間リセット確認', type: 'select', options: [
+      { value: '', label: '未確認' }, { value: 'true', label: '画面・挙動で確認済み' },
+    ], help: '差枚だけの推測では選ばないでください。' });
   }
   if (profile.machine_name.includes('バイオハザードRE:3')) {
     fields.push({ id: 'cz_misses', label: 'CZスルー回数', type: 'number', min: 0, max: 6, placeholder: '例：5', help: '5スルー以降は追加の狙い根拠です。' });
@@ -250,7 +262,11 @@ async function readLocalState() {
 }
 
 async function writeLocalState() {
-  state.version = 2;
+  state.version = 3;
+  if (state.sync?.enabled && !syncWriting) {
+    state.sync.pending = true;
+    state.sync.pending_count = Math.min(999, Number(state.sync.pending_count || 0) + 1);
+  }
   try {
     const db = await openDatabase();
     await new Promise((resolve, reject) => {
@@ -278,6 +294,8 @@ function normalizeState(saved) {
     results: Array.isArray(saved?.results) ? saved.results : [],
     patrol_sessions: Array.isArray(saved?.patrol_sessions) ? saved.patrol_sessions : [],
     patrol_observations: Array.isArray(saved?.patrol_observations) ? saved.patrol_observations : [],
+    hall_reset_records: Array.isArray(saved?.hall_reset_records) ? saved.hall_reset_records : [],
+    replay_usage: saved?.replay_usage && typeof saved.replay_usage === 'object' ? saved.replay_usage : {},
     sync: { ...defaultState.sync, ...(saved?.sync || {}) },
   };
 }
@@ -299,13 +317,22 @@ async function pushMobileSync(silent = false) {
     if (!silent) showToast('32文字以上の同期コードを設定してください');
     return false;
   }
+  if (!navigator.onLine) {
+    state.sync = { ...state.sync, key, enabled: true, pending: true, last_error: 'offline' };
+    syncWriting = true;
+    await writeLocalState();
+    syncWriting = false;
+    if (!silent) showToast('オフラインのため端末に保留しました');
+    renderSettings();
+    return false;
+  }
   try {
     const response = await fetch(apiUrl('/api/opportunity/sync'), {
       method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Sync-Key': key },
       body: JSON.stringify({ state }),
     });
     if (!response.ok) throw new Error(`同期API ${response.status}`);
-    state.sync = { key, enabled: true, last_synced_at: new Date().toISOString() };
+    state.sync = { key, enabled: true, last_synced_at: new Date().toISOString(), pending: false, pending_count: 0, last_error: '' };
     syncWriting = true;
     await writeLocalState();
     syncWriting = false;
@@ -313,7 +340,11 @@ async function pushMobileSync(silent = false) {
     if (!silent) showToast('サーバーへ同期しました');
     return true;
   } catch (error) {
+    state.sync = { ...state.sync, key, enabled: true, pending: true, last_error: error.message };
+    syncWriting = true;
+    await writeLocalState();
     syncWriting = false;
+    renderSettings();
     if (!silent) showToast(`同期失敗：${error.message}`);
     return false;
   }
@@ -327,7 +358,7 @@ async function pullMobileSync() {
     if (!response.ok) throw new Error(response.status === 404 ? '保存データなし' : `同期API ${response.status}`);
     const payload = await response.json();
     state = normalizeState(payload.state);
-    state.sync = { key, enabled: true, last_synced_at: new Date().toISOString() };
+    state.sync = { key, enabled: true, last_synced_at: new Date().toISOString(), pending: false, pending_count: 0, last_error: '' };
     syncWriting = true;
     await writeLocalState();
     syncWriting = false;
@@ -373,6 +404,57 @@ function updateEffectiveValue() {
   note.innerHTML = values.previous > 0
     ? `<b>宵越し合算</b><strong>${values.current.toLocaleString('ja-JP')}G + 前日${values.previous.toLocaleString('ja-JP')}G = ${values.effective.toLocaleString('ja-JP')}G</strong><span>据え置き前提。リセットの可能性がある場合は使用しません。</span>`
     : '';
+}
+
+function replayUsageKey() {
+  return `${todayValue()}|${byId('quick-hall')?.value || '未選択'}`;
+}
+
+function loadReplayUsageInputs() {
+  const saved = state.replay_usage?.[replayUsageKey()] || {};
+  byId('quick-replay-limit').value = saved.limit_medals ?? 460;
+  byId('quick-replay-used').value = saved.used_medals ?? 0;
+  byId('quick-exchange-rate').value = saved.exchange_rate ?? (byId('quick-exchange').value === '56' ? 5.6 : 5.6);
+  updateAdjustmentNote();
+}
+
+async function persistReplayUsageInputs() {
+  state.replay_usage[replayUsageKey()] = {
+    limit_medals: Math.max(0, Number(byId('quick-replay-limit').value || 0)),
+    used_medals: Math.max(0, Number(byId('quick-replay-used').value || 0)),
+    exchange_rate: Math.max(5.01, Number(byId('quick-exchange-rate').value || 5.6)),
+    updated_at: new Date().toISOString(),
+  };
+  await writeLocalState();
+}
+
+function adjustmentInputs() {
+  return {
+    sectionDifferenceCoins: byId('quick-section-diff').value === '' ? null : Number(byId('quick-section-diff').value),
+    replayLimitMedals: Number(byId('quick-replay-limit').value || 0),
+    replayUsedMedals: Number(byId('quick-replay-used').value || 0),
+    exchangeRate: Number(byId('quick-exchange-rate').value || 5.6),
+  };
+}
+
+function updateAdjustmentNote() {
+  const exchange = byId('quick-exchange').value;
+  const funding = byId('quick-funding').value;
+  const limit = Number(byId('quick-replay-limit').value || 0);
+  const used = Number(byId('quick-replay-used').value || 0);
+  const remaining = Math.max(0, limit - used);
+  const baseText = exchange === 'equivalent'
+    ? '等価交換では現金ギャップ補正は行いません。有利区間差枚は入力した場合だけ参考補正します。'
+    : funding === 'medals'
+      ? `再プレイ残り${remaining.toLocaleString('ja-JP')}枚。超過分は現金投資として期待値から交換ギャップを引きます。`
+      : '現金投資条件です。現金用ルールを選び、再プレイ補正は行いません。';
+  const tendency = resetTendencyStats(byId('quick-hall')?.value || '', byId('quick-machine')?.value || '', (new Date().getDay() + 6) % 7);
+  const tendencyText = tendency.suggestion === 'reset_confirmed'
+    ? ` 同曜日実績${tendency.samples}件はリセット寄りですが、確定表示がない限り手動確認してください。`
+    : tendency.suggestion === 'normal'
+      ? ` 同曜日実績${tendency.samples}件は据え置き寄りです。`
+      : '';
+  byId('quick-adjustment-note').textContent = baseText + tendencyText;
 }
 
 function syncConditions(profile) {
@@ -462,6 +544,15 @@ function renderCatalogScope() {
 function renderQuickResult(result, profile, currentValue) {
   const label = JUDGMENT_LABELS[result.judgment] || result.judgment;
   const warnings = (result.warnings || []).map(item => `<li>${esc(item)}</li>`).join('');
+  const adjustmentRows = [];
+  const source = safeUrl(profile.source_url);
+  if (result.section_adjustment?.active) {
+    const dedicated = result.section_adjustment.rule && !result.section_adjustment.border_reduction;
+    adjustmentRows.push(`<div><span>機種別ツラヌキ/天井条件</span><strong>${dedicated ? '専用条件一致' : `-${Number(result.section_adjustment.border_reduction).toLocaleString('ja-JP')}${esc(profile.unit_label)}`}</strong><small>${esc(result.section_adjustment.reason || (result.section_adjustment.verified ? '機種別確認済み' : '参考値のため単独では着席許可にしません'))}</small></div>`);
+  }
+  if (result.replay_adjustment?.active) {
+    adjustmentRows.push(`<div><span>再プレイ・現金ギャップ</span><strong>-${money(result.cash_gap_yen)}</strong><small>再プレイ残り${Number(result.replay_adjustment.remaining_replay_medals || 0).toLocaleString('ja-JP')}枚／補正後期待値${money(result.expected_value_yen, true)}</small></div>`);
+  }
   byId('quick-result').innerHTML = `
     <div class="decision-card ${esc(result.judgment)}">
       <div class="decision-head"><div><span class="page-step">判定結果</span><h2>${esc(label)}</h2></div><span class="signal signal-${esc(result.judgment)}">${result.actionable ? '打てる' : '停止'}</span></div>
@@ -470,19 +561,28 @@ function renderQuickResult(result, profile, currentValue) {
         <div><small>期待値</small><strong class="${Number(result.expected_value_yen) >= 0 ? 'money-up' : ''}">${money(result.expected_value_yen, true)}</strong></div>
         <div><small>必要資金</small><strong>${money(result.worst_case_investment_yen)}</strong></div>
       </div>
+      ${adjustmentRows.length ? `<div class="decision-adjustments">${adjustmentRows.join('')}</div>` : ''}
       <div class="result-metrics">
         <div><small>現在</small><strong>${Number(currentValue).toLocaleString('ja-JP')}${esc(profile.unit_label)}</strong></div>
-        <div><small>狙い始め</small><strong>${Number(profile.start_threshold).toLocaleString('ja-JP')}${esc(profile.unit_label)}〜</strong></div>
+        <div><small>補正後の狙い始め</small><strong>${Number(result.adjusted_start_threshold ?? profile.start_threshold).toLocaleString('ja-JP')}${esc(profile.unit_label)}〜</strong></div>
         <div><small>閉店まで</small><strong>${result.minutes_until_close}分</strong></div>
         <div><small>使える資金</small><strong>${money(calculateSummary(state).risk_capacity_yen)}</strong></div>
-        <div><small>消化目安</small><strong>${result.estimated_play_minutes ? `${result.estimated_play_minutes}分` : '--'}</strong></div>
+        <div><small>平均 / 閉店安全側</small><strong>${result.estimated_play_minutes ? `${result.estimated_play_minutes}分 / ${result.safe_play_minutes || '--'}分` : '--'}</strong></div>
         <div><small>期待時給</small><strong>${money(result.ev_per_hour_yen, true)}</strong></div>
       </div>
       <div class="input-rule"><b>この判定で見る数字</b><strong>${esc(profile.metric_name)}（${esc(profile.unit_label)}）</strong>${profile.notes ? `<span>${esc(profile.notes)}</span>` : ''}</div>
+      <div class="decision-source"><span>データ信頼度：${esc({ official: '公式', verified: '複数情報で確認', reference: '参考', unverified: '未確認' }[profile.confidence] || profile.confidence || '未確認')}</span>${source ? `<a href="${esc(source)}" target="_blank" rel="noopener">出典を開く</a>` : ''}</div>
+      ${result.duration_breakdown && Object.keys(result.duration_breakdown).length ? `<div class="stop-rule"><b>消化時間の内訳</b>通常 ${result.duration_breakdown.normal || 0}分・CZ/前兆 ${result.duration_breakdown.cz_forecast || 0}分・AT/ボーナス ${result.duration_breakdown.at_bonus || 0}分・引き戻し ${result.duration_breakdown.pullback || 0}分・速度変化 ${result.duration_breakdown.variable_speed || 0}分<br><small>閉店判定は長引き余裕込みの安全側時間を使用</small></div>` : ''}
       ${warnings ? `<ul class="warning-list">${warnings}</ul>` : ''}
       <div class="stop-rule"><b>やめどき</b>${esc(profile.stop_rule || '未登録')}</div>
+      ${result.actionable ? `<div class="seat-final-check"><b>座る前の最終確認</b><small>4項目すべてを現物で確認すると保存できます</small>
+        <label><input type="checkbox" data-seat-confirm><span>入力した「${esc(profile.metric_name)}」と台の表示が一致</span></label>
+        <label><input type="checkbox" data-seat-confirm><span>スルー回数・示唆・専用項目を台メニューで確認</span></label>
+        <label><input type="checkbox" data-seat-confirm><span>リセットを推測だけで確定扱いしていない</span></label>
+        <label><input type="checkbox" data-seat-confirm><span>必要資金と閉店安全側時間に余裕がある</span></label>
+      </div>` : ''}
       <div class="decision-actions">
-        ${result.actionable ? '<button id="save-candidate-button" class="primary-button" type="button">この台を候補に保存</button>' : ''}
+        ${result.actionable ? '<button id="save-candidate-button" class="primary-button" type="button" disabled>4項目を確認して保存</button>' : ''}
         <button class="secondary-button" type="button" data-screen-target="guide">ほかの狙い目を見る</button>
       </div>
     </div>`;
@@ -558,7 +658,7 @@ function renderTargetSearch() {
       <div class="target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="target-machine-list">
         ${(hall.target_machines || []).slice(0, 3).map((machine, machineIndex) => `<div class="target-machine-row">
-          <div><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・プラス率${machine.positive_rate}%・平均${signedCoins(machine.avg_diff)}</small></div>
+          <div><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・補正平均${signedCoins(machine.avg_diff)}</small></div>
           <span>${machine.score}点</span>
           <button type="button" data-target-hall-index="${hallIndex}" data-target-machine-index="${machineIndex}">朝一候補に保存</button>
         </div>`).join('') || '<p class="fine-print">機種別候補はまだ材料不足です。</p>'}
@@ -806,7 +906,12 @@ function renderScanList(snapshot, fallback = false) {
   const current = machineSelect.value;
   machineSelect.innerHTML = '<option value="">機種を選ぶ</option>' + machineGroups.map(([machine]) => `<option value="${esc(machine)}">${esc(machine)}</option>`).join('');
   if ([...machineSelect.options].some(option => option.value === current)) machineSelect.value = current;
+  const resetMachineSelect = byId('reset-record-machine');
+  const resetCurrent = resetMachineSelect.value;
+  resetMachineSelect.innerHTML = '<option value="">機種を選ぶ</option>' + machineGroups.map(([machine]) => `<option value="${esc(machine)}">${esc(machine)}</option>`).join('');
+  if ([...resetMachineSelect.options].some(option => option.value === resetCurrent)) resetMachineSelect.value = resetCurrent;
   renderPatrol();
+  renderResetTendency();
 }
 
 function activePatrolSession() {
@@ -826,6 +931,33 @@ function renderPatrol() {
     const delta = previous ? Number(row.current_value) - Number(previous.current_value) : null;
     return `<div class="patrol-log-row"><b>${esc(row.seat_number)}番</b><div><strong>${esc(row.machine_name)}</strong><small>${new Date(row.observed_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}・${row.status === 'watch' ? '候補' : row.status === 'pass' ? '通過' : '稼働中'}</small></div><em>${Number(row.current_value).toLocaleString('ja-JP')}G${delta == null ? '' : `<small>${delta >= 0 ? '+' : ''}${delta}G</small>`}</em></div>`;
   }).join('') : '<p class="empty">巡回記録はまだありません。</p>';
+}
+
+function resetTendencyStats(hallName, machineName = '', weekday = null) {
+  let rows = state.hall_reset_records.filter(row => row.hall_name === hallName && ['reset_confirmed', 'normal'].includes(row.reset_status));
+  if (weekday !== null) rows = rows.filter(row => (new Date(`${row.recorded_on}T12:00:00`).getDay() + 6) % 7 === weekday);
+  const machineRows = machineName ? rows.filter(row => row.machine_name === machineName) : [];
+  if (machineRows.length >= 3) rows = machineRows;
+  const resets = rows.filter(row => row.reset_status === 'reset_confirmed').length;
+  const rate = rows.length ? resets / rows.length : null;
+  const suggestion = rows.length >= 3 && rate >= .70 ? 'reset_confirmed'
+    : rows.length >= 3 && rate <= .30 ? 'normal' : 'unknown';
+  return { samples: rows.length, resets, rate, suggestion };
+}
+
+function renderResetTendency() {
+  const hall = byId('scan-hall')?.value || byId('quick-hall')?.value || '';
+  const machine = byId('reset-record-machine')?.value || byId('quick-machine')?.value || '';
+  const rows = state.hall_reset_records.filter(row => !hall || row.hall_name === hall);
+  byId('reset-tendency-badge').textContent = `${rows.length}件`;
+  const stats = resetTendencyStats(hall, machine, (new Date().getDay() + 6) % 7);
+  const label = stats.suggestion === 'reset_confirmed' ? 'リセット寄り'
+    : stats.suggestion === 'normal' ? '据え置き寄り' : 'まだ判断不可';
+  const recent = rows.slice(0, 3);
+  byId('reset-tendency-summary').innerHTML = rows.length ? `
+    <div class="reset-tendency-card"><div><strong>${esc(hall)}・今日と同じ曜日${machine ? `・${esc(machine)}` : ''}</strong><b>${esc(label)}</b></div><small>${stats.samples}件中リセット${stats.resets}件${stats.rate === null ? '' : `（${Math.round(stats.rate * 100)}%）`}。3件未満、または30～70%は自動確定しません。</small></div>
+    ${recent.map(row => `<div class="reset-tendency-card"><div><strong>${esc(row.recorded_on)}・${esc(row.machine_name)}</strong><b>${row.reset_status === 'reset_confirmed' ? 'リセット' : row.reset_status === 'normal' ? '据え置き' : '不明'}</b></div><small>${esc(row.evidence || '根拠メモなし')}${row.seat_number ? `・${row.seat_number}番台` : ''}</small></div>`).join('')}`
+    : '<p class="empty">確定記録がまだありません。</p>';
 }
 
 async function loadScanHall() {
@@ -901,7 +1033,7 @@ function renderTrendProfile(aiResult = null) {
     <article class="panel"><div class="section-bar"><h2>曜日ごとのクセ</h2></div>${renderProfileBars(trendData.weekday_profile, 'weekday')}</article>
     <article class="panel"><div class="section-bar"><h2>日付末尾のクセ</h2></div>${renderProfileBars(trendData.digit_profile, 'digit')}</article>
     <article class="panel"><div class="section-bar"><h2>次の注目日</h2></div><div class="next-hot-dates">${(trendData.next_dates || []).map(item => `<div class="${item.score >= 60 ? 'hot' : ''}"><strong>${esc(item.date.slice(5).replace('-', '/'))}</strong><span>${esc(item.weekday)}曜</span><b>${item.score}点</b><small>${esc(item.evidence)}</small></div>`).join('')}</div></article>
-    <article class="panel"><div class="section-bar"><h2>扱いが強い機種</h2><span class="count-badge">上位10</span></div><div class="trend-machine-list">${topMachines.slice(0, 10).map((machine, index) => `<div><span class="target-rank">${index + 1}</span><div><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・プラス率${machine.positive_rate}%${machine.trend == null ? '' : `・直近差${signedCoins(machine.trend)}`}</small></div><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">${signedCoins(machine.avg_diff)}</b><button type="button" data-trend-machine="${index}">朝一候補に保存</button></div>`).join('')}</div></article>
+    <article class="panel"><div class="section-bar"><h2>扱いが強い機種</h2><span class="count-badge">上位10</span></div><div class="trend-machine-list">${topMachines.slice(0, 10).map((machine, index) => `<div><span class="target-rank">${index + 1}</span><div><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・プラス率${machine.positive_rate}%${machine.trend == null ? '' : `・直近差${signedCoins(machine.trend)}`}</small></div><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">補正${signedCoins(machine.avg_diff)}</b><button type="button" data-trend-machine="${index}">朝一候補に保存</button></div>`).join('')}</div></article>
     <details class="insufficient-halls"><summary>出典と注意事項</summary><div>${(trendData.source_urls || []).map(url => `<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener">公開データ</a>`).join('') || '<span>取得元URLはデータ内にありません。</span>'}<span>${esc(trendData.notice)}</span></div></details>`;
 }
 
@@ -1207,9 +1339,13 @@ function renderSettings() {
   byId('budget-loss').value = state.budget.loss_limit_yen || '';
   byId('quick-close').value = state.settings.closing_time || '22:45';
   byId('sync-key').value = state.sync.key || '';
-  byId('sync-status').textContent = state.sync.enabled
-    ? `同期オン${state.sync.last_synced_at ? `・最終 ${new Date(state.sync.last_synced_at).toLocaleString('ja-JP')}` : ''}`
+  const syncStatus = byId('sync-status');
+  syncStatus.textContent = state.sync.enabled
+    ? (state.sync.pending
+      ? `未送信 ${Number(state.sync.pending_count || 1)}件・電波復帰後に自動送信${state.sync.last_error && state.sync.last_error !== 'offline' ? `・${state.sync.last_error}` : ''}`
+      : `同期オン${state.sync.last_synced_at ? `・最終 ${new Date(state.sync.last_synced_at).toLocaleString('ja-JP')}` : ''}`)
     : '同期はオフです。';
+  syncStatus.classList.toggle('sync-queue-note', Boolean(state.sync.pending));
   renderVersionInfo();
 }
 
@@ -1223,6 +1359,7 @@ function renderAll() {
   renderResults();
   renderValidation();
   renderPatrol();
+  renderResetTendency();
   renderSettings();
 }
 
@@ -1266,6 +1403,10 @@ function showScreen(name) {
   if (name === 'target-map' && !targetMapData) setTimeout(loadTargetHeatMap, 80);
   if (name === 'trend' && !trendData) setTimeout(loadTrendProfile, 80);
   if (name === 'floor-map' && !floorData) setTimeout(loadFloorHeat, 80);
+  if (name === 'settings') {
+    setTimeout(loadMobileArchiveCollector, 80);
+    setTimeout(loadValueCrawlerStatus, 120);
+  }
 }
 
 function updateNetworkBadge() {
@@ -1302,6 +1443,55 @@ byId('quick-profile').addEventListener('change', () => syncConditions(currentPro
 byId('quick-current').addEventListener('input', updateEffectiveValue);
 byId('quick-reset').addEventListener('change', updateEffectiveValue);
 byId('quick-extra-fields').addEventListener('input', updateEffectiveValue);
+byId('quick-templates').addEventListener('click', event => {
+  const button = event.target.closest('[data-quick-template]');
+  if (!button) return;
+  const profile = currentProfile();
+  if (button.dataset.quickTemplate === 'zero') byId('quick-current').value = 0;
+  if (button.dataset.quickTemplate === 'heaven') {
+    byId('quick-current').value = Number(profile?.heaven_exit_games ?? 32);
+    showToast('天国抜けは機種差があるため、32Gは画面と照合してください');
+  }
+  if (button.dataset.quickTemplate === 'ceiling') {
+    if (profile?.ceiling_threshold == null) return showToast('この条件は天井値が未登録です');
+    byId('quick-current').value = Number(profile.ceiling_threshold);
+  }
+  if (button.dataset.quickTemplate === 'miss') {
+    const missInput = [...document.querySelectorAll('[data-profile-input]')]
+      .find(input => /miss|through|スルー/i.test(input.dataset.profileInput || ''));
+    if (!missInput) return showToast('この条件にはスルー回数欄がありません');
+    missInput.value = Number(missInput.value || 0) + 1;
+  }
+  updateEffectiveValue();
+  byId('quick-current').focus();
+});
+byId('quick-ocr-file').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const status = byId('quick-ocr-status');
+  status.className = 'reading';
+  status.textContent = '画像を解析しています…';
+  try {
+    const result = await recognizeNumberFromFile(file);
+    byId('quick-current').value = result.value;
+    updateEffectiveValue();
+    status.className = 'success';
+    status.textContent = `${result.value.toLocaleString('ja-JP')} を読み取りました（${result.method}）。台の表示と一致するか確認してください。`;
+    showToast(`OCR候補 ${result.value}Gを入力しました`);
+  } catch (error) {
+    status.className = '';
+    status.textContent = error.message;
+    showToast('OCRできませんでした。手入力してください');
+  } finally {
+    event.target.value = '';
+  }
+});
+['quick-exchange', 'quick-funding', 'quick-section-diff'].forEach(id => byId(id).addEventListener('change', updateAdjustmentNote));
+['quick-exchange-rate', 'quick-replay-limit', 'quick-replay-used'].forEach(id => byId(id).addEventListener('change', persistReplayUsageInputs));
+byId('quick-hall').addEventListener('change', () => {
+  loadReplayUsageInputs();
+  renderResetTendency();
+});
 byId('quick-close').addEventListener('change', async event => {
   state.settings.closing_time = event.target.value;
   await writeLocalState();
@@ -1345,6 +1535,30 @@ byId('patrol-observation-form').addEventListener('submit', async event => {
   byId('patrol-current').value = '';
   renderPatrol();
   showToast('台チェックを記録しました');
+});
+
+byId('reset-record-machine').addEventListener('change', renderResetTendency);
+byId('reset-record-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const hall = byId('scan-hall').value;
+  if (!hall) return showToast('先に店舗を選んでください');
+  state.hall_reset_records.unshift({
+    id: newId(),
+    recorded_on: byId('reset-record-date').value || todayValue(),
+    hall_name: hall,
+    machine_name: byId('reset-record-machine').value,
+    seat_number: byId('reset-record-seat').value ? Number(byId('reset-record-seat').value) : null,
+    reset_status: byId('reset-record-status').value,
+    evidence: byId('reset-record-evidence').value.trim(),
+    notes: '',
+    created_at: new Date().toISOString(),
+  });
+  state.hall_reset_records = state.hall_reset_records.slice(0, 2000);
+  await writeLocalState();
+  byId('reset-record-seat').value = '';
+  byId('reset-record-evidence').value = '';
+  renderResetTendency();
+  showToast('リセット・据え置き記録を保存しました');
 });
 
 byId('scan-machine-list').addEventListener('click', event => {
@@ -1487,11 +1701,12 @@ byId('guide-list').addEventListener('click', event => {
   setTimeout(() => byId('quick-current').focus(), 250);
 });
 
-byId('quick-form').addEventListener('submit', event => {
+byId('quick-form').addEventListener('submit', async event => {
   event.preventDefault();
   const profile = currentProfile();
   const valueState = effectiveCurrentValue();
   const currentValue = valueState.effective;
+  const dynamicInputs = adjustmentInputs();
   const result = assessQuick({
     profile,
     currentValue,
@@ -1501,15 +1716,17 @@ byId('quick-form').addEventListener('submit', event => {
     resetStatus: byId('quick-reset').value,
     minutesUntilClose: minutesUntilClosing(byId('quick-close').value),
     extraInputs: valueState.inputs,
+    ...dynamicInputs,
   });
-  lastAssessment = { result, profile, currentValue, rawCurrentValue: valueState.current, extraInputs: valueState.inputs };
+  await persistReplayUsageInputs();
+  lastAssessment = { result, profile, currentValue, rawCurrentValue: valueState.current, extraInputs: valueState.inputs, dynamicInputs };
   renderQuickResult(result, profile, currentValue);
   setTimeout(() => byId('quick-result').scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
 });
 
 byId('quick-result').addEventListener('click', async event => {
   if (!event.target.closest('#save-candidate-button') || !lastAssessment?.result.actionable) return;
-  const { result, profile, currentValue, rawCurrentValue, extraInputs } = lastAssessment;
+  const { result, profile, currentValue, rawCurrentValue, extraInputs, dynamicInputs } = lastAssessment;
   state.candidates.unshift({
     id: newId(),
     created_at: new Date().toISOString(),
@@ -1530,6 +1747,13 @@ byId('quick-result').addEventListener('click', async event => {
     ev_per_hour_yen: result.ev_per_hour_yen,
     expected_value_yen: result.expected_value_yen,
     worst_case_investment_yen: result.worst_case_investment_yen,
+    base_expected_value_yen: result.base_expected_value_yen,
+    cash_gap_yen: result.cash_gap_yen || 0,
+    adjusted_start_threshold: result.adjusted_start_threshold,
+    section_difference_coins: dynamicInputs.sectionDifferenceCoins,
+    replay_limit_medals: dynamicInputs.replayLimitMedals,
+    replay_used_medals: dynamicInputs.replayUsedMedals,
+    exchange_rate: dynamicInputs.exchangeRate,
   });
   await writeLocalState();
   renderCandidates();
@@ -1655,6 +1879,124 @@ byId('budget-form').addEventListener('submit', async event => {
   showToast('資金設定を保存しました');
 });
 
+byId('quick-result').addEventListener('change', event => {
+  if (!event.target.matches('[data-seat-confirm]')) return;
+  const checks = [...byId('quick-result').querySelectorAll('[data-seat-confirm]')];
+  const button = byId('save-candidate-button');
+  if (!button) return;
+  const confirmed = checks.length > 0 && checks.every(input => input.checked);
+  button.disabled = !confirmed;
+  button.textContent = confirmed ? 'この台を候補に保存' : `${checks.filter(input => input.checked).length}/4 確認済み`;
+});
+
+let mobileArchivePoll = null;
+
+async function loadValueCrawlerStatus() {
+  const target = byId('mobile-value-crawl-status');
+  if (!target) return;
+  try {
+    const data = await mobileArchiveRequest('/api/opportunity/crawler/status');
+    const run = data.last_run;
+    const counts = data.candidate_counts || {};
+    target.innerHTML = run
+      ? `<strong>${run.status === 'running' ? '確認中' : '前回確認済み'}</strong><br>確認 ${Number(run.checked_count || 0)}件・新規候補 ${Number(run.candidate_count || 0)}件・エラー ${Number(run.error_count || 0)}件<br>承認待ち ${Number(counts.pending || 0)}件・差異あり ${Number(counts.conflict || 0)}件${data.supabase_configured ? '<br>Supabase同期：設定済み' : '<br>Supabase同期：未設定（ローカルDBのみ）'} `
+      : 'まだ期待値ソースの確認履歴はありません。';
+  } catch (error) {
+    target.textContent = `状態を取得できません：${error.message}`;
+  }
+}
+
+async function mobileArchiveRequest(path, options = {}) {
+  let response;
+  try {
+    response = await fetch(apiUrl(path), {
+      ...options,
+      headers: options.body ? { 'Content-Type': 'application/json', ...(options.headers || {}) } : options.headers,
+    });
+  } catch (_) {
+    throw new Error('収集サーバーに接続できません');
+  }
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || `通信エラー ${response.status}`);
+  return payload;
+}
+
+function archiveLocalDateOffset(days) {
+  const now = new Date();
+  now.setDate(now.getDate() + days);
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+async function loadMobileArchiveCollector() {
+  const statusEl = byId('mobile-archive-status');
+  if (!statusEl) return;
+  try {
+    const data = await mobileArchiveRequest('/api/scrape/archive/status');
+    const hall = byId('mobile-archive-hall');
+    const selected = hall.value;
+    hall.innerHTML = (data.supported_halls || []).map(item => `<option value="${esc(item.hall_name)}">${esc(item.hall_name)}</option>`).join('');
+    if (selected && [...hall.options].some(option => option.value === selected)) hall.value = selected;
+    if (!byId('mobile-archive-from').value) byId('mobile-archive-from').value = archiveLocalDateOffset(-365);
+    if (!byId('mobile-archive-to').value) byId('mobile-archive-to').value = archiveLocalDateOffset(-1);
+    const job = data.job;
+    const labels = { queued: '開始待ち', collecting: '収集中', paused: '一時停止中', completed: '収集完了', failed: '失敗' };
+    statusEl.innerHTML = job
+      ? `<strong>${labels[job.status] || esc(job.status)}</strong><br>${esc(job.hall_name)}　${esc(job.date_from)}〜${esc(job.date_to)}<br>処理 ${job.processed}/${job.discovered}ページ（${job.progress_pct}%）<br>新規保存：機種 ${job.machine_rows}件・台 ${job.seat_rows}件　失敗 ${job.failed_count}件${job.error ? `<br><span>${esc(job.error)}</span>` : ''}`
+      : 'まだ収集履歴はありません。店舗と期間を選んで開始してください。';
+    byId('mobile-archive-coverage').innerHTML = (data.coverage || []).map(item =>
+      `${esc(item.hall_name)}：${item.days || 0}日${item.oldest ? `（${esc(item.oldest)}〜${esc(item.newest)}）` : ''}`
+    ).join('<br>');
+    const running = job && ['queued', 'collecting'].includes(job.status);
+    byId('mobile-archive-start').disabled = Boolean(running || job?.status === 'paused');
+    byId('mobile-archive-pause').disabled = !running;
+    byId('mobile-archive-resume').disabled = job?.status !== 'paused';
+    clearTimeout(mobileArchivePoll);
+    if (running && document.visibilityState === 'visible') mobileArchivePoll = setTimeout(loadMobileArchiveCollector, 3000);
+  } catch (error) {
+    statusEl.textContent = `進捗を取得できません：${error.message}。公開サーバーが最新版か確認してください。`;
+  }
+}
+
+byId('mobile-archive-start').addEventListener('click', async () => {
+  const body = {
+    hall_name: byId('mobile-archive-hall').value,
+    date_from: byId('mobile-archive-from').value,
+    date_to: byId('mobile-archive-to').value,
+    max_pages: Number(byId('mobile-archive-max').value),
+  };
+  if (!body.hall_name || !body.date_from || !body.date_to) return showToast('店舗と期間を指定してください');
+  try {
+    await mobileArchiveRequest('/api/scrape/archive/jobs', { method: 'POST', body: JSON.stringify(body) });
+    showToast('過去データ収集を開始しました');
+    await loadMobileArchiveCollector();
+  } catch (error) { showToast(`開始できません：${error.message}`); }
+});
+
+byId('mobile-archive-pause').addEventListener('click', async () => {
+  try {
+    const data = await mobileArchiveRequest('/api/scrape/archive/pause', { method: 'POST' });
+    showToast(data.message);
+    setTimeout(loadMobileArchiveCollector, 600);
+  } catch (error) { showToast(error.message); }
+});
+
+byId('mobile-archive-resume').addEventListener('click', async () => {
+  try {
+    const data = await mobileArchiveRequest('/api/scrape/archive/resume', { method: 'POST' });
+    showToast(data.message);
+    await loadMobileArchiveCollector();
+  } catch (error) { showToast(error.message); }
+});
+
+byId('mobile-value-crawl-run').addEventListener('click', async () => {
+  try {
+    await mobileArchiveRequest('/api/opportunity/crawler/run', { method: 'POST' });
+    showToast('公開元の確認を開始しました');
+    setTimeout(loadValueCrawlerStatus, 1200);
+  } catch (error) { showToast(`開始できません：${error.message}`); }
+});
+
 byId('sync-enable-button').addEventListener('click', async () => {
   if (!byId('sync-key').value.trim()) byId('sync-key').value = `${newId().replace(/-/g, '')}${newId().replace(/-/g, '')}`;
   state.sync.key = byId('sync-key').value.trim();
@@ -1705,8 +2047,14 @@ byId('reset-button').addEventListener('click', async () => {
   showToast('端末内データを初期化しました');
 });
 
-window.addEventListener('online', updateNetworkBadge);
-window.addEventListener('offline', updateNetworkBadge);
+window.addEventListener('online', () => {
+  updateNetworkBadge();
+  if (state.sync?.enabled && state.sync?.pending) pushMobileSync(true);
+});
+window.addEventListener('offline', () => {
+  updateNetworkBadge();
+  renderSettings();
+});
 
 byId('mobile-version-button').addEventListener('click', () => {
   showScreen('settings');
@@ -1731,12 +2079,20 @@ async function initialize() {
     byId('floor-date').value = tomorrowValue();
     byId('floor-valid-from').value = todayValue();
     byId('floor-result-date').value = todayValue();
+    byId('reset-record-date').value = todayValue();
     byId('scan-strategy-time').value = currentTimeValue();
     renderTimeStrategy();
     await loadTargetHallOptions();
     populateMachines();
+    loadReplayUsageInputs();
     renderAll();
+    renderResetTendency();
     updateNetworkBadge();
+    if (state.sync?.enabled && state.sync?.pending && navigator.onLine) pushMobileSync(true);
+    clearInterval(syncHeartbeat);
+    syncHeartbeat = setInterval(() => {
+      if (document.visibilityState === 'visible' && state.sync?.enabled && state.sync?.pending && navigator.onLine) pushMobileSync(true);
+    }, 30000);
     if ('serviceWorker' in navigator) {
       await navigator.serviceWorker.register('./sw.js', { scope: './' });
     }

@@ -7,10 +7,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.5.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.5.0';
+} from './core.mjs?v=2.6.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.0';
 
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.6.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -64,6 +64,7 @@ let floorEditorSeats = [];
 let targetHallOptions = [];
 let scanSnapshot = null;
 let occupancyPriorityData = null;
+let hyenaStoreRankingData = null;
 let syncTimer = null;
 let syncWriting = false;
 let syncHeartbeat = null;
@@ -1007,6 +1008,48 @@ async function loadOccupancyPriorityList() {
   }
 }
 
+function localDateTimeValue(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+async function loadHyenaStoreRanking() {
+  const target = byId('hyena-store-ranking');
+  const atInput = byId('hyena-store-at');
+  if (!atInput.value) atInput.value = localDateTimeValue();
+  target.innerHTML = '<p class="empty">候補店を計算中...</p>';
+  try {
+    const params = new URLSearchParams({ at: atInput.value, limit: '10', ts: String(Date.now()) });
+    const data = await mobileArchiveRequest(`/api/occupancy/hyena-stores?${params}`);
+    hyenaStoreRankingData = data;
+    renderHyenaStoreRanking(data);
+  } catch (error) {
+    target.innerHTML = `<p class="empty">候補店を計算できません：${esc(error.message)}</p>`;
+  }
+}
+
+function renderHyenaStoreRanking(data) {
+  const target = byId('hyena-store-ranking');
+  const rows = data?.halls || [];
+  if (!rows.length) {
+    target.innerHTML = '<p class="empty">対象店舗がありません。設定で店舗を登録し、データ収集を実行してください。</p>';
+    return;
+  }
+  target.innerHTML = rows.map(row => {
+    const occ = row.occupancy || {};
+    const machines = row.machines || {};
+    const reason = (row.reasons || []).slice(0, 2).join('・');
+    const warning = (row.warnings || [])[0];
+    return `<button class="hyena-store-row verdict-${esc(row.verdict)}" type="button" data-hyena-hall="${esc(row.hall_name)}">
+      <span class="hyena-store-rank">${row.rank}</span>
+      <span class="hyena-store-main"><strong>${esc(row.hall_name)}</strong><small>${esc(reason)}</small>${warning ? `<em>${esc(warning)}</em>` : ''}</span>
+      <span class="hyena-store-score"><b>${Number(row.score || 0)}</b><small>/100</small><i>${esc(row.verdict_label)}</i></span>
+      <span class="hyena-store-meta">対応 ${Number(machines.supported_machine_count || 0)}機種・混雑 ${esc(occ.predicted_label || '不明')}・信頼度 ${esc(occ.confidence_label || '不足')}</span>
+    </button>`;
+  }).join('');
+  byId('hyena-store-notice').textContent = data.notice || '到着後は必ず個別台を判定してください。';
+}
+
 function renderOccupancyPriorityList(rows) {
   const target = byId('occupancy-priority-list');
   if (!rows?.length) {
@@ -1038,9 +1081,14 @@ async function recordOccupancyLevel(level) {
   if (!hall) { showToast('先に店舗を選んでください'); return; }
   const status = byId('occupancy-status');
   try {
+    const rotationValue = byId('occupancy-avg-rotation').value;
     const result = await mobileArchiveRequest('/api/occupancy', {
       method: 'POST',
-      body: JSON.stringify({ hall_name: hall, level }),
+      body: JSON.stringify({
+        hall_name: hall,
+        level,
+        avg_rotation_games_per_hour: rotationValue === '' ? null : Number(rotationValue),
+      }),
     });
     document.querySelectorAll('.occupancy-button').forEach(btn => {
       btn.classList.toggle('is-selected', btn.dataset.occupancyLevel === level);
@@ -1050,7 +1098,9 @@ async function recordOccupancyLevel(level) {
     status.textContent = `${hall} を「${levelLabel}」で記録しました（${recordedTime}）`;
     showToast('稼働状況を記録しました');
     occupancyPriorityData = null;
+    hyenaStoreRankingData = null;
     loadOccupancyPriorityList();
+    loadHyenaStoreRanking();
   } catch (error) {
     status.textContent = `記録できませんでした：${error.message}`;
   }
@@ -1463,6 +1513,7 @@ function showScreen(name) {
   scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'scan' && !scanSnapshot) setTimeout(loadScanHall, 80);
   if (name === 'scan' && !occupancyPriorityData) setTimeout(loadOccupancyPriorityList, 80);
+  if (name === 'scan' && !hyenaStoreRankingData) setTimeout(loadHyenaStoreRanking, 100);
   if (name === 'target-map' && !targetMapData) setTimeout(loadTargetHeatMap, 80);
   if (name === 'trend' && !trendData) setTimeout(loadTrendProfile, 80);
   if (name === 'floor-map' && !floorData) setTimeout(loadFloorHeat, 80);
@@ -1567,6 +1618,21 @@ byId('scan-hall-form').addEventListener('submit', async event => {
 byId('occupancy-priority-refresh').addEventListener('click', () => {
   occupancyPriorityData = null;
   loadOccupancyPriorityList();
+});
+byId('hyena-store-refresh').addEventListener('click', () => {
+  hyenaStoreRankingData = null;
+  loadHyenaStoreRanking();
+});
+byId('hyena-store-at').addEventListener('change', () => {
+  hyenaStoreRankingData = null;
+  loadHyenaStoreRanking();
+});
+byId('hyena-store-ranking').addEventListener('click', event => {
+  const button = event.target.closest('[data-hyena-hall]');
+  if (!button) return;
+  byId('scan-hall').value = button.dataset.hyenaHall;
+  loadScanHall();
+  byId('scan-hall-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 document.querySelectorAll('.occupancy-button').forEach(button => {
   button.addEventListener('click', () => recordOccupancyLevel(button.dataset.occupancyLevel));

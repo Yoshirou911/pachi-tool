@@ -1282,6 +1282,27 @@
 
         <div id="opp-alert" class="opp-alert" style="display:none"></div>
 
+        <div class="card opp-store-ranking-card">
+          <div class="card-title card-title-row">
+            <span>今からハイエナ向きの店</span><button id="opp-store-ranking-refresh" class="btn btn-secondary btn-sm" type="button">再計算</button>
+          </div>
+          <p class="hint">対応スマスロ・過去稼働・曜日時間帯の混雑・データ鮮度を合成し、巡回候補を自動で絞ります。</p>
+          <div class="opp-store-ranking-controls">
+            <div><label class="form-label">行く日時</label><input id="opp-store-ranking-at" class="form-input" type="datetime-local"></div>
+            <div><label class="form-label">現地の混雑記録用店舗</label><select id="opp-occupancy-hall" class="form-select"><option value="">店舗を選択</option></select></div>
+            <div><label class="form-label">平均回転数（任意）</label><input id="opp-occupancy-rotation" class="form-input" type="number" min="0" max="10000" step="10" placeholder="例：3200"></div>
+          </div>
+          <div class="opp-occupancy-buttons" aria-label="現地の混雑状況を記録">
+            <span>現地の混雑：</span>
+            <button type="button" data-desktop-occupancy="high">高</button>
+            <button type="button" data-desktop-occupancy="mid">中</button>
+            <button type="button" data-desktop-occupancy="low">低</button>
+            <small id="opp-occupancy-status">未記録</small>
+          </div>
+          <div id="opp-store-ranking-list" class="opp-store-ranking-list"><p class="hint center">候補店を計算中...</p></div>
+          <p id="opp-store-ranking-notice" class="opp-guide-note">候補店の順位です。期待値のある空き台を保証するものではありません。</p>
+        </div>
+
         <div class="card opp-guide-card">
           <div class="card-title card-title-row">
             <span>打つ・見送る早見表</span><span id="opp-guide-count" class="opp-live-badge">0件</span>

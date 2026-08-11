@@ -26,7 +26,12 @@ from api.deps import (
     _get_reports_conn,
     logger,
 )
-from hall.occupancy import get_patrol_list, record_occupancy
+from hall.occupancy import (
+    get_occupancy_statistics,
+    get_patrol_list,
+    rank_hyena_halls,
+    record_occupancy,
+)
 
 router = APIRouter()
 
@@ -58,3 +63,29 @@ def occupancy_patrol_list(
 ) -> list[dict]:
     """巡回優先度順のホール一覧を返す(未記録・記録が古い・直近highのホールほど上位)。"""
     return get_patrol_list(hall_names=hall_name)
+
+
+@router.get("/api/occupancy/statistics", tags=["occupancy"])
+def occupancy_statistics(
+    hall_name: str = Query(..., min_length=1, max_length=120),
+    at: Optional[str] = Query(default=None, description="判定日時 ISO8601。省略時は現在"),
+    days: int = Query(default=90, ge=7, le=365),
+) -> dict:
+    """店舗×曜日×時間帯の手動稼働記録を集計する。"""
+    try:
+        return get_occupancy_statistics(hall_name, at, days)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+
+
+@router.get("/api/occupancy/hyena-stores", tags=["occupancy"])
+def hyena_store_ranking(
+    at: Optional[str] = Query(default=None, description="巡回予定日時 ISO8601。省略時は現在"),
+    hall_name: Optional[list[str]] = Query(default=None),
+    limit: int = Query(default=10, ge=1, le=30),
+) -> dict:
+    """今からハイエナ巡回する候補店舗を、根拠・信頼度付きで順位付けする。"""
+    try:
+        return rank_hyena_halls(at, hall_name, limit)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))

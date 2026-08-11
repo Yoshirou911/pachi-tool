@@ -1152,6 +1152,33 @@ tr[style*="cursor: pointer"]:active { background: rgba(124,127,245,.12) !importa
   background: rgba(251,191,36,.08); color: #fde68a; font-size: .76rem; line-height: 1.55;
 }
 .opp-guide-card { border-color: rgba(16,185,129,.25); background: linear-gradient(145deg, rgba(16,185,129,.055), rgba(10,15,30,.95) 40%); }
+.opp-store-ranking-card { border-color: rgba(34,211,238,.28); background: linear-gradient(145deg, rgba(34,211,238,.06), rgba(10,15,30,.95) 42%); }
+.opp-store-ranking-controls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:14px 0 10px; }
+.opp-occupancy-buttons { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-bottom:12px; color:var(--text2); font-size:.72rem; }
+.opp-occupancy-buttons button { min-width:48px; padding:7px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg2); color:var(--text); font-weight:800; cursor:pointer; }
+.opp-occupancy-buttons button[data-desktop-occupancy="high"] { color:#fb7185; }
+.opp-occupancy-buttons button[data-desktop-occupancy="mid"] { color:#facc15; }
+.opp-occupancy-buttons button[data-desktop-occupancy="low"] { color:#4ade80; }
+.opp-occupancy-buttons small { margin-left:auto; color:var(--text3); }
+.opp-store-ranking-list { display:grid; gap:8px; }
+.opp-store-ranking-row { width:100%; display:grid; grid-template-columns:38px minmax(0,1fr) 170px 70px; gap:10px; align-items:center; padding:12px; border:1px solid var(--border); border-radius:10px; background:rgba(255,255,255,.025); color:var(--text); text-align:left; cursor:pointer; }
+.opp-store-ranking-row:hover { border-color:var(--accent); transform:translateY(-1px); }
+.opp-store-ranking-row.verdict-strong { border-color:rgba(74,222,128,.42); background:rgba(74,222,128,.045); }
+.opp-store-rank { display:grid; place-items:center; width:34px; height:34px; border-radius:9px; background:var(--bg2); color:#67e8f9; font-size:1rem; font-weight:950; }
+.opp-store-name { min-width:0; display:grid; gap:3px; }
+.opp-store-name strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.83rem; }
+.opp-store-name small { color:var(--text3); font-size:.65rem; }
+.opp-store-name em { color:#facc15; font-size:.62rem; font-style:normal; }
+.opp-store-data { color:var(--text2); font-size:.66rem; line-height:1.55; }
+.opp-store-score { display:grid; justify-items:end; }
+.opp-store-score b { color:#4ade80; font-size:1.35rem; }
+.opp-store-score small { color:var(--text3); font-size:.55rem; }
+.opp-store-score i { color:var(--text2); font-size:.6rem; font-style:normal; font-weight:800; }
+@media (max-width: 760px) {
+  .opp-store-ranking-controls { grid-template-columns:1fr; }
+  .opp-store-ranking-row { grid-template-columns:34px minmax(0,1fr) 60px; }
+  .opp-store-data { grid-column:2 / -1; }
+}
 .opp-guide-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
 .opp-guide-summary > div { padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,.025); }
 .opp-guide-summary small { display: block; margin-bottom: 3px; color: var(--text3); font-size: .58rem; }

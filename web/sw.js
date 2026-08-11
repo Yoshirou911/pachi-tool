@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pachi-tool-v2.5.0';
+const CACHE_NAME = 'pachi-tool-v2.6.0';
 const STATIC = ['/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', e => {

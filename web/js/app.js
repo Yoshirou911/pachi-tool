@@ -68,6 +68,8 @@ const api = {
   runOpportunityCrawler: () => apiFetch('/api/opportunity/crawler/run?max_profiles=100', { method: 'POST' }),
   approveOpportunityCrawlerCandidate: (id) => apiFetch(`/api/opportunity/crawler/candidates/${id}/approve`, { method: 'POST', body: JSON.stringify({ note: 'PC画面で出典と差分を確認して承認' }) }),
   rejectOpportunityCrawlerCandidate: (id) => apiFetch(`/api/opportunity/crawler/candidates/${id}/reject`, { method: 'POST', body: JSON.stringify({ note: 'PC画面で不採用' }) }),
+  getHyenaStoreRanking: (at) => apiFetch(`/api/occupancy/hyena-stores?${new URLSearchParams({ at, limit: '10', ts: String(Date.now()) })}`),
+  recordOccupancy: (body) => apiFetch('/api/occupancy', { method: 'POST', body: JSON.stringify(body) }),
 };
 
 const VERSION_SEEN_KEY = 'pachi-version-seen';
@@ -96,7 +98,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.5.0';
+    document.getElementById('desktop-version-label').textContent = 'v2.6.0';
   }
 }
 
@@ -4661,6 +4663,60 @@ function renderOpportunityResults(results) {
   }).join('');
 }
 
+function desktopLocalDateTimeValue(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+async function loadDesktopHyenaStoreRanking() {
+  const list = document.getElementById('opp-store-ranking-list');
+  const at = document.getElementById('opp-store-ranking-at');
+  if (!at.value) at.value = desktopLocalDateTimeValue();
+  list.innerHTML = '<p class="hint center">候補店を計算中...</p>';
+  try {
+    const data = await api.getHyenaStoreRanking(at.value);
+    const rows = data.halls || [];
+    list.innerHTML = rows.length ? rows.map(row => {
+      const machines = row.machines || {};
+      const occupancy = row.occupancy || {};
+      const reasons = (row.reasons || []).slice(0, 2).map(esc).join('・');
+      const warning = (row.warnings || [])[0];
+      return `<button class="opp-store-ranking-row verdict-${esc(row.verdict)}" type="button" data-opp-store-hall="${esc(row.hall_name)}">
+        <span class="opp-store-rank">${row.rank}</span>
+        <span class="opp-store-name"><strong>${esc(row.hall_name)}</strong><small>${reasons}</small>${warning ? `<em>${esc(warning)}</em>` : ''}</span>
+        <span class="opp-store-data">対応 ${Number(machines.supported_machine_count || 0)}機種<br>混雑 ${esc(occupancy.predicted_label || '未記録')}・信頼度 ${esc(occupancy.confidence_label || '不足')}</span>
+        <span class="opp-store-score"><b>${Number(row.score || 0)}</b><small>/100</small><i>${esc(row.verdict_label)}</i></span>
+      </button>`;
+    }).join('') : '<p class="hint center">対象店舗がありません。店舗設定とデータ収集を確認してください。</p>';
+    document.getElementById('opp-store-ranking-notice').textContent = data.notice || '到着後は必ず個別台を判定してください。';
+    const select = document.getElementById('opp-occupancy-hall');
+    const selected = select.value;
+    select.innerHTML = '<option value="">店舗を選択</option>' + rows.map(row => `<option value="${esc(row.hall_name)}">${esc(row.hall_name)}</option>`).join('');
+    if ([...select.options].some(option => option.value === selected)) select.value = selected;
+  } catch (error) {
+    list.innerHTML = `<p class="hint center">候補店を計算できません：${esc(error.message)}</p>`;
+  }
+}
+
+async function recordDesktopOccupancy(level) {
+  const hall = document.getElementById('opp-occupancy-hall').value;
+  if (!hall) { showToast('先に店舗を選んでください', 'error'); return; }
+  const rotation = document.getElementById('opp-occupancy-rotation').value;
+  const status = document.getElementById('opp-occupancy-status');
+  try {
+    await api.recordOccupancy({
+      hall_name: hall,
+      level,
+      avg_rotation_games_per_hour: rotation === '' ? null : Number(rotation),
+    });
+    status.textContent = `${hall}を「${{ high: '高', mid: '中', low: '低' }[level]}」で記録済み`;
+    showToast('混雑状況を記録しました');
+    await loadDesktopHyenaStoreRanking();
+  } catch (error) {
+    status.textContent = `記録失敗：${error.message}`;
+  }
+}
+
 async function loadOpportunityPage() {
   const monthEl = document.getElementById('opp-month');
   if (!monthEl.value) monthEl.value = currentMonthValue();
@@ -4677,6 +4733,7 @@ async function loadOpportunityPage() {
     renderOpportunityResults(opportunityState.recent_results || []);
     updateOpportunityProfileSelect();
     loadOpportunityCrawler();
+    loadDesktopHyenaStoreRanking();
 
     const alert = document.getElementById('opp-alert');
     if (!opportunityState.summary.configured) {
@@ -4694,6 +4751,17 @@ async function loadOpportunityPage() {
 }
 
 document.getElementById('opp-month').addEventListener('change', loadOpportunityPage);
+document.getElementById('opp-store-ranking-refresh').addEventListener('click', loadDesktopHyenaStoreRanking);
+document.getElementById('opp-store-ranking-at').addEventListener('change', loadDesktopHyenaStoreRanking);
+document.querySelectorAll('[data-desktop-occupancy]').forEach(button => {
+  button.addEventListener('click', () => recordDesktopOccupancy(button.dataset.desktopOccupancy));
+});
+document.getElementById('opp-store-ranking-list').addEventListener('click', event => {
+  const button = event.target.closest('[data-opp-store-hall]');
+  if (!button) return;
+  document.getElementById('opp-occupancy-hall').value = button.dataset.oppStoreHall;
+  document.getElementById('opp-occupancy-hall').focus();
+});
 document.getElementById('opp-crawler-run').addEventListener('click', async event => {
   if (opportunityCrawlerRunning) return;
   opportunityCrawlerRunning = true;
@@ -4734,7 +4802,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.5.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

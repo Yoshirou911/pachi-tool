@@ -97,3 +97,89 @@ def test_api_rejects_invalid_level(tmp_path, monkeypatch):
     _isolate_db(tmp_path, monkeypatch)
     res = client.post("/api/occupancy", json={"hall_name": "x", "level": "invalid"})
     assert res.status_code == 422
+
+
+def test_statistics_uses_same_weekday_and_time_bucket(tmp_path, monkeypatch):
+    _isolate_db(tmp_path, monkeypatch)
+    for recorded_at, level in [
+        ("2026-07-27T14:10:00", "mid"),
+        ("2026-08-03T13:40:00", "high"),
+        ("2026-08-10T14:20:00", "mid"),
+        ("2026-08-11T19:00:00", "low"),
+    ]:
+        occupancy_models.record_occupancy("統計店", level, 52, recorded_at)
+    result = occupancy_models.get_occupancy_statistics(
+        "統計店", "2026-08-17T14:30:00", lookback_days=90
+    )
+    assert result["time_bucket"] == "12-15"
+    assert result["matching_sample_count"] == 3
+    assert result["sample_count"] == 3
+    assert result["confidence"] == "medium"
+    assert result["predicted_level"] in {"mid", "high"}
+    assert result["avg_rotation_games_per_hour"] == 52
+
+
+def test_hyena_ranking_combines_supported_machines_activity_and_occupancy(tmp_path, monkeypatch):
+    _isolate_db(tmp_path, monkeypatch)
+    anaslo.upsert_hall_config("対応多い店")
+    anaslo.upsert_hall_config("データなし店")
+    with occupancy_models._conn() as con:
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS hall_day_machine (
+                id INTEGER PRIMARY KEY, hall_name TEXT, report_date TEXT,
+                machine_name TEXT, unit_count INTEGER, avg_diff_coins INTEGER,
+                avg_games INTEGER)"""
+        )
+        con.execute(
+            """CREATE TABLE hall_machine_snapshot (
+                id INTEGER PRIMARY KEY, hall_name TEXT, snapshot_date TEXT,
+                machine_name TEXT, machine_id TEXT, source_url TEXT)"""
+        )
+        machines = [
+            "スマスロ からくりサーカス", "スマスロ 革命機ヴァルヴレイヴ",
+            "スマスロ ToLOVEるダークネス", "スマスロ 聖闘士星矢 海皇覚醒 CUSTOM EDITION",
+            "スマスロ モンキーターン5", "スマスロ ゴッドイーター リザレクション",
+        ]
+        con.executemany(
+            "INSERT INTO hall_machine_snapshot VALUES (NULL,?,?,?,?,?)",
+            [("対応多い店", "2026-08-11", name, str(i), "https://example.com") for i, name in enumerate(machines)],
+        )
+        con.execute(
+            """INSERT INTO hall_day_machine
+               (hall_name,report_date,machine_name,unit_count,avg_diff_coins,avg_games)
+               VALUES ('対応多い店','2026-08-11','スマスロ からくりサーカス',10,0,5200)"""
+        )
+    for day in (3, 10):
+        occupancy_models.record_occupancy("対応多い店", "mid", 55, f"2026-08-{day:02d}T14:00:00")
+    result = occupancy_models.rank_hyena_halls("2026-08-17T14:30:00")
+    assert result["halls"][0]["hall_name"] == "対応多い店"
+    best = result["halls"][0]
+    assert best["machines"]["supported_machine_count"] >= 5
+    assert best["score"] > next(row["score"] for row in result["halls"] if row["hall_name"] == "データなし店")
+    assert best["reasons"]
+    assert "保証" in result["notice"]
+
+
+def test_hyena_ranking_api_and_statistics_api(tmp_path, monkeypatch):
+    _isolate_db(tmp_path, monkeypatch)
+    anaslo.upsert_hall_config("APIランキング店")
+    occupancy_models.record_occupancy("APIランキング店", "mid", 48, "2026-08-10T15:00:00")
+    stats = client.get("/api/occupancy/statistics", params={
+        "hall_name": "APIランキング店", "at": "2026-08-17T15:10:00",
+    })
+    assert stats.status_code == 200, stats.text
+    assert stats.json()["hall_name"] == "APIランキング店"
+    ranking = client.get("/api/occupancy/hyena-stores", params={
+        "at": "2026-08-17T15:10:00", "limit": 5,
+    })
+    assert ranking.status_code == 200, ranking.text
+    assert ranking.json()["halls"][0]["hall_name"] == "APIランキング店"
+
+
+def test_sparse_occupancy_never_gets_strong_verdict(tmp_path, monkeypatch):
+    _isolate_db(tmp_path, monkeypatch)
+    anaslo.upsert_hall_config("未記録店")
+    result = occupancy_models.rank_hyena_halls("2026-08-17T14:00:00")
+    row = result["halls"][0]
+    assert row["score"] <= 69
+    assert row["verdict"] != "strong"

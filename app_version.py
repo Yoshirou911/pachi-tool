@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "2.5.0"
-RELEASE_DATE = "2026-08-11"
+APP_VERSION = "2.6.0"
+RELEASE_DATE = "2026-08-12"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "2.6.0",
+        "released_on": "2026-08-12",
+        "title": "ハイエナ候補店の自動ランキング",
+        "items": [
+            "対応スマスロ・過去稼働・混雑傾向・データ鮮度を合成し、今から巡回する候補店を自動順位付け",
+            "曜日と3時間帯ごとの混雑予測、サンプル数、信頼度、判断理由とデータ不足警告を表示",
+            "スマホ・PC・ソフト版に平均回転数の現地記録と日時指定の再計算を追加",
+        ],
+    },
     {
         "version": "2.5.0",
         "released_on": "2026-08-11",

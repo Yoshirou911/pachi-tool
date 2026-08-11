@@ -24,6 +24,11 @@ KNOWN_SEEDS = {
     "ニコニコ住道店": "https://min-repo.com/3147225/",
     "ベガスベガス大東店": "https://min-repo.com/3148366/",
     "スーパーコスモプレミアム大東店": "https://min-repo.com/3203873/",
+    "マルハン松本店": "https://min-repo.com/3213382/",
+    "KEIZ松本店": "https://min-repo.com/3197685/",
+    "ABC松本白板店": "https://min-repo.com/3209885/",
+    "APULO塩尻北インター店": "https://min-repo.com/3214459/",
+    "キング塩尻店": "https://min-repo.com/3213630/",
 }
 
 _RUN_LOCK = threading.Lock()

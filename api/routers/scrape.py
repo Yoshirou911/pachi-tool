@@ -32,6 +32,27 @@ from api.routers.hall import _run_scrape
 router = APIRouter()
 
 
+def _resolve_hall_list(halls: Optional[str]) -> list[dict[str, str]]:
+    """Resolve requested hall names while retaining their registered prefecture."""
+    configured = scheduler._get_active_halls()
+    if not halls:
+        return configured
+
+    prefecture_by_name = {
+        str(hall.get("hall_name", "")).strip(): str(hall.get("prefecture", "大阪府")).strip()
+        for hall in configured
+        if isinstance(hall, dict) and str(hall.get("hall_name", "")).strip()
+    }
+    return [
+        {
+            "hall_name": name,
+            "prefecture": prefecture_by_name.get(name, "大阪府"),
+        }
+        for raw_name in halls.split(",")
+        if (name := raw_name.strip())
+    ]
+
+
 class CookieBody(BaseModel):
     cookie_str: str
 
@@ -199,10 +220,7 @@ def trigger_nightly_scrape(
     if scheduler.is_scrape_running():
         return {"ok": False, "message": "すでにスクレイプ実行中です。完了後に再試行してください。"}
 
-    if halls:
-        hall_list = [{"hall_name": h.strip(), "prefecture": "大阪府"} for h in halls.split(",")]
-    else:
-        hall_list = scheduler._get_active_halls()
+    hall_list = _resolve_hall_list(halls)
 
     import datetime as _dt_bulk
 

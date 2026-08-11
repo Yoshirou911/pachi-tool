@@ -74,6 +74,15 @@ def test_patrol_list_filters_by_hall_names(tmp_path, monkeypatch):
     assert [r["hall_name"] for r in result] == ["店A"]
 
 
+def test_patrol_list_filters_by_prefecture(tmp_path, monkeypatch):
+    _isolate_db(tmp_path, monkeypatch)
+    anaslo.upsert_hall_config("大阪店", prefecture="大阪府")
+    anaslo.upsert_hall_config("松本店", prefecture="長野県")
+
+    result = occupancy_models.get_patrol_list(prefecture="長野県")
+    assert [r["hall_name"] for r in result] == ["松本店"]
+
+
 def test_api_create_and_patrol_list_round_trip(tmp_path, monkeypatch):
     _isolate_db(tmp_path, monkeypatch)
     anaslo.upsert_hall_config("APIテスト店")
@@ -174,6 +183,16 @@ def test_hyena_ranking_api_and_statistics_api(tmp_path, monkeypatch):
     })
     assert ranking.status_code == 200, ranking.text
     assert ranking.json()["halls"][0]["hall_name"] == "APIランキング店"
+
+
+def test_hyena_ranking_api_filters_prefecture(tmp_path, monkeypatch):
+    _isolate_db(tmp_path, monkeypatch)
+    anaslo.upsert_hall_config("大阪店", prefecture="大阪府")
+    anaslo.upsert_hall_config("松本店", prefecture="長野県")
+    response = client.get("/api/occupancy/hyena-stores", params={"prefecture": "長野県"})
+    assert response.status_code == 200
+    assert response.json()["prefecture"] == "長野県"
+    assert [row["hall_name"] for row in response.json()["halls"]] == ["松本店"]
 
 
 def test_sparse_occupancy_never_gets_strong_verdict(tmp_path, monkeypatch):

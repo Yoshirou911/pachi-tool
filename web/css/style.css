@@ -1153,7 +1153,7 @@ tr[style*="cursor: pointer"]:active { background: rgba(124,127,245,.12) !importa
 }
 .opp-guide-card { border-color: rgba(16,185,129,.25); background: linear-gradient(145deg, rgba(16,185,129,.055), rgba(10,15,30,.95) 40%); }
 .opp-store-ranking-card { border-color: rgba(34,211,238,.28); background: linear-gradient(145deg, rgba(34,211,238,.06), rgba(10,15,30,.95) 42%); }
-.opp-store-ranking-controls { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:14px 0 10px; }
+.opp-store-ranking-controls { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:14px 0 10px; }
 .opp-occupancy-buttons { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-bottom:12px; color:var(--text2); font-size:.72rem; }
 .opp-occupancy-buttons button { min-width:48px; padding:7px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg2); color:var(--text); font-weight:800; cursor:pointer; }
 .opp-occupancy-buttons button[data-desktop-occupancy="high"] { color:#fb7185; }

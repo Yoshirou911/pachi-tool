@@ -447,10 +447,17 @@ def _pworld_search(hall_name: str) -> Optional[str]:
         "ひま・わり四條畷店": "https://www.p-world.co.jp/osaka/himawarisijounawate.htm",
         "キコーナ野崎店": "https://www.p-world.co.jp/osaka/kicona-nozaki.htm",
         "スーパーコスモプレミアム大東店": "https://www.p-world.co.jp/osaka/scpdaitou.htm",
+        "ラッシュMATSUMOTO#59": "https://52572.p-world.jp",
+        "チャンピオンOZ": "https://24133.p-world.jp",
+        "マルハン松本店": "https://76679.p-world.jp",
+        "チャンピオンANNEX": "https://80562.p-world.jp",
+        "KEIZ松本店": "https://48363.p-world.jp",
+        "ABC松本白板店": "https://41620.p-world.jp",
+        "No.1松本筑摩店": "https://22527.p-world.jp",
     }
     if hall_name in overrides:
         return overrides[hall_name]
-    for pref in ["27", "28"]:  # 大阪, 兵庫
+    for pref in ["27", "28", "20"]:  # 大阪, 兵庫, 長野
         url = f"https://www.p-world.ne.jp/search.cgi?key={urllib.parse.quote(hall_name)}&pref={pref}&type=slot"
         r = _get(url)
         if not r:

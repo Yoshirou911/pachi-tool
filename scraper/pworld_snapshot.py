@@ -22,6 +22,13 @@ HALL_URLS = {
     "ひま・わり四條畷店": "https://www.p-world.co.jp/osaka/himawarisijounawate.htm",
     "キコーナ野崎店": "https://www.p-world.co.jp/osaka/kicona-nozaki.htm",
     "スーパーコスモプレミアム大東店": "https://www.p-world.co.jp/osaka/scpdaitou.htm",
+    "ラッシュMATSUMOTO#59": "https://52572.p-world.jp",
+    "チャンピオンOZ": "https://24133.p-world.jp",
+    "マルハン松本店": "https://76679.p-world.jp",
+    "チャンピオンANNEX": "https://80562.p-world.jp",
+    "KEIZ松本店": "https://48363.p-world.jp",
+    "ABC松本白板店": "https://41620.p-world.jp",
+    "No.1松本筑摩店": "https://22527.p-world.jp",
 }
 
 

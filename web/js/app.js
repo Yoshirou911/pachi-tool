@@ -68,7 +68,11 @@ const api = {
   runOpportunityCrawler: () => apiFetch('/api/opportunity/crawler/run?max_profiles=100', { method: 'POST' }),
   approveOpportunityCrawlerCandidate: (id) => apiFetch(`/api/opportunity/crawler/candidates/${id}/approve`, { method: 'POST', body: JSON.stringify({ note: 'PC画面で出典と差分を確認して承認' }) }),
   rejectOpportunityCrawlerCandidate: (id) => apiFetch(`/api/opportunity/crawler/candidates/${id}/reject`, { method: 'POST', body: JSON.stringify({ note: 'PC画面で不採用' }) }),
-  getHyenaStoreRanking: (at) => apiFetch(`/api/occupancy/hyena-stores?${new URLSearchParams({ at, limit: '10', ts: String(Date.now()) })}`),
+  getHyenaStoreRanking: (at, prefecture = '') => {
+    const params = new URLSearchParams({ at, limit: '20', ts: String(Date.now()) });
+    if (prefecture) params.set('prefecture', prefecture);
+    return apiFetch(`/api/occupancy/hyena-stores?${params}`);
+  },
   recordOccupancy: (body) => apiFetch('/api/occupancy', { method: 'POST', body: JSON.stringify(body) }),
 };
 
@@ -98,7 +102,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.6.0';
+    document.getElementById('desktop-version-label').textContent = 'v2.6.1';
   }
 }
 
@@ -4671,10 +4675,11 @@ function desktopLocalDateTimeValue(date = new Date()) {
 async function loadDesktopHyenaStoreRanking() {
   const list = document.getElementById('opp-store-ranking-list');
   const at = document.getElementById('opp-store-ranking-at');
+  const prefecture = document.getElementById('opp-store-ranking-prefecture').value;
   if (!at.value) at.value = desktopLocalDateTimeValue();
   list.innerHTML = '<p class="hint center">候補店を計算中...</p>';
   try {
-    const data = await api.getHyenaStoreRanking(at.value);
+    const data = await api.getHyenaStoreRanking(at.value, prefecture);
     const rows = data.halls || [];
     list.innerHTML = rows.length ? rows.map(row => {
       const machines = row.machines || {};
@@ -4753,6 +4758,11 @@ async function loadOpportunityPage() {
 document.getElementById('opp-month').addEventListener('change', loadOpportunityPage);
 document.getElementById('opp-store-ranking-refresh').addEventListener('click', loadDesktopHyenaStoreRanking);
 document.getElementById('opp-store-ranking-at').addEventListener('change', loadDesktopHyenaStoreRanking);
+document.getElementById('opp-store-ranking-prefecture').value = localStorage.getItem('pachi-hyena-prefecture') || '';
+document.getElementById('opp-store-ranking-prefecture').addEventListener('change', event => {
+  localStorage.setItem('pachi-hyena-prefecture', event.target.value);
+  loadDesktopHyenaStoreRanking();
+});
 document.querySelectorAll('[data-desktop-occupancy]').forEach(button => {
   button.addEventListener('click', () => recordDesktopOccupancy(button.dataset.desktopOccupancy));
 });
@@ -4802,7 +4812,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.1');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

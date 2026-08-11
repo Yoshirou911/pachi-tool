@@ -426,6 +426,8 @@ def build_tag_url(hall_name: str) -> str:
     # 一部店舗はみんレポ側のタグslugが表示名と異なる。
     tag_name = {
         "スーパーコスモプレミアム大東店": "super-cosmo-premium-大東店",
+        "ラッシュMATSUMOTO#59": "ラッシュMATＳUMOTO♯５９",
+        "No.1松本筑摩店": "Ｎｏ．１松本筑摩店",
     }.get(hall_name, hall_name)
     encoded = urllib.parse.quote(tag_name)
     return f"{BASE_URL}/tag/{encoded}/"

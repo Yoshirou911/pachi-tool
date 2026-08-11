@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.6.1"
 RELEASE_DATE = "2026-08-12"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "2.6.1",
+        "released_on": "2026-08-12",
+        "title": "松本・塩尻エリアを追加",
+        "items": [
+            "松本市8店舗、塩尻市4店舗を店舗設定・自動収集・マップへ追加",
+            "候補店ランキングに大阪府／長野県（松本・塩尻）の地域フィルターを追加",
+            "松本7店舗のP-WORLD設置スマスロ取得元を登録し、閉店済みのマルハン塩尻店は除外",
+        ],
+    },
     {
         "version": "2.6.0",
         "released_on": "2026-08-12",

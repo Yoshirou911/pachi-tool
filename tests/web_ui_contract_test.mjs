@@ -32,6 +32,7 @@ assert.match(desktopHtml, /id="opp-replay-used"/, 'PC・ソフト版でも再プ
 assert.match(desktopHtml, /id="opp-quick-ocr"/, 'PC・ソフト版でも画像OCRを利用できる');
 assert.match(desktopHtml, /id="opp-crawler-candidates"/, 'PC・ソフト版で期待値更新候補を確認できる');
 assert.match(desktopHtml, /id="opp-store-ranking-list"/, 'PC・ソフト版でも候補店の自動ランキングを表示する');
+assert.match(desktopHtml, /id="opp-store-ranking-prefecture"/, 'PC・ソフト版でも地域を切り替えられる');
 assert.match(desktopHtml, /id="opp-occupancy-rotation"/, 'PC・ソフト版でも平均回転数を記録できる');
 assert.match(desktopJs, /api\/occupancy\/hyena-stores/, 'PC・ソフト版でも店舗ランキングAPIを利用する');
 assert.match(desktopJs, /data-opp-crawler-approve/, '期待値更新は利用者が承認してから反映する');

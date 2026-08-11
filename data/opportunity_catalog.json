@@ -834,6 +834,30 @@
         {"value":300,"ev_yen":2371},{"value":400,"ev_yen":4128},{"value":500,"ev_yen":6417},
         {"value":600,"ev_yen":9397}
       ]
+    },
+    {
+      "catalog_key": "saint-seiya-kaiou-post-at-536g-v1",
+      "machine_name": "スマスロ 聖闘士星矢 海皇覚醒 CUSTOM EDITION",
+      "condition_label": "AT終了後・天井536G短縮(参考)",
+      "exchange_type": "equivalent",
+      "funding_mode": "any",
+      "reset_status": "any",
+      "metric_name": "AT終了後ゲーム数",
+      "unit_label": "G",
+      "start_threshold": 0,
+      "ceiling_threshold": 536,
+      "expected_value_yen": null,
+      "estimated_play_minutes": null,
+      "worst_case_investment_yen": 15000,
+      "stop_rule": "536G消化後、通常天井条件(saint-seiya-kaiou-normal-equivalent-v1)に切り替えて判断",
+      "source_name": "saint-seiya-kaiou-normal-equivalent-v1の公開ノート記載値",
+      "source_url": "https://nana-press.com/kaiseki/machine/755/21820/",
+      "source_urls": ["https://nana-press.com/kaiseki/machine/755/21820/"],
+      "verified_on": null,
+      "confidence": "reference",
+      "discrepancy_note": "AT後536G短縮という条件自体は同機種の通常プロファイルのnotesに既に記載されているが、この条件専用のEV/期待値カーブは未算出のため自動判定(打つ候補)には使わない。参考記録用。",
+      "notes": "saint-seiya-kaiou-normal-equivalent-v1のnotesにある「AT後は天井536G短縮」を独立プロファイル化した参考値。EVが確定したらcurve_pointsを追加すること。",
+      "curve_points": [{"value":0,"ev_yen":null,"worst_case_yen":15000}]
     }
   ]
 }

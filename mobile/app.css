@@ -250,6 +250,24 @@ main { width: min(100%, 760px); margin: 0 auto; padding: 0 14px calc(96px + var(
 .scan-control-panel label { margin: 0; }
 .scan-control-panel select { margin-bottom: 0; }
 .scan-control-panel button { width: auto; min-width: 145px; }
+.occupancy-button-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 8px; }
+.occupancy-button { min-height: 52px; border: 1px solid var(--line-strong); border-radius: 13px; background: var(--panel-soft); color: var(--text); font-size: .85rem; font-weight: 900; letter-spacing: .02em; transition: transform .1s ease, box-shadow .15s ease; }
+.occupancy-button:active { transform: scale(.96); }
+.occupancy-high { border-color: rgba(255, 113, 136, .45); color: var(--red); }
+.occupancy-high.is-selected { background: rgba(255, 113, 136, .18); box-shadow: 0 10px 22px rgba(255, 113, 136, .16); }
+.occupancy-mid { border-color: rgba(255, 209, 102, .45); color: var(--yellow); }
+.occupancy-mid.is-selected { background: rgba(255, 209, 102, .18); box-shadow: 0 10px 22px rgba(255, 209, 102, .16); }
+.occupancy-low { border-color: rgba(66, 221, 178, .45); color: var(--green); }
+.occupancy-low.is-selected { background: rgba(66, 221, 178, .18); box-shadow: 0 10px 22px rgba(66, 221, 178, .16); }
+.occupancy-priority-list { display: grid; gap: 6px; }
+.occupancy-priority-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 9px 11px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255, 255, 255, .025); }
+.occupancy-priority-row .occ-hall-name { color: var(--text); font-size: .62rem; font-weight: 800; }
+.occupancy-priority-row .occ-meta { grid-column: 1 / -1; color: var(--muted-2); font-size: .52rem; }
+.occupancy-priority-row .occ-level-badge { padding: 3px 8px; border-radius: 999px; font-size: .5rem; font-weight: 900; white-space: nowrap; }
+.occ-level-badge.level-high { color: var(--red); background: rgba(255, 113, 136, .14); }
+.occ-level-badge.level-mid { color: var(--yellow); background: rgba(255, 209, 102, .14); }
+.occ-level-badge.level-low { color: var(--green); background: rgba(66, 221, 178, .14); }
+.occ-level-badge.level-none { color: var(--muted-2); background: rgba(168, 182, 200, .12); }
 .time-strategy-panel { border-color: rgba(120, 169, 255, .22); background: linear-gradient(145deg, rgba(120, 169, 255, .075), rgba(7, 18, 31, .94)); }
 .rule-badge { padding: 5px 8px; color: #b9d2ff; border: 1px solid rgba(120, 169, 255, .27); border-radius: 999px; background: rgba(120, 169, 255, .09); font-size: .52rem; font-weight: 900; white-space: nowrap; }
 .strategy-time-control { display: grid; grid-template-columns: 112px 1fr; gap: 11px; align-items: center; margin: 10px 0; }

@@ -7,10 +7,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.4.1';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.4.1';
+} from './core.mjs?v=2.5.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.5.0';
 
-const APP_VERSION = '2.4.1';
+const APP_VERSION = '2.5.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -18,13 +18,13 @@ const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
 const apiUrl = path => `${API_ORIGIN}${path}`;
 let releaseInfo = {
   version: APP_VERSION,
-  released_on: '2026-08-10',
+  released_on: '2026-08-11',
   channel: '公開版',
   patch_notes: [{
     version: APP_VERSION,
-    released_on: '2026-08-10',
-    title: '機種別ツラヌキ・閉店精度・期待値自動更新',
-    items: ['14条件の消化時間を完全補完', '主力3機種と専用条件を追加', '期待値表の承認付き自動更新を追加'],
+    released_on: '2026-08-11',
+    title: '店舗稼働率トラッキングを追加',
+    items: ['高/中/低のワンタップ稼働記録と巡回優先度リストを追加', '曜日・時間帯を自動記録し統計予測用データの蓄積を開始', '聖闘士星矢のAT後天井短縮条件を参考値として追加'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -63,6 +63,7 @@ let floorData = null;
 let floorEditorSeats = [];
 let targetHallOptions = [];
 let scanSnapshot = null;
+let occupancyPriorityData = null;
 let syncTimer = null;
 let syncWriting = false;
 let syncHeartbeat = null;
@@ -994,6 +995,67 @@ async function loadScanHall() {
   }
 }
 
+async function loadOccupancyPriorityList() {
+  const target = byId('occupancy-priority-list');
+  try {
+    // Service Worker(mobile/sw.js)はGETをキャッシュ優先で返すため、都度ユニークなURLにして必ずネットワークから取り直す。
+    const rows = await mobileArchiveRequest(`/api/occupancy/patrol-list?ts=${Date.now()}`);
+    occupancyPriorityData = rows;
+    renderOccupancyPriorityList(rows);
+  } catch (error) {
+    target.innerHTML = `<p class="empty">巡回優先度を取得できません：${esc(error.message)}</p>`;
+  }
+}
+
+function renderOccupancyPriorityList(rows) {
+  const target = byId('occupancy-priority-list');
+  if (!rows?.length) {
+    target.innerHTML = '<p class="empty">対象ホールがありません。</p>';
+    return;
+  }
+  const levelLabel = { high: '高', mid: '中', low: '低' };
+  target.innerHTML = rows.slice(0, 8).map(row => {
+    const level = row.last_level;
+    const badgeClass = level ? `level-${level}` : 'level-none';
+    const badgeText = level ? (levelLabel[level] || level) : '未記録';
+    const meta = row.hours_since == null
+      ? '記録なし'
+      : row.hours_since < 1
+        ? '1時間以内に記録'
+        : row.hours_since < 24
+          ? `${Math.round(row.hours_since)}時間前に記録`
+          : `${Math.round(row.hours_since / 24)}日前に記録`;
+    return `<div class="occupancy-priority-row">
+      <span class="occ-hall-name">${esc(row.hall_name)}</span>
+      <span class="occ-level-badge ${badgeClass}">${esc(badgeText)}</span>
+      <span class="occ-meta">${esc(meta)}</span>
+    </div>`;
+  }).join('');
+}
+
+async function recordOccupancyLevel(level) {
+  const hall = byId('scan-hall').value;
+  if (!hall) { showToast('先に店舗を選んでください'); return; }
+  const status = byId('occupancy-status');
+  try {
+    const result = await mobileArchiveRequest('/api/occupancy', {
+      method: 'POST',
+      body: JSON.stringify({ hall_name: hall, level }),
+    });
+    document.querySelectorAll('.occupancy-button').forEach(btn => {
+      btn.classList.toggle('is-selected', btn.dataset.occupancyLevel === level);
+    });
+    const levelLabel = { high: '高', mid: '中', low: '低' }[level] || level;
+    const recordedTime = new Date(result.recorded_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    status.textContent = `${hall} を「${levelLabel}」で記録しました（${recordedTime}）`;
+    showToast('稼働状況を記録しました');
+    occupancyPriorityData = null;
+    loadOccupancyPriorityList();
+  } catch (error) {
+    status.textContent = `記録できませんでした：${error.message}`;
+  }
+}
+
 function renderProfileBars(rows, labelKey, valueKey = 'avg_diff') {
   if (!rows?.length) return '<p class="empty">分析できるデータがありません。</p>';
   const maxAbs = Math.max(1, ...rows.map(row => Math.abs(Number(row[valueKey] || 0))));
@@ -1400,6 +1462,7 @@ function showScreen(name) {
   byId('brand-mode-label').textContent = activeModule === 'hyena' ? 'ハイエナ専用' : activeModule === 'target' ? '狙い台捜索専用' : 'スマスロ攻略ホーム';
   scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'scan' && !scanSnapshot) setTimeout(loadScanHall, 80);
+  if (name === 'scan' && !occupancyPriorityData) setTimeout(loadOccupancyPriorityList, 80);
   if (name === 'target-map' && !targetMapData) setTimeout(loadTargetHeatMap, 80);
   if (name === 'trend' && !trendData) setTimeout(loadTrendProfile, 80);
   if (name === 'floor-map' && !floorData) setTimeout(loadFloorHeat, 80);
@@ -1500,6 +1563,13 @@ byId('quick-close').addEventListener('change', async event => {
 byId('scan-hall-form').addEventListener('submit', async event => {
   event.preventDefault();
   await loadScanHall();
+});
+byId('occupancy-priority-refresh').addEventListener('click', () => {
+  occupancyPriorityData = null;
+  loadOccupancyPriorityList();
+});
+document.querySelectorAll('.occupancy-button').forEach(button => {
+  button.addEventListener('click', () => recordOccupancyLevel(button.dataset.occupancyLevel));
 });
 byId('scan-strategy-time').addEventListener('input', renderTimeStrategy);
 byId('scan-time-tabs').addEventListener('click', event => {

@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "2.4.1"
-RELEASE_DATE = "2026-08-10"
+APP_VERSION = "2.5.0"
+RELEASE_DATE = "2026-08-11"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "2.5.0",
+        "released_on": "2026-08-11",
+        "title": "店舗稼働率トラッキングを追加",
+        "items": [
+            "店舗巡回モードに高/中/低のワンタップ稼働記録と、巡回優先度リストを追加",
+            "曜日・時間帯を自動記録し、今後の統計的な稼働予測に使えるデータの蓄積を開始",
+            "聖闘士星矢 海皇覚醒のAT終了後天井短縮条件を参考値として追加",
+        ],
+    },
     {
         "version": "2.4.1",
         "released_on": "2026-08-10",

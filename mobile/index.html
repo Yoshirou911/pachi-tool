@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=2.4.1">
+  <link rel="stylesheet" href="./app.css?v=2.5.0">
   <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スマスロ攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v2.4.1</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v2.5.0</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -169,12 +169,28 @@
         <p>その店にある対応機種だけに絞り、通過ラインと打ち始めを見ながら島を回ります。</p>
       </div>
 
+      <article class="panel occupancy-priority-panel">
+        <div class="section-bar"><div><span class="page-step">PATROL PRIORITY</span><h2>巡回優先度</h2></div><button id="occupancy-priority-refresh" class="secondary-button compact-button" type="button">更新</button></div>
+        <div id="occupancy-priority-list" class="occupancy-priority-list"><p class="empty">「更新」で優先店舗を読み込みます。</p></div>
+      </article>
+
       <article class="panel scan-control-panel">
         <form id="scan-hall-form">
           <label>いまいる店舗<select id="scan-hall" required></select></label>
           <button id="scan-load-button" class="primary-button" type="submit">この店の巡回リストを作る</button>
         </form>
         <p id="scan-status" class="fine-print">店舗の最新設置機種と期待値カタログを照合します。</p>
+      </article>
+
+      <article class="panel occupancy-panel">
+        <div class="section-bar"><div><span class="page-step">OCCUPANCY</span><h2>稼働状況を記録</h2></div></div>
+        <p class="fine-print">今いる店舗の混み具合をワンタップで記録します（曜日・時間帯は自動で記録されます）。</p>
+        <div class="occupancy-button-row">
+          <button class="occupancy-button occupancy-high" type="button" data-occupancy-level="high">高</button>
+          <button class="occupancy-button occupancy-mid" type="button" data-occupancy-level="mid">中</button>
+          <button class="occupancy-button occupancy-low" type="button" data-occupancy-level="low">低</button>
+        </div>
+        <p id="occupancy-status" class="fine-print">まだ記録がありません。</p>
       </article>
 
       <article class="panel time-strategy-panel">
@@ -449,7 +465,7 @@
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v2.4.1・更新日 2026/08/10</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v2.5.0・更新日 2026/08/11</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
@@ -558,6 +574,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=2.4.1"></script>
+  <script type="module" src="./app.js?v=2.5.0"></script>
 </body>
 </html>

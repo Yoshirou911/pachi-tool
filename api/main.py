@@ -35,6 +35,7 @@ from api.routers import (
     layout,
     machines,
     map as map_router,
+    occupancy,
     opportunity,
     scrape,
     sessions,
@@ -153,6 +154,11 @@ def _init_auxiliary_databases() -> None:
         initializers.append(init_layout_db)
     except ImportError:
         pass
+    try:
+        from hall.occupancy import init_db as init_occupancy_db
+        initializers.append(init_occupancy_db)
+    except ImportError:
+        pass
 
     for initializer in initializers:
         try:
@@ -176,6 +182,7 @@ app.include_router(scrape.router)
 app.include_router(events.router)
 app.include_router(map_router.router)
 app.include_router(layout.router)
+app.include_router(occupancy.router)
 app.include_router(admin.router)
 app.include_router(ai.router)
 app.include_router(version.router)

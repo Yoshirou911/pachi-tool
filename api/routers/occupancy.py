@@ -60,9 +60,10 @@ def create_occupancy_record(body: OccupancyRecordCreate) -> dict:
 @router.get("/api/occupancy/patrol-list", tags=["occupancy"])
 def occupancy_patrol_list(
     hall_name: Optional[list[str]] = Query(default=None, description="絞り込むホール名(複数可)。省略時は有効ホール全件"),
+    prefecture: Optional[str] = Query(default=None, description="都道府県で絞り込み"),
 ) -> list[dict]:
     """巡回優先度順のホール一覧を返す(未記録・記録が古い・直近highのホールほど上位)。"""
-    return get_patrol_list(hall_names=hall_name)
+    return get_patrol_list(hall_names=hall_name, prefecture=prefecture)
 
 
 @router.get("/api/occupancy/statistics", tags=["occupancy"])
@@ -81,11 +82,17 @@ def occupancy_statistics(
 @router.get("/api/occupancy/hyena-stores", tags=["occupancy"])
 def hyena_store_ranking(
     at: Optional[str] = Query(default=None, description="巡回予定日時 ISO8601。省略時は現在"),
+    prefecture: Optional[str] = Query(default=None, description="都道府県で絞り込み"),
     hall_name: Optional[list[str]] = Query(default=None),
     limit: int = Query(default=10, ge=1, le=30),
 ) -> dict:
     """今からハイエナ巡回する候補店舗を、根拠・信頼度付きで順位付けする。"""
     try:
-        return rank_hyena_halls(at, hall_name, limit)
+        return rank_hyena_halls(
+            target_at=at,
+            hall_names=hall_name,
+            limit=limit,
+            prefecture=prefecture,
+        )
     except ValueError as exc:
         raise HTTPException(422, str(exc))

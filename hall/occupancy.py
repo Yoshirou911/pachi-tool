@@ -122,7 +122,10 @@ def record_occupancy(
         return dict(row)
 
 
-def get_patrol_list(hall_names: Optional[list[str]] = None) -> list[dict]:
+def get_patrol_list(
+    hall_names: Optional[list[str]] = None,
+    prefecture: Optional[str] = None,
+) -> list[dict]:
     """巡回優先度順のホール一覧を返す。
 
     母集団は scraper.anaslo.get_hall_configs(enabled_only=True) の有効ホール
@@ -135,6 +138,9 @@ def get_patrol_list(hall_names: Optional[list[str]] = None) -> list[dict]:
         halls = get_hall_configs(enabled_only=True)
     except Exception:
         halls = []
+
+    if prefecture:
+        halls = [h for h in halls if h.get("prefecture") == prefecture]
 
     if hall_names:
         wanted = set(hall_names)
@@ -375,6 +381,7 @@ def rank_hyena_halls(
     target_at: Optional[str] = None,
     hall_names: Optional[list[str]] = None,
     limit: int = 10,
+    prefecture: Optional[str] = None,
 ) -> dict:
     """今から巡回する価値がある店舗を、説明可能な材料だけで順位付けする。"""
     target = _parse_target_at(target_at)
@@ -383,6 +390,9 @@ def rank_hyena_halls(
         halls = get_hall_configs(enabled_only=True)
     except Exception:
         halls = []
+
+    if prefecture:
+        halls = [row for row in halls if row.get("prefecture") == prefecture]
     if hall_names:
         wanted = set(hall_names)
         halls = [row for row in halls if row.get("hall_name") in wanted]
@@ -484,6 +494,7 @@ def rank_hyena_halls(
         "target_at": target.isoformat(timespec="minutes"),
         "weekday": target.weekday(),
         "time_bucket": _time_bucket(target),
+        "prefecture": prefecture,
         "halls": selected,
         "notice": "店舗内に期待値のある空き台が存在する保証ではありません。到着後は必ず個別台を判定してください",
         "method": "対応機種数・過去稼働・曜日時間帯の混雑・データ鮮度・サンプル数を合成",

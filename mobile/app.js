@@ -7,10 +7,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.6.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.0';
+} from './core.mjs?v=2.6.1';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.1';
 
-const APP_VERSION = '2.6.0';
+const APP_VERSION = '2.6.1';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -1000,7 +1000,10 @@ async function loadOccupancyPriorityList() {
   const target = byId('occupancy-priority-list');
   try {
     // Service Worker(mobile/sw.js)はGETをキャッシュ優先で返すため、都度ユニークなURLにして必ずネットワークから取り直す。
-    const rows = await mobileArchiveRequest(`/api/occupancy/patrol-list?ts=${Date.now()}`);
+    const params = new URLSearchParams({ ts: String(Date.now()) });
+    const prefecture = byId('hyena-store-prefecture')?.value || '';
+    if (prefecture) params.set('prefecture', prefecture);
+    const rows = await mobileArchiveRequest(`/api/occupancy/patrol-list?${params}`);
     occupancyPriorityData = rows;
     renderOccupancyPriorityList(rows);
   } catch (error) {
@@ -1017,9 +1020,11 @@ async function loadHyenaStoreRanking() {
   const target = byId('hyena-store-ranking');
   const atInput = byId('hyena-store-at');
   if (!atInput.value) atInput.value = localDateTimeValue();
+  const prefecture = byId('hyena-store-prefecture').value;
   target.innerHTML = '<p class="empty">候補店を計算中...</p>';
   try {
-    const params = new URLSearchParams({ at: atInput.value, limit: '10', ts: String(Date.now()) });
+    const params = new URLSearchParams({ at: atInput.value, limit: '20', ts: String(Date.now()) });
+    if (prefecture) params.set('prefecture', prefecture);
     const data = await mobileArchiveRequest(`/api/occupancy/hyena-stores?${params}`);
     hyenaStoreRankingData = data;
     renderHyenaStoreRanking(data);
@@ -1626,6 +1631,14 @@ byId('hyena-store-refresh').addEventListener('click', () => {
 byId('hyena-store-at').addEventListener('change', () => {
   hyenaStoreRankingData = null;
   loadHyenaStoreRanking();
+});
+byId('hyena-store-prefecture').value = localStorage.getItem('pachi-hyena-prefecture') || '';
+byId('hyena-store-prefecture').addEventListener('change', event => {
+  localStorage.setItem('pachi-hyena-prefecture', event.target.value);
+  hyenaStoreRankingData = null;
+  occupancyPriorityData = null;
+  loadHyenaStoreRanking();
+  loadOccupancyPriorityList();
 });
 byId('hyena-store-ranking').addEventListener('click', event => {
   const button = event.target.closest('[data-hyena-hall]');

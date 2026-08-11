@@ -32,8 +32,10 @@ assert.match(html, /data-screen-target="guide"/, '判定画面から狙い目へ
 assert.match(html, /id="scan-hall-form"/, '店舗を選ぶ巡回モードが必要');
 assert.match(html, /id="hyena-store-ranking"/, '今から向かう候補店の自動ランキングが必要');
 assert.match(html, /id="hyena-store-at"[^>]*datetime-local/, '巡回日時を指定して再計算できる');
+assert.match(html, /id="hyena-store-prefecture"/, '大阪と松本・塩尻のランキングを切り替えられる');
 assert.match(html, /id="occupancy-avg-rotation"/, '店舗の平均回転数を現場で記録できる');
 assert.match(app, /api\/occupancy\/hyena-stores/, '自動店舗ランキングAPIを利用する');
+assert.match(app, /pachi-hyena-prefecture/, '選択した地域を端末に保持する');
 assert.match(html, /id="scan-machine-list"/, '設置機種だけの巡回リストが必要');
 assert.match(html, /id="performance-chart"/, '期待値と実収支の比較グラフを表示する');
 assert.match(html, /id="performance-summary"/, '比較指標を表示する');
@@ -41,8 +43,8 @@ assert.match(html, /id="catalog-scope"/, '現在の対象機種を明示する')
 assert.match(html, /スマスロ攻略ホーム/, 'スマスロ専門ツールであることを明示する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=2\.6\.0/);
-assert.match(html, /app\.js\?v=2\.6\.0/);
+assert.match(html, /app\.css\?v=2\.6\.1/);
+assert.match(html, /app\.js\?v=2\.6\.1/);
 assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
 assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
 assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
@@ -55,7 +57,7 @@ assert.match(app, /データ信頼度/, '判定結果からデータの信頼度
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');
 assert.match(app, /catalog\.json\?v=\$\{APP_VERSION\}/, '機種追加時に古いカタログキャッシュを使わない');
-assert.match(app, /core\.mjs\?v=2\.6\.0/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /core\.mjs\?v=2\.6\.1/, '内部判定ロジックも更新時にキャッシュを破棄する');
 assert.match(app, /installation_snapshot/, '店舗の設置機種を使って巡回対象を絞る');
 assert.match(app, /start_threshold\) - 100/, 'ボーダー100G手前を通過ラインとして表示する');
 assert.match(html, /id="patrol-observation-form"/, '台番号別の巡回記録を入力できる');

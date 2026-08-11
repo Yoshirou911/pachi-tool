@@ -29,8 +29,7 @@ def set_scrape_running(value: bool) -> None:
     _SCRAPE_RUNNING = value
 
 
-# 四條畷駅を起点にしたデフォルト収集範囲（近い順）。
-# 徒歩圏 → 野崎・住道 → 大東市内の大型店、の順に収集する。
+# デフォルト収集範囲。地域ごとに現行営業を確認できた店舗だけを登録する。
 _DEFAULT_HALLS = [
     {"hall_name": "キコーナ四條畷店",               "prefecture": "大阪府"},
     {"hall_name": "ひま・わり四條畷店",             "prefecture": "大阪府"},
@@ -40,6 +39,20 @@ _DEFAULT_HALLS = [
     {"hall_name": "マルハン大東店",                 "prefecture": "大阪府"},
     {"hall_name": "スーパーコスモプレミアム大東店", "prefecture": "大阪府"},
     {"hall_name": "ベガスベガス大東店",             "prefecture": "大阪府"},
+    # 長野県・松本市
+    {"hall_name": "ラッシュMATSUMOTO#59",          "prefecture": "長野県"},
+    {"hall_name": "チャンピオンOZ",                 "prefecture": "長野県"},
+    {"hall_name": "マルハン松本店",                 "prefecture": "長野県"},
+    {"hall_name": "チャンピオンANNEX",              "prefecture": "長野県"},
+    {"hall_name": "KEIZ松本店",                    "prefecture": "長野県"},
+    {"hall_name": "ABC松本白板店",                  "prefecture": "長野県"},
+    {"hall_name": "No.1松本筑摩店",                 "prefecture": "長野県"},
+    {"hall_name": "EX松本店",                      "prefecture": "長野県"},
+    # 長野県・塩尻市（マルハン塩尻店は2025-02-02閉店のため除外）
+    {"hall_name": "APULO塩尻北インター店",           "prefecture": "長野県"},
+    {"hall_name": "APULO811",                      "prefecture": "長野県"},
+    {"hall_name": "キング塩尻店",                   "prefecture": "長野県"},
+    {"hall_name": "キング会館ネクスト塩尻店",        "prefecture": "長野県"},
 ]
 
 

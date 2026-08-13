@@ -18,11 +18,12 @@ from scraper import minrepo_archive
 
 
 DEFAULT_HALLS = (
-    "マルハン松本店",
-    "KEIZ松本店",
-    "ABC松本白板店",
-    "APULO塩尻北インター店",
     "キング塩尻店",
+    "マルハン松本店",
+    "ABC松本白板店",
+    "ラッシュMATSUMOTO#59",
+    "KEIZ松本店",
+    "APULO塩尻北インター店",
 )
 
 
@@ -55,9 +56,15 @@ def main() -> int:
     parser.add_argument("--to", dest="date_to", required=True, help="終了日 YYYY-MM-DD")
     parser.add_argument("--max-pages", type=int, default=160)
     parser.add_argument("--hall", action="append", choices=DEFAULT_HALLS)
+    parser.add_argument(
+        "--seed-url",
+        help="指定店舗の途中レポートURL。1店舗を指定した場合のみ利用できます",
+    )
     args = parser.parse_args()
 
     halls = args.hall or list(DEFAULT_HALLS)
+    if args.seed_url and len(halls) != 1:
+        parser.error("--seed-url は --hall を1店舗だけ指定した場合に利用できます")
     failures = 0
     for hall_name in halls:
         before = _coverage(Path(minrepo_archive.DB_PATH), hall_name)
@@ -67,6 +74,7 @@ def main() -> int:
                 hall_name,
                 args.date_from,
                 args.date_to,
+                seed_url=args.seed_url or "",
                 max_pages=args.max_pages,
             )
             minrepo_archive.run_job(job_id)

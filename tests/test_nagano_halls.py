@@ -36,4 +36,5 @@ def test_current_pworld_matsumoto_sources_are_registered():
 
 def test_nagano_archive_seeds_are_registered():
     assert {"マルハン松本店", "KEIZ松本店", "ABC松本白板店",
-            "APULO塩尻北インター店", "キング塩尻店"} <= set(KNOWN_SEEDS)
+            "APULO塩尻北インター店", "キング塩尻店",
+            "ラッシュMATSUMOTO#59"} <= set(KNOWN_SEEDS)

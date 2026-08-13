@@ -1,6 +1,10 @@
 from scraper import minrepo
 
 
+def test_hall_name_normalizer_matches_matsumoto_alias():
+    assert minrepo._normalize_hall_name("ラッシュMATSUMOTO#59") == minrepo._normalize_hall_name("ラッシュ松本#59")
+
+
 class _Response:
     def __init__(self, text: str, status_code: int = 200):
         self.text = text

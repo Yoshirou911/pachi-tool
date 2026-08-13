@@ -9,11 +9,12 @@ from urllib.parse import urlparse
 
 
 HALLS = {
-    "マルハン松本店",
-    "KEIZ松本店",
-    "ABC松本白板店",
-    "APULO塩尻北インター店",
     "キング塩尻店",
+    "マルハン松本店",
+    "ABC松本白板店",
+    "ラッシュMATSUMOTO#59",
+    "KEIZ松本店",
+    "APULO塩尻北インター店",
 }
 
 

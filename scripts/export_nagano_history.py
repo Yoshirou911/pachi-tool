@@ -7,11 +7,12 @@ from pathlib import Path
 
 
 HALLS = (
-    "マルハン松本店",
-    "KEIZ松本店",
-    "ABC松本白板店",
-    "APULO塩尻北インター店",
     "キング塩尻店",
+    "マルハン松本店",
+    "ABC松本白板店",
+    "ラッシュMATSUMOTO#59",
+    "KEIZ松本店",
+    "APULO塩尻北インター店",
 )
 
 
@@ -21,7 +22,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=Path("data/nagano_history_patch.db"))
     parser.add_argument("--from", dest="date_from", default="2026-05-01")
     parser.add_argument("--to", dest="date_to", default="2026-08-12")
+    parser.add_argument("--hall", action="append", choices=HALLS)
     args = parser.parse_args()
+
+    halls = tuple(args.hall or HALLS)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     if args.output.exists():
@@ -45,13 +49,13 @@ def main() -> None:
             );
             """
         )
-        placeholders = ",".join("?" for _ in HALLS)
+        placeholders = ",".join("?" for _ in halls)
         machine_rows = source.execute(
             f"""SELECT hall_name,report_date,machine_name,unit_count,avg_diff_coins,avg_games,
                        win_rate_pct,ev_pct,source_url,scraped_at
                 FROM hall_day_machine
                 WHERE hall_name IN ({placeholders}) AND report_date BETWEEN ? AND ?""",
-            (*HALLS, args.date_from, args.date_to),
+            (*halls, args.date_from, args.date_to),
         ).fetchall()
         seat_rows = source.execute(
             f"""SELECT hall_name,report_date,machine_name,seat_number,diff_coins,games,ev_pct,
@@ -60,7 +64,7 @@ def main() -> None:
                        source_url,scraped_at
                 FROM hall_day_seat
                 WHERE hall_name IN ({placeholders}) AND report_date BETWEEN ? AND ?""",
-            (*HALLS, args.date_from, args.date_to),
+            (*halls, args.date_from, args.date_to),
         ).fetchall()
         patch.executemany(
             "INSERT INTO hall_day_machine VALUES (?,?,?,?,?,?,?,?,?,?)", machine_rows

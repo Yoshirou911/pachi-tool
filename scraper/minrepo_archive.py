@@ -29,6 +29,7 @@ KNOWN_SEEDS = {
     "ABC松本白板店": "https://min-repo.com/3209885/",
     "APULO塩尻北インター店": "https://min-repo.com/3214459/",
     "キング塩尻店": "https://min-repo.com/3213630/",
+    "ラッシュMATSUMOTO#59": "https://min-repo.com/2834080/",
 }
 
 _RUN_LOCK = threading.Lock()

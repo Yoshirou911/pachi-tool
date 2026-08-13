@@ -1,11 +1,22 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "2.6.2"
-RELEASE_DATE = "2026-08-13"
+APP_VERSION = "2.6.3"
+RELEASE_DATE = "2026-08-14"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "2.6.3",
+        "released_on": "2026-08-14",
+        "title": "松本・塩尻の重点店舗を約1年分析へ",
+        "items": [
+            "キング塩尻・マルハン松本・ABC松本白板を最優先の収集対象に設定",
+            "優先3店舗の実績を351〜364日分まで拡充",
+            "追加候補としてスロット専門店ラッシュMATSUMOTO#59を登録し364日分を収集",
+            "途中レポート起点と店舗選択付き同期に対応し、履歴の空白を効率よく補完",
+        ],
+    },
     {
         "version": "2.6.2",
         "released_on": "2026-08-13",

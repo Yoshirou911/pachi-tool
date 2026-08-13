@@ -11,11 +11,24 @@ const API = window.location.hostname === 'localhost' || window.location.hostname
 // サーバー側で PACHI_ACCESS_TOKEN を設定した場合のみ要求されるアクセスキー。
 // 未設定のサーバー（ローカル/デスクトップ版）に対しては何も送らず、従来どおり動く。
 const TOKEN_KEY = 'pachi_access_token';
+const TARGET_REGION_KEY = 'pachi-target-region';
 function getStoredToken() {
   try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
 }
 function setStoredToken(token) {
   try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
+}
+function getTargetRegion() {
+  try { return localStorage.getItem(TARGET_REGION_KEY) || 'matsumoto_shiojiri'; } catch { return 'matsumoto_shiojiri'; }
+}
+function syncTargetRegion(region) {
+  const value = region || 'matsumoto_shiojiri';
+  try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
+  ['desktop-target-region', 'desktop-heat-region'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.value = value;
+  });
+  return value;
 }
 
 async function apiFetch(path, opts = {}, _retried = false) {
@@ -102,7 +115,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.6.3';
+    document.getElementById('desktop-version-label').textContent = 'v2.6.4';
   }
 }
 
@@ -355,17 +368,18 @@ function renderDesktopTargetSearch(data) {
   const halls = data.halls || [];
   const insufficient = data.insufficient_halls || [];
   if (!halls.length) {
-    container.innerHTML = `<div class="card desktop-target-empty"><strong>おすすめを出せるデータがありません</strong><span>${esc(data.notice || '取得日数が増えるまでお待ちください。')}</span></div>`;
+    container.innerHTML = `<div class="card desktop-target-empty"><strong>${esc(data.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(data.notice || '取得日数が増えるまでお待ちください。')}</span></div>
+      ${insufficient.length ? `<details class="desktop-insufficient" open><summary>除外・データ不足 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}`;
     return;
   }
   container.innerHTML = `
-    <div class="desktop-target-heading"><div><span class="page-eyebrow">${esc(data.visit_date)} ${esc(data.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="badge">${halls.length}店舗</span></div>
+    <div class="desktop-target-heading"><div><span class="page-eyebrow">${esc(data.region_label || '')}・${esc(data.visit_date)} ${esc(data.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="badge">${halls.length}店舗</span></div>
     ${halls.map(hall => `<article class="card desktop-target-hall">
       <div class="desktop-target-hall-head"><span class="desktop-target-rank">${hall.rank}</span><div><h3>${esc(hall.hall_name)}</h3><p>${esc(hall.basis)}・最終データ ${esc(hall.latest_date)}</p></div><div class="desktop-target-score"><b>${hall.score}</b><small>点</small></div></div>
       <div class="desktop-target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>実績日数</small><b>${hall.sample_days}日</b></span><span><small>信頼度</small><b class="target-confidence-${hall.confidence === '高' ? 'high' : hall.confidence === '中' ? 'mid' : 'low'}">${esc(hall.confidence)}</b></span></div>
       <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="desktop-target-machines">
-        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
+        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・最終${esc(machine.latest_date || '--')}・${esc(machine.installation_status || '設置未確認')}</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
       </div>
     </article>`).join('')}
     ${insufficient.length ? `<details class="desktop-insufficient"><summary>データ不足の店舗 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}
@@ -375,15 +389,16 @@ function renderDesktopTargetSearch(data) {
 async function loadDesktopTargetSearch() {
   const dateInput = document.getElementById('desktop-target-date');
   const daysInput = document.getElementById('desktop-target-days');
+  const region = syncTargetRegion(document.getElementById('desktop-target-region').value);
   const button = document.getElementById('desktop-target-search-button');
   const status = document.getElementById('desktop-target-status');
   if (!dateInput.value) dateInput.value = localDateValue(1);
   button.disabled = true;
   status.textContent = '店舗・曜日・機種データを分析中...';
   try {
-    desktopTargetSearchData = await apiFetch(`/api/hall/target_search?visit_date=${encodeURIComponent(dateInput.value)}&days=${encodeURIComponent(daysInput.value)}`);
+    desktopTargetSearchData = await apiFetch(`/api/hall/target_search?visit_date=${encodeURIComponent(dateInput.value)}&days=${encodeURIComponent(daysInput.value)}&region=${encodeURIComponent(region)}`);
     renderDesktopTargetSearch(desktopTargetSearchData);
-    status.textContent = `${desktopTargetSearchData.generated_at}時点の公開データで分析しました。`;
+    status.textContent = `${desktopTargetSearchData.region_label}・${desktopTargetSearchData.generated_at}時点の公開データで分析しました。`;
   } catch (error) {
     desktopTargetSearchData = null;
     document.getElementById('desktop-target-results').innerHTML = `<div class="card desktop-target-empty"><strong>分析できませんでした</strong><span>${esc(error.message)}</span></div>`;
@@ -399,6 +414,7 @@ document.getElementById('desktop-target-search-form').addEventListener('submit',
 });
 
 document.getElementById('desktop-target-date').value = localDateValue(1);
+syncTargetRegion(getTargetRegion());
 
 function safeExternalUrl(raw) {
   try {
@@ -4812,7 +4828,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.3');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.4');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);
@@ -6158,6 +6174,7 @@ async function loadMapPage() {
   const hint = document.getElementById('map-hint');
   const dateInput = document.getElementById('desktop-heat-date');
   const longDaysInput = document.getElementById('desktop-heat-long-days');
+  const region = syncTargetRegion(document.getElementById('desktop-heat-region').value);
   const form = document.getElementById('desktop-heat-form');
   const button = document.getElementById('desktop-heat-button');
   if (!dateInput.value) dateInput.value = desktopTomorrowValue();
@@ -6180,7 +6197,7 @@ async function loadMapPage() {
   hint.textContent = '指定日の店舗熱量と長期傾向を計算中...';
   button.disabled = true;
   try {
-    const url = `/api/map/target_heat?visit_date=${encodeURIComponent(dateInput.value)}&days=120&long_days=${encodeURIComponent(longDaysInput.value)}`;
+    const url = `/api/map/target_heat?visit_date=${encodeURIComponent(dateInput.value)}&days=120&long_days=${encodeURIComponent(longDaysInput.value)}&region=${encodeURIComponent(region)}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`API ${response.status}`);
     _desktopHeatData = await response.json();
@@ -6194,7 +6211,7 @@ async function loadMapPage() {
       return;
     }
 
-    hint.textContent = `${_desktopHeatData.visit_date}（${_desktopHeatData.weekday}）・${halls.length}店舗を表示中。丸が大きいほど当日の分析点が高いです。`;
+    hint.textContent = `${_desktopHeatData.region_label}・${_desktopHeatData.visit_date}（${_desktopHeatData.weekday}）・${halls.length}店舗を表示中。丸が大きいほど当日の分析点が高いです。`;
     halls.forEach(hall => {
       const radius = hall.score ? 12 + hall.score * .22 : 9;
       const marker = L.circleMarker([hall.lat, hall.lng], {

@@ -26,6 +26,8 @@ from api.deps import (
     _get_reports_conn,
     logger,
 )
+from hall.machine_scope import is_smartslot_machine
+from hall.regions import region_center
 
 router = APIRouter()
 
@@ -156,6 +158,7 @@ def get_target_heat_map(
     visit_date: str = Query(..., description="YYYY-MM-DD"),
     days: int = Query(120, ge=14, le=365),
     long_days: int = Query(365, ge=30, le=730),
+    region: Literal["all", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
 ) -> dict:
     """指定日の店舗熱量と、店舗ごとの月次・曜日別長期傾向を返す。"""
     try:
@@ -166,7 +169,12 @@ def get_target_heat_map(
     # 循環importを避けるためリクエスト時に読み込む。
     from api.routers.hall import get_target_search
 
-    search = get_target_search(visit_date=visit_date, days=days, limit=20)
+    search = get_target_search(
+        visit_date=visit_date,
+        days=days,
+        limit=20,
+        region=region,
+    )
     coords = _load_coords()
     reference_date = min(target_date, date.today())
     start_date = reference_date - timedelta(days=long_days)
@@ -176,6 +184,11 @@ def get_target_heat_map(
     long_summary: dict[str, dict] = {}
     if conn is not None:
         try:
+            conn.create_function(
+                "is_smartslot_machine",
+                1,
+                lambda machine_name: int(is_smartslot_machine(machine_name)),
+            )
             monthly_rows = conn.execute(
                 """SELECT hall_name, substr(report_date,1,7) AS month,
                           ROUND(SUM(avg_diff_coins * COALESCE(NULLIF(unit_count,0),1)) * 1.0
@@ -184,6 +197,7 @@ def get_target_heat_map(
                    FROM hall_day_machine
                    WHERE report_date BETWEEN ? AND ?
                      AND machine_name != '_NODATA_' AND avg_diff_coins IS NOT NULL
+                     AND is_smartslot_machine(machine_name)=1
                    GROUP BY hall_name, month ORDER BY hall_name, month""",
                 (start_date.isoformat(), reference_date.isoformat()),
             ).fetchall()
@@ -200,6 +214,7 @@ def get_target_heat_map(
                    FROM hall_day_machine
                    WHERE report_date BETWEEN ? AND ?
                      AND machine_name != '_NODATA_' AND avg_diff_coins IS NOT NULL
+                     AND is_smartslot_machine(machine_name)=1
                    GROUP BY hall_name, dow ORDER BY hall_name, dow""",
                 (start_date.isoformat(), reference_date.isoformat()),
             ).fetchall()
@@ -220,6 +235,7 @@ def get_target_heat_map(
                    FROM hall_day_machine
                    WHERE report_date BETWEEN ? AND ?
                      AND machine_name != '_NODATA_' AND avg_diff_coins IS NOT NULL
+                     AND is_smartslot_machine(machine_name)=1
                    GROUP BY hall_name""",
                 (start_date.isoformat(), reference_date.isoformat()),
             ).fetchall()
@@ -273,13 +289,16 @@ def get_target_heat_map(
             "weekday_profile": weekday_by_hall.get(hall_name, []),
         })
     halls.sort(key=lambda item: (item["score"], item["sample_days"]), reverse=True)
+    center_lat, center_lng = region_center(region)
     return {
         "visit_date": visit_date,
         "weekday": search["weekday"],
+        "region": search["region"],
+        "region_label": search["region_label"],
         "analysis_days": days,
         "long_days": long_days,
         "generated_at": search["generated_at"],
-        "center": {"lat": 34.724, "lng": 135.631},
+        "center": {"lat": center_lat, "lng": center_lng},
         "halls": halls,
         "notice": search["notice"],
     }

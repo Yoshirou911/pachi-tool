@@ -33,6 +33,8 @@ from hall.prior import (
     day_rating,
     machine_ranking,
 )
+from hall.machine_scope import is_smartslot_machine, machine_names_match
+from hall.regions import region_label, region_matches
 from records.models import list_sessions, session_to_dict
 
 router = APIRouter()
@@ -534,6 +536,7 @@ def get_target_search(
     visit_date: str = Query(..., description="狙い台を探す日 YYYY-MM-DD"),
     days: int = Query(120, ge=14, le=365),
     limit: int = Query(8, ge=1, le=20),
+    region: Literal["all", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
 ) -> dict:
     """蓄積済みデータから、指定日に狙う店舗と機種の候補を根拠付きで返す。"""
     try:
@@ -547,6 +550,8 @@ def get_target_search(
     empty_result = {
         "visit_date": visit_date,
         "weekday": weekday_name,
+        "region": region,
+        "region_label": region_label(region),
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "halls": [],
         "insufficient_halls": [],
@@ -558,9 +563,13 @@ def get_target_search(
     reference_date = min(target_date, date.today())
     start_date = reference_date - timedelta(days=days)
     try:
+        machine_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(hall_day_machine)").fetchall()
+        }
+        avg_games_sql = "avg_games" if "avg_games" in machine_columns else "NULL AS avg_games"
         rows = conn.execute(
-            """SELECT hall_name, report_date, machine_name, avg_diff_coins,
-                      win_rate_pct, unit_count, source_url
+            f"""SELECT hall_name, report_date, machine_name, avg_diff_coins,
+                      win_rate_pct, unit_count, source_url, {avg_games_sql}
                FROM hall_day_machine
                WHERE report_date >= ? AND report_date <= ?
                  AND machine_name != '_NODATA_'
@@ -568,20 +577,72 @@ def get_target_search(
                ORDER BY report_date""",
             (start_date.isoformat(), reference_date.isoformat()),
         ).fetchall()
+        active_hall_prefectures: dict[str, str | None] = {}
         try:
-            active_halls = {
-                row[0]
-                for row in conn.execute(
+            config_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(scrape_hall_config)").fetchall()
+            }
+            if "prefecture" in config_columns:
+                config_rows = conn.execute(
+                    "SELECT hall_name,prefecture FROM scrape_hall_config WHERE enabled=1"
+                ).fetchall()
+                active_hall_prefectures = {row[0]: row[1] for row in config_rows}
+            else:
+                config_rows = conn.execute(
                     "SELECT hall_name FROM scrape_hall_config WHERE enabled=1"
                 ).fetchall()
-            }
+                active_hall_prefectures = {row[0]: None for row in config_rows}
         except sqlite3.OperationalError:
-            active_halls = set()
+            active_hall_prefectures = {}
+
+        # 古いDBで都道府県列がない場合も、既定店舗だけは安全に地域判定できる。
+        try:
+            from api.scheduler import _DEFAULT_HALLS
+            default_prefectures = {
+                item["hall_name"]: item.get("prefecture") for item in _DEFAULT_HALLS
+            }
+        except Exception:
+            default_prefectures = {}
+        for hall_name in list(active_hall_prefectures):
+            active_hall_prefectures[hall_name] = (
+                active_hall_prefectures[hall_name] or default_prefectures.get(hall_name)
+            )
+
+        installation_by_hall: dict[str, dict] = {}
+        try:
+            snapshot_rows = conn.execute(
+                """SELECT snapshot.hall_name,snapshot.snapshot_date,snapshot.machine_name
+                   FROM hall_machine_snapshot AS snapshot
+                   JOIN (
+                     SELECT hall_name,MAX(snapshot_date) AS latest_date
+                     FROM hall_machine_snapshot GROUP BY hall_name
+                   ) AS latest
+                   ON latest.hall_name=snapshot.hall_name
+                  AND latest.latest_date=snapshot.snapshot_date"""
+            ).fetchall()
+            for snapshot_row in snapshot_rows:
+                item = installation_by_hall.setdefault(
+                    snapshot_row[0], {"snapshot_date": snapshot_row[1], "machines": []}
+                )
+                item["machines"].append(snapshot_row[2])
+        except sqlite3.OperationalError:
+            installation_by_hall = {}
     finally:
         conn.close()
 
+    active_halls = set(active_hall_prefectures)
     if active_halls:
         rows = [row for row in rows if row["hall_name"] in active_halls]
+    # このツールの狙い台分析はスマスロ専用。末尾集計・順位・ジャグラー等を除外する。
+    rows = [row for row in rows if is_smartslot_machine(row["machine_name"])]
+    rows = [
+        row for row in rows
+        if region_matches(
+            row["hall_name"],
+            active_hall_prefectures.get(row["hall_name"]),
+            region,
+        )
+    ]
 
     by_hall: dict[str, list] = {}
     for row in rows:
@@ -589,7 +650,15 @@ def get_target_search(
 
     ranked_halls: list[dict] = []
     insufficient: list[dict] = []
-    all_hall_names = sorted(active_halls or by_hall.keys())
+    candidate_halls = active_halls or set(by_hall)
+    all_hall_names = sorted(
+        hall_name for hall_name in candidate_halls
+        if region_matches(
+            hall_name,
+            active_hall_prefectures.get(hall_name),
+            region,
+        )
+    )
 
     def _date_weighted_estimate(source_rows: list) -> dict:
         """全体傾向に、指定曜日・日付末尾・直近傾向を縮小推定で重ねる。"""
@@ -644,6 +713,21 @@ def get_target_search(
 
     for hall_name in all_hall_names:
         hall_rows = by_hall.get(hall_name, [])
+        rows_with_games = [row for row in hall_rows if row["avg_games"] is not None and row["avg_games"] > 0]
+        zero_diff_played = sum(row["avg_diff_coins"] == 0 for row in rows_with_games)
+        suspicious_zero_rate = (
+            zero_diff_played / len(rows_with_games) if rows_with_games else 0.0
+        )
+        if len(rows_with_games) >= 30 and suspicious_zero_rate >= 0.30:
+            insufficient.append({
+                "hall_name": hall_name,
+                "sample_days": len({row["report_date"] for row in hall_rows}),
+                "reason": (
+                    f"差枚0かつ稼働ありの行が{suspicious_zero_rate:.0%}あり、"
+                    "公開元の差枚欠損が疑われるため候補から除外"
+                ),
+            })
+            continue
         estimate = _date_weighted_estimate(hall_rows)
         if estimate["sample_days"] < 3:
             insufficient.append({
@@ -678,9 +762,32 @@ def get_target_search(
         for row in hall_rows:
             by_machine.setdefault(row["machine_name"], []).append(row)
         machine_candidates = []
+        excluded_not_installed = 0
+        excluded_stale = 0
+        installation = installation_by_hall.get(hall_name)
+        installation_names = installation["machines"] if installation else []
+        snapshot_age = (
+            max(0, (reference_date - date.fromisoformat(installation["snapshot_date"])).days)
+            if installation else None
+        )
+        installation_is_fresh = bool(installation and snapshot_age is not None and snapshot_age <= 21)
         for machine_name, machine_rows in by_machine.items():
             machine_dates = {row["report_date"] for row in machine_rows}
             if len(machine_dates) < 2:
+                continue
+            installed_now = any(
+                machine_names_match(machine_name, installed_name)
+                for installed_name in installation_names
+            )
+            if installation_is_fresh and not installed_now:
+                excluded_not_installed += 1
+                continue
+            machine_latest_date = max(machine_dates)
+            machine_stale_days = max(
+                0, (reference_date - date.fromisoformat(machine_latest_date)).days
+            )
+            if machine_stale_days > 60:
+                excluded_stale += 1
                 continue
             diffs = [float(row["avg_diff_coins"]) for row in machine_rows]
             machine_estimate = _date_weighted_estimate(machine_rows)
@@ -706,7 +813,13 @@ def get_target_search(
                 "positive_rate": machine_positive,
                 "reliability_pct": round(reliability * 100),
                 "sample_days": len(machine_dates),
-                "latest_date": max(machine_dates),
+                "latest_date": machine_latest_date,
+                "stale_days": machine_stale_days,
+                "installation_status": (
+                    "現行設置を確認" if installation_is_fresh and installed_now
+                    else "設置情報が古い" if installation
+                    else "設置未確認"
+                ),
                 "weekday_days": machine_estimate["weekday_days"],
                 "digit_days": machine_estimate["digit_days"],
             })
@@ -718,6 +831,16 @@ def get_target_search(
             f"{basis}を重み付け",
             f"指定日の推定差枚 {avg_diff:+,}枚・プラス日率{positive_rate}%",
         ]
+        if installation_is_fresh:
+            reasons.append(
+                f"{installation['snapshot_date']}の設置機種と照合済み"
+            )
+        else:
+            reasons.append("最新設置情報がないため、60日以内の実績機種だけを表示")
+        if excluded_not_installed or excluded_stale:
+            reasons.append(
+                f"撤去・設置未確認{excluded_not_installed}機種、古い実績{excluded_stale}機種を除外"
+            )
         if stale_days > 30:
             reasons.append(f"最終データから{stale_days}日経過しているため信頼度を減点")
         ranked_halls.append({
@@ -735,6 +858,14 @@ def get_target_search(
             "positive_rate": positive_rate,
             "latest_date": latest_date,
             "stale_days": stale_days,
+            "data_quality": {
+                "status": "ok",
+                "zero_diff_played_rate_pct": round(suspicious_zero_rate * 100),
+                "installation_snapshot_date": installation["snapshot_date"] if installation else None,
+                "installation_snapshot_fresh": installation_is_fresh,
+                "excluded_not_installed": excluded_not_installed,
+                "excluded_stale": excluded_stale,
+            },
             "reasons": reasons,
             "target_machines": machine_candidates[:5],
         })
@@ -749,6 +880,8 @@ def get_target_search(
     return {
         "visit_date": visit_date,
         "weekday": weekday_name,
+        "region": region,
+        "region_label": region_label(region),
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "halls": ranked_halls,
         "insufficient_halls": insufficient,

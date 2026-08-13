@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=2.6.3">
+  <link rel="stylesheet" href="./app.css?v=2.6.4">
   <title>PACHI TOOL | スマスロ専門</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スマスロ攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v2.6.3</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v2.6.4</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -288,8 +288,9 @@
       </div>
 
       <article class="panel planner-panel target-search-panel">
-        <div class="panel-heading"><span class="heading-icon plan-icon">◇</span><div><h2>行く日を指定</h2><p>四條畷駅周辺の取得済みデータを分析します</p></div></div>
+        <div class="panel-heading"><span class="heading-icon plan-icon">◇</span><div><h2>行く日と地域を指定</h2><p>選んだ地域の取得済みデータだけを分析します</p></div></div>
         <form id="target-search-form">
+          <label>対象地域<select id="target-search-region"><option value="matsumoto_shiojiri" selected>松本・塩尻</option><option value="nagano">長野県全体</option><option value="osaka">大阪府</option><option value="all">全地域</option></select></label>
           <div class="two-col">
             <label>行く日<input id="target-visit-date" type="date" required></label>
             <label>分析期間<select id="target-search-days"><option value="60">直近60日</option><option value="120" selected>直近120日</option><option value="180">直近180日</option></select></label>
@@ -418,6 +419,7 @@
       </div>
       <article class="panel target-map-controls">
         <form id="target-map-form">
+          <label>対象地域<select id="target-map-region"><option value="matsumoto_shiojiri" selected>松本・塩尻</option><option value="nagano">長野県全体</option><option value="osaka">大阪府</option><option value="all">全地域</option></select></label>
           <div class="two-col">
             <label>行く日<input id="target-map-date" type="date" required></label>
             <label>長期表示<select id="target-map-long-days"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></label>
@@ -427,7 +429,7 @@
         <div class="heat-legend"><span class="heat-hot">かなり熱い</span><span class="heat-warm">熱い</span><span class="heat-watch">注目</span><span class="heat-cool">慎重</span><span class="heat-none">不足</span></div>
         <p id="target-map-status" class="fine-print">店舗マーカーは指定日の分析点が高いほど大きく表示されます。</p>
       </article>
-      <div id="target-heat-map" class="target-heat-map" aria-label="四條畷駅周辺の店舗熱量マップ"></div>
+      <div id="target-heat-map" class="target-heat-map" aria-label="選択地域の店舗熱量マップ"></div>
       <div id="target-map-detail" class="target-map-detail"></div>
     </section>
 
@@ -474,7 +476,7 @@
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v2.6.3・更新日 2026/08/14</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v2.6.4・更新日 2026/08/14</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
@@ -583,6 +585,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=2.6.3"></script>
+  <script type="module" src="./app.js?v=2.6.4"></script>
 </body>
 </html>

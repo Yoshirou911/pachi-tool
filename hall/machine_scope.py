@@ -34,3 +34,27 @@ def is_smartslot_machine(machine_name: str) -> bool:
     if re.match(r"^L(?:B|パチスロ|スロット|[ァ-ヶ一-龠A-Za-z0-9])", name):
         return True
     return any(token.replace(" ", "") in name for token in _BARE_SMARTSLOT_TOKENS)
+
+
+def normalize_machine_key(machine_name: str) -> str:
+    """媒体ごとの接頭辞・空白・記号差を除いた保守的な照合キー。"""
+    name = unicodedata.normalize("NFKC", machine_name or "").lower()
+    name = re.sub(r"[\s　・･~〜～:：!！?？_\-‐()（）\[\]【】]", "", name)
+    previous = None
+    while name and name != previous:
+        previous = name
+        name = re.sub(r"^(?:スマスロ|パチスロ|lb?|l)", "", name)
+    return "".join(character for character in name if character.isalnum())
+
+
+def machine_names_match(left: str, right: str) -> bool:
+    """同一機種と判断できる表記だけを、短すぎる部分一致を避けて照合する。"""
+    left_key = normalize_machine_key(left)
+    right_key = normalize_machine_key(right)
+    if not left_key or not right_key:
+        return False
+    if left_key == right_key:
+        return True
+    return min(len(left_key), len(right_key)) >= 5 and (
+        left_key in right_key or right_key in left_key
+    )

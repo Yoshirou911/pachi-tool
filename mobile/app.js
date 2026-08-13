@@ -7,15 +7,28 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.6.3';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.3';
+} from './core.mjs?v=2.6.4';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.4';
 
-const APP_VERSION = '2.6.3';
+const APP_VERSION = '2.6.4';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
+const TARGET_REGION_KEY = 'pachi-target-region';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
   : '';
 const apiUrl = path => `${API_ORIGIN}${path}`;
+function storedTargetRegion() {
+  try { return localStorage.getItem(TARGET_REGION_KEY) || 'matsumoto_shiojiri'; } catch { return 'matsumoto_shiojiri'; }
+}
+function setTargetRegion(region) {
+  const value = region || 'matsumoto_shiojiri';
+  try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
+  ['target-search-region', 'target-map-region'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.value = value;
+  });
+  return value;
+}
 let releaseInfo = {
   version: APP_VERSION,
   released_on: '2026-08-14',
@@ -23,8 +36,8 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-14',
-    title: '松本・塩尻の重点店舗を約1年分析へ',
-    items: ['キング塩尻・マルハン松本・ABC松本白板を351〜364日分まで拡充', 'ラッシュMATSUMOTO#59を追加し364日分を収集', '途中レポート起点と店舗選択付き同期に対応'],
+    title: '狙い台検索の地域分離と誤候補防止',
+    items: ['松本・塩尻／長野県／大阪府／全地域を切替', '現行設置・データ鮮度を照合して古い候補を除外', '差枚欠損が疑われる店舗を自動除外'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -645,11 +658,12 @@ function renderTargetSearch() {
   const halls = targetSearchData.halls || [];
   const insufficient = targetSearchData.insufficient_halls || [];
   if (!halls.length) {
-    container.innerHTML = `<div class="target-empty"><strong>おすすめを出せるデータがありません</strong><span>${esc(targetSearchData.notice || '取得日数が増えるまでお待ちください。')}</span></div>`;
+    container.innerHTML = `<div class="target-empty"><strong>${esc(targetSearchData.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(targetSearchData.notice || '取得日数が増えるまでお待ちください。')}</span></div>
+      ${insufficient.length ? `<details class="insufficient-halls" open><summary>除外・データ不足 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}`;
     return;
   }
   container.innerHTML = `
-    <div class="target-result-heading"><div><span class="page-step">${esc(targetSearchData.visit_date)} ${esc(targetSearchData.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="count-badge">${halls.length}店</span></div>
+    <div class="target-result-heading"><div><span class="page-step">${esc(targetSearchData.region_label || '')}・${esc(targetSearchData.visit_date)} ${esc(targetSearchData.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="count-badge">${halls.length}店</span></div>
     ${halls.map((hall, hallIndex) => `<article class="target-hall-card">
       <div class="target-hall-head">
         <span class="target-rank">${hall.rank}</span>
@@ -660,7 +674,7 @@ function renderTargetSearch() {
       <div class="target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="target-machine-list">
         ${(hall.target_machines || []).slice(0, 3).map((machine, machineIndex) => `<div class="target-machine-row">
-          <div><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・補正平均${signedCoins(machine.avg_diff)}</small></div>
+          <div><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・最終${esc(machine.latest_date || '--')}・${esc(machine.installation_status || '設置未確認')}・補正平均${signedCoins(machine.avg_diff)}</small></div>
           <span>${machine.score}点</span>
           <button type="button" data-target-hall-index="${hallIndex}" data-target-machine-index="${machineIndex}">朝一候補に保存</button>
         </div>`).join('') || '<p class="fine-print">機種別候補はまだ材料不足です。</p>'}
@@ -745,16 +759,17 @@ function renderTargetHeatMap() {
 async function loadTargetHeatMap() {
   const visitDate = byId('target-map-date').value || tomorrowValue();
   byId('target-visit-date').value = visitDate;
+  const region = setTargetRegion(byId('target-map-region').value);
   const longDays = byId('target-map-long-days').value;
   const status = byId('target-map-status');
   byId('target-map-button').disabled = true;
   status.textContent = '指定日の店舗熱量と長期傾向を計算中...';
   try {
-    const response = await fetch(apiUrl(`/api/map/target_heat?visit_date=${encodeURIComponent(visitDate)}&days=120&long_days=${encodeURIComponent(longDays)}`));
+    const response = await fetch(apiUrl(`/api/map/target_heat?visit_date=${encodeURIComponent(visitDate)}&days=120&long_days=${encodeURIComponent(longDays)}&region=${encodeURIComponent(region)}`));
     if (!response.ok) throw new Error(`マップAPI ${response.status}`);
     targetMapData = await response.json();
     renderTargetHeatMap();
-    status.textContent = `${targetMapData.visit_date}（${targetMapData.weekday}）・${targetMapData.halls.length}店舗を表示中`;
+    status.textContent = `${targetMapData.region_label}・${targetMapData.visit_date}（${targetMapData.weekday}）・${targetMapData.halls.length}店舗を表示中`;
   } catch (error) {
     status.textContent = `マップを取得できません：${error.message}`;
   } finally {
@@ -1348,16 +1363,17 @@ async function saveFloorResults(rows, sourceLabel = '') {
 async function runTargetSearch() {
   const visitDate = byId('target-visit-date').value;
   byId('target-map-date').value = visitDate;
+  const region = setTargetRegion(byId('target-search-region').value);
   const days = byId('target-search-days').value;
   const status = byId('target-search-status');
   status.textContent = '店舗・曜日・機種データを分析中...';
   byId('target-search-button').disabled = true;
   try {
-    const response = await fetch(apiUrl(`/api/hall/target_search?visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`));
+    const response = await fetch(apiUrl(`/api/hall/target_search?visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}&region=${encodeURIComponent(region)}`));
     if (!response.ok) throw new Error(`分析API ${response.status}`);
     targetSearchData = await response.json();
     renderTargetSearch();
-    status.textContent = `${targetSearchData.generated_at}時点の公開データで分析しました。`;
+    status.textContent = `${targetSearchData.region_label}・${targetSearchData.generated_at}時点の公開データで分析しました。`;
   } catch (error) {
     targetSearchData = null;
     renderTargetSearch();
@@ -2224,6 +2240,7 @@ async function initialize() {
     byId('plan-date').value = tomorrowValue();
     byId('target-visit-date').value = tomorrowValue();
     byId('target-map-date').value = tomorrowValue();
+    setTargetRegion(storedTargetRegion());
     byId('trend-date').value = tomorrowValue();
     byId('floor-date').value = tomorrowValue();
     byId('floor-valid-from').value = todayValue();

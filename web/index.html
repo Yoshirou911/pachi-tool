@@ -120,7 +120,7 @@
             <span class="home-mode-icon">◇</span>
             <span class="home-mode-tag">狙い台捜索</span>
             <strong>行く店と狙い台を決める</strong>
-            <p>四條畷駅周辺の店舗・曜日・機種傾向から、明日の候補を絞ります。</p>
+            <p>松本・塩尻など選んだ地域の店舗・曜日・機種傾向から、明日の候補を絞ります。</p>
             <span class="home-mode-points"><b>店舗比較</b><b>強い日</b><b>機種傾向</b></span>
             <span class="home-mode-action">狙い台を探す <b>→</b></span>
           </button>
@@ -142,6 +142,7 @@
         </div>
         <div class="card target-search-controls">
           <form id="desktop-target-search-form">
+            <div><label class="form-label" for="desktop-target-region">対象地域</label><select id="desktop-target-region" class="form-select"><option value="matsumoto_shiojiri" selected>松本・塩尻</option><option value="nagano">長野県全体</option><option value="osaka">大阪府</option><option value="all">全地域</option></select></div>
             <div class="form-row-2col">
               <div><label class="form-label" for="desktop-target-date">行く日</label><input id="desktop-target-date" class="form-input" type="date" required></div>
               <div><label class="form-label" for="desktop-target-days">分析期間</label><select id="desktop-target-days" class="form-select"><option value="60">直近60日</option><option value="120" selected>直近120日</option><option value="180">直近180日</option></select></div>
@@ -1241,6 +1242,7 @@
         </div>
         <div class="desktop-heat-controls">
           <form id="desktop-heat-form" class="desktop-heat-form">
+            <label>対象地域<select id="desktop-heat-region" class="form-select"><option value="matsumoto_shiojiri" selected>松本・塩尻</option><option value="nagano">長野県全体</option><option value="osaka">大阪府</option><option value="all">全地域</option></select></label>
             <label>行く日<input id="desktop-heat-date" class="form-input" type="date" required></label>
             <label>長期表示<select id="desktop-heat-long-days" class="form-select"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></label>
             <button id="desktop-heat-button" class="btn btn-primary" type="submit">この日の熱量を表示</button>

@@ -1,11 +1,22 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "2.6.1"
-RELEASE_DATE = "2026-08-12"
+APP_VERSION = "2.6.2"
+RELEASE_DATE = "2026-08-13"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "2.6.2",
+        "released_on": "2026-08-13",
+        "title": "長野県の過去データを大幅拡充",
+        "items": [
+            "松本・塩尻5店舗の公開実績を2026年5月1日まで遡って収集",
+            "各店舗101〜104日分を確保し、傾向分析のデータ判定を『十分』へ更新",
+            "機種集計20,498件・台番号別7,603件を公開版へ反映",
+            "低速収集・重複防止・検証付き同期ツールを追加",
+        ],
+    },
     {
         "version": "2.6.1",
         "released_on": "2026-08-12",

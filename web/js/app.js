@@ -102,7 +102,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.6.1';
+    document.getElementById('desktop-version-label').textContent = 'v2.6.2';
   }
 }
 
@@ -4812,7 +4812,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.1');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.2');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

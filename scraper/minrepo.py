@@ -403,10 +403,10 @@ def save_report_html(
             conn.execute(f"""
                 INSERT OR {insert_mode} INTO hall_day_seat
                 (hall_name, report_date, machine_name, seat_number, diff_coins,
-                 games, ev_pct, source_url)
-                VALUES (?,?,?,?,?,?,?,?)
+                 games, ev_pct, source, source_url)
+                VALUES (?,?,?,?,?,?,?,?,?)
             """, (hall_name, report_date_str, row["machine_name"], row["seat_number"],
-                  row["diff_coins"], row["games"], row["ev_pct"], row["source_url"]))
+                  row["diff_coins"], row["games"], row["ev_pct"], "minrepo", row["source_url"]))
             seat_saved += conn.total_changes - before
         except Exception:
             pass

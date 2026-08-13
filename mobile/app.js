@@ -7,10 +7,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.6.1';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.1';
+} from './core.mjs?v=2.6.2';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.2';
 
-const APP_VERSION = '2.6.1';
+const APP_VERSION = '2.6.2';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
@@ -18,13 +18,13 @@ const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
 const apiUrl = path => `${API_ORIGIN}${path}`;
 let releaseInfo = {
   version: APP_VERSION,
-  released_on: '2026-08-11',
+  released_on: '2026-08-13',
   channel: '公開版',
   patch_notes: [{
     version: APP_VERSION,
-    released_on: '2026-08-11',
-    title: '店舗稼働率トラッキングを追加',
-    items: ['高/中/低のワンタップ稼働記録と巡回優先度リストを追加', '曜日・時間帯を自動記録し統計予測用データの蓄積を開始', '聖闘士星矢のAT後天井短縮条件を参考値として追加'],
+    released_on: '2026-08-13',
+    title: '長野県の過去データを大幅拡充',
+    items: ['松本・塩尻5店舗の公開実績を2026年5月1日まで遡って収集', '各店舗101〜104日分を確保し、傾向分析のデータ判定を「十分」へ更新', '機種集計20,498件・台番号別7,603件を公開版へ反映'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';

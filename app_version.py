@@ -1,11 +1,22 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "2.6.4"
-RELEASE_DATE = "2026-08-14"
+APP_VERSION = "2.6.5"
+RELEASE_DATE = "2026-08-15"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "2.6.5",
+        "released_on": "2026-08-15",
+        "title": "別PCでの開発再開とデータ移行に対応",
+        "items": [
+            "Clone後に仮想環境と依存パッケージを準備するsetup-dev.ps1を追加",
+            "店舗分析DBだけを整合性・ハッシュ検証付きZIPへ保存する開発バックアップを追加",
+            "別PCへの復元時に既存DBを自動退避し、個人の収支・候補台DBは転送対象から除外",
+            "GitHub Desktopとコマンド操作の開発手順をREADMEへ追加",
+        ],
+    },
     {
         "version": "2.6.4",
         "released_on": "2026-08-14",

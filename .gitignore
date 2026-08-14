@@ -11,6 +11,8 @@ data/sessions.db
 data/hall_reports.db
 data/opportunities.db
 data/logs/
+data/dev-backups/
+*.pachi-backup.zip
 build/
 dist/
 build-v*/

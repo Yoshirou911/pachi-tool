@@ -1,0 +1,51 @@
+name: Deploy iPhone PWA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - "data/opportunity_catalog.json"
+      - "web/icons/**"
+      - ".github/workflows/deploy-mobile.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Refresh offline catalog and icons
+        run: |
+          cp data/opportunity_catalog.json mobile/catalog.json
+          cp web/icons/icon-192.png mobile/icons/icon-192.png
+          cp web/icons/icon-512.png mobile/icons/icon-512.png
+      - name: Verify mobile engine
+        run: node tests/mobile_core_test.mjs
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload PWA
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: mobile
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

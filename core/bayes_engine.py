@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import log
+from math import exp, isfinite, log
 from typing import Mapping, Sequence
 
 
@@ -88,6 +88,19 @@ class MachineProfile:
             else:
                 raise ValueError(f"要素 '{el.get('name')}' に p か one_over が必要です")
             elements.append(CountElement(name=el["name"], probabilities=probs))
+
+        # BB/RBは同一ゲームで排他的な事象なので、合算確率は P(BB)+P(RB)。
+        # 一部の旧データには「BB分母+RB分母」の逆数が保存されていたため、
+        # 読み込み時に理論上正しい値へ補正する。
+        by_name = {el.name: el for el in elements}
+        if all(name in by_name for name in ("BB確率", "RB確率", "合算確率")):
+            bb = by_name["BB確率"]
+            rb = by_name["RB確率"]
+            combined = CountElement(
+                name="合算確率",
+                probabilities={s: bb.probabilities[s] + rb.probabilities[s] for s in settings},
+            )
+            elements = [combined if el.name == "合算確率" else el for el in elements]
         return cls(machine_name=data["machine_name"], settings=settings, elements=elements)
 
 
@@ -101,6 +114,17 @@ class Observation:
     """
     total_games: int
     counts: Mapping[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if isinstance(self.total_games, bool) or not isinstance(self.total_games, int):
+            raise ValueError("総ゲーム数は整数で指定してください")
+        if self.total_games < 0:
+            raise ValueError("総ゲーム数は0以上で指定してください")
+        for name, count in self.counts.items():
+            if isinstance(count, bool) or not isinstance(count, int):
+                raise ValueError(f"要素 '{name}' の回数は整数で指定してください")
+            if count < 0:
+                raise ValueError(f"要素 '{name}' の回数は0以上で指定してください")
 
 
 # --------------------------------------------------------------------------
@@ -138,9 +162,14 @@ class SettingEstimator:
         if prior is None:
             log_post = {s: 0.0 for s in settings}
         else:
-            total = sum(prior.values())
+            values = {s: float(prior.get(s, 0.0)) for s in settings}
+            if any(not isfinite(v) or v < 0 for v in values.values()):
+                raise ValueError("事前分布には0以上の有限値を指定してください")
+            total = sum(values.values())
+            if total <= 0:
+                raise ValueError("事前分布の合計は0より大きくしてください")
             log_post = {
-                s: log(max(prior.get(s, 0) / total, 1e-10))
+                s: log(max(values[s] / total, 1e-10))
                 for s in settings
             }
 
@@ -175,7 +204,7 @@ class SettingEstimator:
     def _normalize(log_post: Mapping[str, float]) -> dict[str, float]:
         """対数事後を正規化して確率に戻す(log-sum-exp で安定化)。"""
         m = max(log_post.values())
-        exps = {s: pow(2.718281828459045, lp - m) for s, lp in log_post.items()}
+        exps = {s: exp(lp - m) for s, lp in log_post.items()}
         z = sum(exps.values())
         return {s: v / z for s, v in exps.items()}
 
@@ -228,10 +257,8 @@ class SettingEstimator:
                 continue
             max_p = max(ps)
             min_p = min(ps)
-            if min_p > 0:
-                result[el.name] = log(max_p / min_p)
-            else:
-                result[el.name] = 0.0
+            # CountElement.__post_init__ が 0.0 < p < 1.0 を保証しているため min_p は必ず正。
+            result[el.name] = log(max_p / min_p)
         return result
 
     def find_correlated_elements(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:

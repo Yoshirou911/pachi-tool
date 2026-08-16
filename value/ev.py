@@ -41,7 +41,7 @@ def load_machine_kw(machine_name: str) -> tuple[dict[str, float], str]:
     path = MACHINES_DIR / f"{machine_name}.json"
     if path.exists():
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
             kw = data.get("machine_kw")
             if kw and isinstance(kw, dict):
                 return {str(k): float(v) for k, v in kw.items()}, "machine_data"
@@ -135,5 +135,5 @@ def format_ev_report(result: EVResult) -> str:
 
 if __name__ == "__main__":
     post = {"1": 0.05, "2": 0.10, "3": 0.15, "4": 0.30, "5": 0.25, "6": 0.15}
-    r = compute_ev(post, machine_name="ゴーゴージャグラー")
+    r = compute_ev(post, machine_name="スマスロ北斗の拳")
     print(format_ev_report(r))

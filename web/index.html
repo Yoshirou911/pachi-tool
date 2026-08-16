@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#6366f1">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
-<title>PACHI TOOL — スロット設定推測 &amp; データ分析</title>
+<title>PACHI TOOL — スマスロ設定推測 &amp; データ分析</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap">
@@ -21,52 +21,226 @@
   <!-- Header -->
   <header class="app-header">
     <div class="header-inner">
-      <span class="logo">PACHI TOOL</span>
+      <div class="header-brand">
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button"
+                aria-label="メニューを開く" aria-controls="main-navigation" aria-expanded="false">
+          <span class="menu-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+        </button>
+        <div class="history-nav" aria-label="画面の移動履歴">
+          <button id="nav-back" class="history-btn" type="button" aria-label="一つ前の画面に戻る" title="戻る（Alt + ←）" disabled>←</button>
+          <button id="nav-forward" class="history-btn" type="button" aria-label="一つ先の画面に進む" title="進む（Alt + →）" disabled>→</button>
+        </div>
+        <span class="logo">PACHI TOOL <small>SMART SLOT</small></span>
+      </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="header-date" style="font-size:.72rem;color:var(--text3)"></span>
+        <button id="desktop-version-button" class="desktop-version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="desktop-version-label">v2.0.0</span><em id="desktop-version-new">NEW</em></button>
         <span id="header-status" class="status-badge"></span>
       </div>
     </div>
   </header>
 
-  <!-- Tab bar -->
-  <nav class="tab-bar">
-    <button class="tab-btn active" data-tab="estimate">
-      <span class="tab-icon">🎰</span>
-      <span class="tab-label">設定推測</span>
+  <!-- Collapsible side navigation -->
+  <nav id="main-navigation" class="tab-bar" aria-label="メインメニュー">
+    <div class="sidebar-heading">
+      <span id="sidebar-mode-title">モード選択</span>
+      <small id="sidebar-mode-subtitle">CHOOSE A MODE</small>
+    </div>
+    <button class="tab-btn active" data-tab="home">
+      <span class="tab-icon">⌂</span>
+      <span class="tab-copy"><span class="tab-label">ホーム</span><small>目的から機能を選ぶ</small></span>
     </button>
-    <button class="tab-btn" data-tab="session">
+    <button class="tab-btn" data-module-nav="target" data-tab="target-search" hidden>
+      <span class="tab-icon">◇</span>
+      <span class="tab-copy"><span class="tab-label">狙い台捜索</span><small>データから候補を抽出</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="target" data-tab="trend-profile" hidden>
+      <span class="tab-icon">▥</span>
+      <span class="tab-copy"><span class="tab-label">傾向分析</span><small>強い曜日・日付・機種</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="target" data-tab="floor-map" hidden>
+      <span class="tab-icon">▦</span>
+      <span class="tab-copy"><span class="tab-label">店内マップ</span><small>座席ごとの熱量を確認</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="target" data-tab="estimate" hidden>
+      <span class="tab-icon">🔍</span>
+      <span class="tab-copy"><span class="tab-label">設定推測</span><small>実戦データから判定</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="hyena" data-tab="session" hidden>
       <span class="tab-icon">📝</span>
-      <span class="tab-label">収支</span>
+      <span class="tab-copy"><span class="tab-label">収支記録</span><small>遊技結果を管理</small></span>
     </button>
-    <button class="tab-btn" data-tab="hall">
+    <button class="tab-btn" data-module-nav="target" data-tab="hall" hidden>
       <span class="tab-icon">📊</span>
-      <span class="tab-label">ホール分析</span>
+      <span class="tab-copy"><span class="tab-label">データ管理</span><small>収集状況と詳細分析</small></span>
     </button>
-    <button class="tab-btn" data-tab="map">
+    <button class="tab-btn" data-module-nav="target" data-tab="map" hidden>
       <span class="tab-icon">🗺️</span>
-      <span class="tab-label">地図</span>
+      <span class="tab-copy"><span class="tab-label">店舗マップ</span><small>周辺店舗を確認</small></span>
     </button>
-    <button class="tab-btn" data-tab="machines">
+    <button class="tab-btn" data-module-nav="hyena" data-tab="machines" hidden>
       <span class="tab-icon">🎮</span>
-      <span class="tab-label">機種DB</span>
+      <span class="tab-copy"><span class="tab-label">機種一覧</span><small>スペックを比較</small></span>
     </button>
-    <button class="tab-btn" data-tab="ai">
+    <button class="tab-btn" data-module-nav="hyena" data-tab="opportunity" hidden>
+      <span class="tab-icon">🎯</span>
+      <span class="tab-copy"><span class="tab-label">期待値狙い</span><small>候補台と資金を管理</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="target" data-tab="ai" hidden>
       <span class="tab-icon">🤖</span>
-      <span class="tab-label">AI</span>
+      <span class="tab-copy"><span class="tab-label">AI分析</span><small>データを詳しく相談</small></span>
     </button>
+    <div id="sidebar-help" class="sidebar-help">ホームから攻略モードを選んでください</div>
   </nav>
+  <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="メニューを閉じる"></button>
 
   <!-- Pages -->
   <main class="page-container">
 
+    <!-- ======================== ホーム ======================== -->
+    <section id="page-home" class="page active">
+      <div class="page-inner home-page-inner">
+        <div class="home-welcome">
+          <span class="page-eyebrow">CHOOSE A MODE</span>
+          <h1>今日はどう勝ちに行く？</h1>
+          <p>目的を選ぶと、判断に必要な画面だけをすぐ開きます。</p>
+        </div>
+
+        <div class="home-mode-grid">
+          <button class="home-mode-card home-mode-hyena" type="button" data-home-destination="opportunity">
+            <span class="home-mode-icon">◎</span>
+            <span class="home-mode-tag">ハイエナ</span>
+            <strong>空き台を探して判定する</strong>
+            <p>ゲーム数・期待値・必要資金を見て、いま打てる台を判断します。</p>
+            <span class="home-mode-points"><b>期待値早見表</b><b>着席判断</b><b>資金管理</b></span>
+            <span class="home-mode-action">ハイエナを始める <b>→</b></span>
+          </button>
+
+          <button class="home-mode-card home-mode-target" type="button" data-home-destination="target-search">
+            <span class="home-mode-icon">◇</span>
+            <span class="home-mode-tag">狙い台捜索</span>
+            <strong>行く店と狙い台を決める</strong>
+            <p>松本・塩尻など選んだ地域の店舗・曜日・機種傾向から、明日の候補を絞ります。</p>
+            <span class="home-mode-points"><b>店舗比較</b><b>強い日</b><b>機種傾向</b></span>
+            <span class="home-mode-action">狙い台を探す <b>→</b></span>
+          </button>
+        </div>
+
+        <div class="home-mode-note">
+          <strong>2つは別の攻略モードです</strong>
+          <span>ハイエナ候補と狙い台分析を混ぜず、実戦後の収支だけをまとめて確認できます。</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================== 狙い台捜索 ======================== -->
+    <section id="page-target-search" class="page">
+      <div class="page-inner target-search-page">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">TARGET DISCOVERY</span><h1>狙い台捜索</h1><p>蓄積した店舗・曜日・機種データから、行く店と狙い機種をランキングします。</p></div>
+          <span class="page-number">01</span>
+        </div>
+        <div class="card target-search-controls">
+          <form id="desktop-target-search-form">
+            <div><label class="form-label" for="desktop-target-region">対象地域</label><select id="desktop-target-region" class="form-select"><option value="matsumoto_shiojiri" selected>松本・塩尻</option><option value="nagano">長野県全体</option><option value="osaka">大阪府</option><option value="all">全地域</option></select></div>
+            <div class="form-row-2col">
+              <div><label class="form-label" for="desktop-target-date">行く日</label><input id="desktop-target-date" class="form-input" type="date" required></div>
+              <div><label class="form-label" for="desktop-target-days">分析期間</label><select id="desktop-target-days" class="form-select"><option value="60">直近60日</option><option value="120" selected>直近120日</option><option value="180">直近180日</option></select></div>
+            </div>
+            <button id="desktop-target-search-button" class="btn btn-primary btn-full" type="submit">データから狙い台を探す</button>
+          </form>
+          <p id="desktop-target-status" class="target-search-help">平均差枚・プラス日率・同曜日実績・データ鮮度をまとめて評価します。</p>
+        </div>
+        <div id="desktop-target-results" class="desktop-target-results"></div>
+      </div>
+    </section>
+
+    <!-- ======================== 店舗傾向カルテ ======================== -->
+    <section id="page-trend-profile" class="page">
+      <div class="page-inner target-analysis-page">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">HALL TREND PROFILE</span><h1>店舗の傾向分析</h1><p>行く日より前の公開実績から、強い曜日・日付・機種と次の注目日を分析します。</p></div>
+          <span class="page-number">02</span>
+        </div>
+        <div class="card target-analysis-controls">
+          <form id="desktop-trend-form">
+            <div class="form-row-2col">
+              <div><label class="form-label" for="desktop-trend-hall">店舗</label><select id="desktop-trend-hall" class="form-select" required></select></div>
+              <div><label class="form-label" for="desktop-trend-date">行く日</label><input id="desktop-trend-date" class="form-input" type="date" required></div>
+            </div>
+            <div class="form-row"><label class="form-label" for="desktop-trend-days">分析期間</label><select id="desktop-trend-days" class="form-select"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></div>
+            <button id="desktop-trend-button" class="btn btn-primary btn-full" type="submit">この店舗を徹底分析</button>
+          </form>
+          <p id="desktop-trend-status" class="target-search-help">事実・推定・AIの解説を分けて表示します。</p>
+        </div>
+        <div id="desktop-trend-results" class="desktop-trend-results"></div>
+      </div>
+    </section>
+
+    <!-- ======================== 店内座席ヒートマップ ======================== -->
+    <section id="page-floor-map" class="page">
+      <div class="page-inner target-analysis-page wide-analysis-page">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">FLOOR SEAT HEAT MAP</span><h1>店内座席ヒートマップ</h1><p>店内レイアウトに台番号別の熱量を重ね、狙う島と座席を視覚化します。</p></div>
+          <span class="page-number">03</span>
+        </div>
+        <div class="card target-analysis-controls">
+          <form id="desktop-floor-form" class="desktop-floor-form">
+            <label>店舗<select id="desktop-floor-hall" class="form-select" required></select></label>
+            <label>行く日<input id="desktop-floor-date" class="form-input" type="date" required></label>
+            <label>台分析<select id="desktop-floor-days" class="form-select"><option value="30">直近30日</option><option value="90" selected>直近90日</option><option value="180">直近180日</option></select></label>
+            <button id="desktop-floor-button" class="btn btn-primary" type="submit">座席の熱量を表示</button>
+          </form>
+          <div class="desktop-floor-toolbar"><div class="desktop-seat-legend"><span class="seat-hot">かなり熱い</span><span class="seat-warm">狙い目</span><span class="seat-watch">注目</span><span class="seat-cool">慎重</span><span class="seat-none">不足</span></div><p id="desktop-floor-status">台番号データがない店舗は、先にレイアウトを登録してください。</p></div>
+        </div>
+        <div id="desktop-floor-meta" class="desktop-floor-meta"></div>
+        <div class="desktop-floor-layout">
+          <div class="desktop-floor-scroll"><div id="desktop-floor-canvas" class="desktop-floor-canvas"></div></div>
+          <aside id="desktop-floor-detail" class="desktop-floor-detail"><div class="desktop-floor-empty">座席を選ぶと分析根拠を表示します。</div></aside>
+        </div>
+        <details class="card desktop-layout-editor">
+          <summary><span><b>店内マップを登録・修正</b><small>公式情報または現地確認を元に入力</small></span><i>＋</i></summary>
+          <form id="desktop-layout-form">
+            <div class="form-row-2col"><div><label class="form-label">出典名</label><input id="desktop-layout-source-label" class="form-input" maxlength="200" placeholder="例：店舗公式フロア案内"></div><div><label class="form-label">出典URL</label><input id="desktop-layout-source-url" class="form-input" type="url" placeholder="https://..."></div></div>
+            <div class="form-row-2col"><div><label class="form-label">有効日</label><input id="desktop-layout-valid-from" class="form-input" type="date" required></div><div><label class="form-label">確認状態</label><select id="desktop-layout-verification" class="form-select"><option>未確認</option><option>要確認</option><option>確認済み</option></select></div></div>
+            <div class="desktop-layout-range"><label>開始台番号<input id="desktop-layout-seat-start" class="form-input" type="number" min="1" placeholder="501"></label><label>終了台番号<input id="desktop-layout-seat-end" class="form-input" type="number" min="1" placeholder="540"></label><label>島名・機種<input id="desktop-layout-island" class="form-input" maxlength="100" placeholder="スマスロ北斗の拳 島"></label><button id="desktop-layout-auto" class="btn btn-ghost" type="button">台番号を仮配置</button></div>
+            <label class="form-label">確認メモ<textarea id="desktop-layout-notes" class="form-input" rows="2" maxlength="1000" placeholder="現地確認した位置や未確認箇所"></textarea></label>
+            <button id="desktop-layout-save" class="btn btn-primary btn-full" type="submit">この配置を保存</button>
+          </form>
+          <p class="target-search-disclaimer">仮配置は本物の座席位置ではありません。公式情報または現地確認前は「要確認」のまま保存してください。</p>
+        </details>
+        <details class="card desktop-layout-editor" id="desktop-seat-result-panel">
+          <summary><span><b>台番号の実績を追加</b><small>現地入力またはCSV</small></span><i>＋</i></summary>
+          <form id="desktop-seat-result-form">
+            <div class="form-row-2col"><div><label class="form-label">営業日</label><input id="desktop-seat-result-date" class="form-input" type="date" required></div><div><label class="form-label">情報源</label><input id="desktop-seat-result-source" class="form-input" maxlength="200" value="現地入力" placeholder="例：現地データ"></div></div>
+            <div class="desktop-layout-range"><label>台番号<input id="desktop-seat-result-number" class="form-input" type="number" min="1" required placeholder="501"></label><label>機種名<input id="desktop-seat-result-machine" class="form-input" maxlength="120" placeholder="マップ登録済みなら省略可"></label><label>差枚<input id="desktop-seat-result-diff" class="form-input" type="number" min="-100000" max="100000" required placeholder="+1800"></label><label>G数<input id="desktop-seat-result-games" class="form-input" type="number" min="0" max="100000" placeholder="7200"></label></div>
+            <button id="desktop-seat-result-save" class="btn btn-primary" type="submit">この1台を保存</button>
+          </form>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><label class="btn btn-ghost" style="cursor:pointer">CSVを読み込む<input id="desktop-seat-result-csv" type="file" accept=".csv,text/csv" hidden></label><button id="desktop-seat-result-template" class="btn btn-ghost" type="button">CSVひな形</button></div>
+          <p id="desktop-seat-result-status" class="target-search-disclaimer">登録すると翌日以降の座席ヒートマップに反映されます。公開取得済みの行は上書きしません。</p>
+        </details>
+      </div>
+    </section>
+
     <!-- ======================== 推測ページ ======================== -->
-    <section id="page-estimate" class="page active">
+    <section id="page-estimate" class="page">
       <div class="page-inner">
 
-        <!-- 今日の収支バナー -->
-        <div id="today-pnl-banner" style="display:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-size:.78rem">
-          <div id="today-pnl-body" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"></div>
+        <div class="page-heading">
+          <div>
+            <span class="page-eyebrow">SETTING ESTIMATE</span>
+            <h1>設定推測</h1>
+            <p>機種と実戦データから、設定期待度と続行判断を算出します。</p>
+          </div>
+          <span class="page-number">01</span>
+        </div>
+
+        <div class="flow-guide" aria-label="設定推測の手順">
+          <span class="flow-step active"><b>1</b> 台を選ぶ</span>
+          <span class="flow-line"></span>
+          <span class="flow-step"><b>2</b> 実績を入力</span>
+          <span class="flow-line"></span>
+          <span class="flow-step"><b>3</b> 結果を確認</span>
         </div>
 
         <!-- 今日の注目情報 -->
@@ -85,97 +259,89 @@
         </div>
 
         <!-- Machine & Hall selector -->
-        <div class="card">
-          <div id="est-recent-machines-bar" style="display:none;gap:5px;flex-wrap:wrap;margin-bottom:6px">
-          </div>
-          <div id="est-recent-combos-bar" style="display:none;gap:5px;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">
+        <div class="card setup-card">
+          <div class="card-title card-title-row">
+            <span>1. 台と条件</span>
+            <span class="required-note">機種は必須</span>
           </div>
           <div class="form-row" style="position:relative">
-            <label class="form-label">🎰 機種</label>
+            <label class="form-label">機種</label>
             <input type="text" id="est-machine" class="form-input" list="est-machine-datalist"
               placeholder="機種名を入力 or 選択…" autocomplete="off" style="cursor:pointer">
             <datalist id="est-machine-datalist"></datalist>
           </div>
+          <!-- 機種スナップショット -->
           <div id="machine-snapshot" style="display:none;margin-bottom:8px;padding:8px 10px;background:var(--bg2);border-radius:8px;font-size:.75rem"></div>
-          <!-- ホール（常に表示） -->
           <div class="form-row">
-            <label class="form-label">🏪 ホール <span style="font-weight:400;color:var(--text3);font-size:.72rem">（任意）</span></label>
+            <label class="form-label">ホール</label>
             <input type="text" id="est-hall" class="form-input" list="hall-datalist"
-                   placeholder="ホール名" autocomplete="off">
+                   placeholder="ホール名（任意）" autocomplete="off">
             <datalist id="hall-datalist"></datalist>
-            <div id="est-hall-today-indicator" style="display:none;margin-top:5px;font-size:.7rem;padding:4px 10px;border-radius:6px"></div>
           </div>
-          <!-- 詳細設定トグル -->
-          <button id="est-detail-toggle" onclick="toggleEstDetail()" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:.75rem;padding:4px 0;display:flex;align-items:center;gap:4px;margin-top:2px">
-            <span id="est-detail-arrow">▸</span> 台番・宵越し・曜日・確定条件
-          </button>
-          <!-- 詳細設定 (折りたたみ) -->
-          <div id="est-detail-section" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:12px">
-            <div class="form-row-2col">
-              <div>
-                <label class="form-label">台番</label>
-                <input type="number" id="est-seat-number" class="form-input"
-                       placeholder="例: 42" min="1" inputmode="numeric">
-                <div id="seat-tail-hint" style="display:none;margin-top:4px;font-size:.72rem;padding:4px 8px;background:var(--bg2);border-radius:6px"></div>
-              </div>
-              <div id="started-from-row">
-                <label class="form-label">宵越しG数</label>
-                <input type="number" id="est-started-from" class="form-input"
-                       placeholder="0" min="0" inputmode="numeric" value="0">
-              </div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">曜日</label>
+              <select id="est-weekday" class="form-select">
+                <option value="">--</option>
+                <option value="0">月</option>
+                <option value="1">火</option>
+                <option value="2">水</option>
+                <option value="3">木</option>
+                <option value="4">金</option>
+                <option value="5">土</option>
+                <option value="6">日</option>
+              </select>
             </div>
-            <div class="form-row-2col" style="margin-top:8px">
-              <div>
-                <label class="form-label">曜日</label>
-                <select id="est-weekday" class="form-select">
-                  <option value="">自動</option>
-                  <option value="0">月</option>
-                  <option value="1">火</option>
-                  <option value="2">水</option>
-                  <option value="3">木</option>
-                  <option value="4">金</option>
-                  <option value="5">土</option>
-                  <option value="6">日</option>
-                </select>
-              </div>
-              <div>
-                <label class="form-label">日付</label>
-                <input type="number" id="est-dom" class="form-input" placeholder="例: 15" min="1" max="31">
-              </div>
+            <div>
+              <label class="form-label">日付（特定日判定）</label>
+              <input type="number" id="est-dom" class="form-input" placeholder="例: 15" min="1" max="31">
             </div>
-            <div class="form-row" style="margin-top:8px">
-              <label class="form-check-label">
-                <input type="checkbox" id="est-event"> イベント日
-              </label>
-            </div>
+          </div>
+          <div class="form-row">
+            <label class="form-check-label">
+              <input type="checkbox" id="est-event"> イベント日
+            </label>
           </div>
         </div>
 
-        <!-- Games total + Timer -->
-        <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <label class="form-label" style="margin:0">📊 総ゲーム数 (G)</label>
-            <div id="session-timer-bar" style="display:flex;align-items:center;gap:8px">
-              <span id="timer-display" style="font-variant-numeric:tabular-nums;font-weight:700;color:var(--primary-h);font-size:.88rem;display:none">00:00:00</span>
-              <span id="timer-rate" style="display:none;font-size:.65rem;color:var(--text3);font-variant-numeric:tabular-nums"></span>
-              <button id="timer-toggle" class="btn btn-sm btn-ghost" style="font-size:.72rem;padding:4px 10px">⏱ タイマー</button>
-              <button id="timer-reset" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger);font-size:.72rem;padding:4px 8px">✕</button>
-            </div>
+        <!-- Session timer -->
+        <div id="session-timer-bar" class="session-timer-bar">
+          <button id="timer-toggle" class="btn btn-sm btn-ghost">⏱ タイマー開始</button>
+          <span id="timer-display" style="font-variant-numeric:tabular-nums;font-weight:700;color:var(--text2);font-size:.9rem;display:none">00:00:00</span>
+          <button id="timer-reset" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger)">リセット</button>
+        </div>
+
+        <!-- Games total -->
+        <div class="card play-data-card">
+          <div class="card-title">2. 実戦データ</div>
+          <div class="form-row">
+            <label class="form-label">総ゲーム数 (G)</label>
+            <input type="number" id="est-games" class="form-input form-input-lg"
+                   placeholder="0" min="0" inputmode="numeric">
           </div>
-          <input type="number" id="est-games" class="form-input form-input-lg"
-                 placeholder="0" min="0" inputmode="numeric">
-          <div style="display:flex;gap:5px;margin-top:8px">
-            <span style="font-size:.62rem;color:var(--text3);align-self:center;margin-right:2px">＋</span>
-            <button type="button" class="g-inc-btn btn btn-ghost btn-sm" data-inc="100" style="flex:1;font-size:.75rem;padding:5px 0">100G</button>
-            <button type="button" class="g-inc-btn btn btn-ghost btn-sm" data-inc="500" style="flex:1;font-size:.75rem;padding:5px 0">500G</button>
-            <button type="button" class="g-inc-btn btn btn-ghost btn-sm" data-inc="1000" style="flex:1;font-size:.75rem;padding:5px 0">1000G</button>
-            <button type="button" id="g-set-0-btn" class="btn btn-ghost btn-sm" style="flex:0 0 auto;font-size:.72rem;padding:5px 8px;color:var(--text3)">0</button>
+          <div class="form-row" id="started-from-row" style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+            <label class="form-label" style="font-size:.8rem;color:var(--text3)">
+              宵越し・引き継ぎG数 <span style="font-weight:400">（前日等からの持ち越しG数）</span>
+            </label>
+            <input type="number" id="est-started-from" class="form-input"
+                   placeholder="0（宵越しなし）" min="0" inputmode="numeric" value="0">
+          </div>
+          <div class="form-row" style="border-top:1px solid var(--border);padding-top:12px;margin-top:4px">
+            <label class="form-label" style="font-size:.8rem;color:var(--text3)">
+              台番 <span style="font-weight:400">（入力すると同台の過去履歴を事前分布に反映）</span>
+            </label>
+            <input type="number" id="est-seat-number" class="form-input"
+                   placeholder="例: 42" min="1" inputmode="numeric">
+            <div id="seat-tail-hint" style="display:none;margin-top:4px;font-size:.72rem;padding:4px 8px;background:var(--bg2);border-radius:6px"></div>
           </div>
         </div>
 
         <!-- Element counts -->
         <div class="card" id="est-counts-card">
-          <div class="card-title">カウント入力</div>
+          <div class="card-title card-title-row">
+            <span>3. カウント入力</span>
+            <span class="optional-note">入力できる項目だけでOK</span>
+          </div>
           <div id="est-counts-list">
             <p class="hint">機種を選択するとカウント入力欄が表示されます</p>
           </div>
@@ -196,27 +362,29 @@
             <button class="confirm-btn btn btn-sm btn-ghost" data-min="6">設6確定</button>
             <button id="est-confirm-clear" class="btn btn-sm btn-ghost" style="display:none;color:var(--danger)">✕ 解除</button>
           </div>
-          <div id="est-confirm-badge" style="display:none;margin-top:6px;padding:5px 10px;border-radius:6px;font-size:.78rem;font-weight:700;background:rgba(251,191,36,.15);color:var(--warning);border:1px solid rgba(251,191,36,.3)"></div>
+          <div id="est-confirm-badge" style="display:none;margin-top:6px;padding:5px 10px;border-radius:6px;font-size:.78rem;font-weight:700;background:rgba(251,191,36,.15);color:#fbbf24;border:1px solid rgba(251,191,36,.3)"></div>
         </div>
 
         <!-- Estimate button -->
-        <button id="est-run-btn" class="btn btn-primary btn-full" disabled style="padding:15px;font-size:.95rem;letter-spacing:.02em">
-          設定を推測する
-        </button>
+        <div class="estimate-action">
+          <div class="estimate-readiness">
+            <span id="est-ready-text">機種とゲーム数を入力してください</span>
+            <div class="readiness-track"><span id="est-ready-bar"></span></div>
+          </div>
+          <button id="est-run-btn" class="btn btn-primary btn-full" disabled>
+            設定を推測する
+          </button>
+        </div>
 
         <!-- Results -->
         <div id="est-result" class="card result-card" style="display:none">
-          <div style="display:flex;justify-content:flex-end;padding:8px 12px 0;gap:6px">
-            <button onclick="copyEstimateResult()" class="btn btn-ghost" style="font-size:.65rem;padding:3px 10px" title="結果をコピー">📋 コピー</button>
-            <button onclick="shareEstimateResult()" class="btn btn-ghost" style="font-size:.65rem;padding:3px 10px" title="シェア">↑ シェア</button>
-          </div>
-          <div class="result-header" style="padding:12px 18px 20px">
+          <div class="result-header" style="padding:20px 18px">
             <div class="result-stat">
               <span class="stat-label">期待設定</span>
               <span id="res-expected" class="stat-value" style="font-size:2rem;font-weight:900;letter-spacing:-.04em">--</span>
             </div>
             <div class="result-stat">
-              <span class="stat-label">高設定率<span style="font-size:.55rem;opacity:.7;display:block;letter-spacing:.02em">設定4以上</span></span>
+              <span class="stat-label">高設定率</span>
               <span id="res-high-prob" class="stat-value" style="font-size:2rem;font-weight:900;letter-spacing:-.04em">--%</span>
             </div>
             <div class="result-stat">
@@ -226,7 +394,7 @@
           </div>
 
           <!-- Denomination + profit per 1000G -->
-          <div id="res-profit-row" style="padding:10px 18px;border-bottom:1px solid var(--border);align-items:center;gap:10px;flex-wrap:wrap;background:rgba(255,255,255,0.02);display:none">
+          <div id="res-profit-row" style="display:none;padding:10px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:rgba(255,255,255,0.02)">
             <select id="denom-select" class="form-select" style="flex:0 0 auto;width:auto;padding:6px 10px;font-size:.8rem">
               <option value="1">1円機</option>
               <option value="2.5">2.5円機</option>
@@ -366,6 +534,11 @@
     <section id="page-session" class="page">
       <div class="page-inner">
 
+        <div class="page-heading">
+          <div><span class="page-eyebrow">PLAY RECORDS</span><h1>収支・実戦記録</h1><p>実戦結果を振り返り、推測精度の学習にも活用します。</p></div>
+          <span class="page-number">02</span>
+        </div>
+
         <!-- 日別収支チャート -->
         <div class="card" id="daily-chart-card" style="display:none">
           <div class="card-title">📊 日別収支</div>
@@ -388,21 +561,7 @@
               <span class="stat-value" id="sum-wr" style="font-size:1.6rem;font-weight:900">--%</span>
             </div>
           </div>
-          <div id="sum-extra" style="display:flex;border-top:1px solid var(--border);font-size:.72rem;color:var(--text3)">
-            <div style="flex:1;text-align:center;padding:7px 4px">平均G <strong id="sum-avg-games" style="color:var(--text2)">--</strong></div>
-            <div style="flex:1;text-align:center;padding:7px 4px;border-left:1px solid var(--border)">総投資 <strong id="sum-total-inv" style="color:var(--text2)">--</strong></div>
-            <div style="flex:1;text-align:center;padding:7px 4px;border-left:1px solid var(--border)">平均収支 <strong id="sum-avg-diff" style="color:var(--text2)">--</strong></div>
-          </div>
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 16px 6px;min-height:28px">
-            <div id="sum-streak" style="font-size:.85rem;font-weight:700"></div>
-            <div style="display:flex;align-items:center;gap:6px">
-              <div id="sum-sparkline" style="display:none"></div>
-              <button id="sum-copy-btn" onclick="copySessionSummary()" title="サマリーをコピー" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--text3);font-size:.65rem;padding:3px 7px;cursor:pointer;display:none">📋</button>
-            </div>
-          </div>
-          <div id="sum-machine-insight" style="display:none;font-size:.65rem;color:var(--text3);padding:0 16px 8px;line-height:1.7"></div>
-          <div id="sum-records" style="display:none;padding:0 16px 10px;font-size:.68rem;display:flex;gap:8px;flex-wrap:wrap"></div>
-          <div id="sum-monthly-target" style="display:none;border-top:1px solid var(--border);padding:10px 16px 12px"></div>
+          <div id="sum-streak" style="text-align:center;padding:6px 0 10px;min-height:24px;font-size:.85rem;font-weight:700"></div>
         </div>
 
         <!-- 推定精度レポート -->
@@ -470,48 +629,20 @@
         </div>
 
         <!-- Filter bar -->
-        <div class="card" style="padding:10px 14px;display:flex;flex-direction:column;gap:8px">
-          <!-- クイック期間フィルター -->
-          <div style="display:flex;gap:5px">
-            <button class="btn btn-ghost btn-sm ses-period-btn" data-period="today" style="font-size:.68rem;flex:1">今日</button>
-            <button class="btn btn-ghost btn-sm ses-period-btn" data-period="thisweek" style="font-size:.68rem;flex:1">今週</button>
-            <button class="btn btn-ghost btn-sm ses-period-btn active" data-period="thismonth" style="font-size:.68rem;flex:1">今月</button>
-            <button class="btn btn-ghost btn-sm ses-period-btn" data-period="all" style="font-size:.68rem;flex:1">全期間</button>
-          </div>
-          <div style="display:flex;gap:6px">
-            <select id="ses-hall-filter" class="form-select form-select-sm" style="flex:1">
-              <option value="">全ホール</option>
-            </select>
-            <select id="ses-machine-filter" class="form-select form-select-sm" style="flex:1">
-              <option value="">全機種</option>
-            </select>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input type="text" id="ses-search-filter" class="form-input form-select-sm"
-                   placeholder="🔍 メモ・機種・ホールで検索" autocomplete="off"
-                   style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
-            <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0">
-              <button class="ses-wl-btn active" data-wl="all" style="font-size:.6rem;padding:4px 7px;background:var(--bg3);border:none;color:var(--text2);cursor:pointer;white-space:nowrap">全て</button>
-              <button class="ses-wl-btn" data-wl="win" style="font-size:.6rem;padding:4px 7px;background:var(--bg3);border-left:1px solid var(--border);color:var(--success);cursor:pointer;white-space:nowrap">勝</button>
-              <button class="ses-wl-btn" data-wl="loss" style="font-size:.6rem;padding:4px 7px;background:var(--bg3);border-left:1px solid var(--border);color:var(--danger);cursor:pointer;white-space:nowrap">負</button>
-            </div>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input type="month" id="ses-month-filter" class="form-input form-select-sm"
-                   style="flex:1;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
-            <select id="ses-sort-filter" class="form-select form-select-sm" style="flex:1" title="並び順">
-              <option value="date_desc">新しい順</option>
-              <option value="date_asc">古い順</option>
-              <option value="diff_desc">収支↑</option>
-              <option value="diff_asc">収支↓</option>
-              <option value="games_desc">G数↑</option>
-            </select>
-            <button id="ses-refresh-btn" class="btn btn-ghost btn-sm" title="更新">↻</button>
-            <button id="ses-export-btn" class="btn btn-ghost btn-sm" title="CSVエクスポート" style="font-size:.68rem">📥 出力</button>
-            <label class="btn btn-ghost btn-sm" title="CSVインポート" style="cursor:pointer;font-size:.68rem">
-              📤 入力 <input type="file" id="ses-import-input" accept=".csv" style="display:none">
-            </label>
-          </div>
+        <div class="card filter-bar">
+          <select id="ses-hall-filter" class="form-select form-select-sm">
+            <option value="">全ホール</option>
+          </select>
+          <select id="ses-machine-filter" class="form-select form-select-sm">
+            <option value="">全機種</option>
+          </select>
+          <input type="month" id="ses-month-filter" class="form-input form-select-sm"
+                 style="flex:0 0 auto;width:130px;background:var(--bg3);border:1px solid var(--border);color:var(--text1);padding:6px 8px">
+          <button id="ses-refresh-btn" class="btn btn-ghost btn-sm">更新</button>
+          <button id="ses-export-btn" class="btn btn-ghost btn-sm" title="CSVエクスポート">📥</button>
+          <label class="btn btn-ghost btn-sm" title="CSVインポート" style="cursor:pointer">
+            📤 <input type="file" id="ses-import-input" accept=".csv" style="display:none">
+          </label>
         </div>
 
         <!-- PnL chart -->
@@ -533,22 +664,10 @@
           <canvas id="machine-breakdown-chart" height="160"></canvas>
         </div>
 
-        <!-- Hall breakdown -->
-        <div class="card" id="hall-breakdown-card" style="display:none">
-          <div class="card-title">🏪 ホール別収支</div>
-          <div id="hall-breakdown-stats"></div>
-        </div>
-
         <!-- Seat analysis -->
         <div class="card" id="seat-card" style="display:none">
           <div class="card-title">🎰 台番号・角台分析</div>
           <div id="seat-analysis"></div>
-        </div>
-
-        <!-- Weekday performance -->
-        <div class="card" id="weekday-card" style="display:none">
-          <div class="card-title">📆 曜日別パフォーマンス</div>
-          <div id="weekday-analysis"></div>
         </div>
 
         <!-- Session list -->
@@ -564,28 +683,24 @@
     <section id="page-hall" class="page">
       <div class="page-inner">
 
-        <!-- サブタブ -->
-        <div class="hall-sub-tabs">
-          <button class="hall-sub-btn active" data-htab="today">📅 今日</button>
-          <button class="hall-sub-btn" data-htab="compare">📊 比較</button>
-          <button class="hall-sub-btn" data-htab="detail">🏪 詳細</button>
-          <button class="hall-sub-btn" data-htab="calendar">📆 カレ</button>
+        <div class="page-heading">
+          <div><span class="page-eyebrow">HALL INSIGHTS</span><h1>店傾向</h1><p>店舗・曜日・機種・台番の傾向を比較します。</p></div>
+          <span class="page-number">03</span>
         </div>
 
-        <!-- ===== 今日おすすめタブ ===== -->
-        <div id="htab-today" class="htab-pane active">
-          <div style="display:flex;justify-content:flex-end;margin-bottom:6px">
-            <button class="btn btn-ghost" style="font-size:.68rem;padding:3px 10px" onclick="_todayRecLoaded=false;loadTodayRecommendation()">↻ 再分析</button>
-          </div>
-          <div id="today-rec-loading" style="text-align:center;padding:40px 0;color:var(--text3);font-size:.85rem">データを分析中...</div>
-          <div id="today-rec-body" style="display:none"></div>
+        <!-- サブタブ -->
+        <div class="hall-sub-tabs">
+          <button class="hall-sub-btn active" data-htab="compare">比較</button>
+          <button class="hall-sub-btn" data-htab="detail">詳細</button>
+          <button class="hall-sub-btn" data-htab="calendar">カレンダー</button>
+          <button class="hall-sub-btn" data-htab="admin">管理</button>
         </div>
 
         <!-- ===== 比較タブ ===== -->
-        <div id="htab-compare" class="htab-pane">
+        <div id="htab-compare" class="htab-pane active">
           <!-- 今日の注目ホール -->
           <div id="today-pick-card" style="display:none;margin-bottom:10px;background:linear-gradient(135deg,rgba(251,191,36,.12) 0%,rgba(34,211,238,.06) 100%);border:1px solid rgba(251,191,36,.25);border-radius:12px;padding:12px 14px">
-            <div style="font-size:.62rem;font-weight:800;color:var(--warning);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">⚡ 今日の注目ホール</div>
+            <div style="font-size:.62rem;font-weight:800;color:#fbbf24;text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">⚡ 今日の注目ホール</div>
             <div id="today-pick-body" style="font-size:.78rem;color:var(--text2);line-height:1.7"></div>
           </div>
 
@@ -746,14 +861,6 @@
             </div>
           </div>
 
-          <!-- 機種×曜日ヒートマップ -->
-          <div class="card card-col closed" id="weekday-machine-map-card" style="display:none">
-            <div class="card-title card-col-hd">🗓️ 機種別曜日傾向マップ <span class="col-arr">▾</span></div>
-            <div class="card-col-body">
-              <div id="weekday-machine-map-body"></div>
-            </div>
-          </div>
-
           <!-- 特定日 -->
           <div class="card card-col closed">
             <div class="card-title card-col-hd">📅 特定日の傾向 <span class="col-arr">▾</span></div>
@@ -777,8 +884,7 @@
               </div>
               <button id="hall-ai-btn" class="btn btn-primary btn-sm">生成</button>
             </div>
-            <div id="hall-ai-output" style="display:none;font-size:.82rem;line-height:1.75;color:var(--text2);border-top:1px solid var(--border);padding-top:10px;margin-top:10px"></div>
-            <button id="hall-ai-copy" style="display:none;margin-top:6px" class="btn btn-ghost btn-sm" style="font-size:.68rem">コピー</button>
+            <div id="hall-ai-output" style="display:none;font-size:.82rem;line-height:1.75;color:var(--text2);white-space:pre-wrap;border-top:1px solid var(--border);padding-top:10px;margin-top:10px"></div>
           </div>
 
           <!-- みんレポ データ -->
@@ -861,17 +967,10 @@
             </div>
           </div>
 
-          <!-- 管理へのアクセス -->
-          <div style="text-align:center;padding:12px 0 4px">
-            <button onclick="switchHallTab('admin')" class="btn btn-ghost btn-sm" style="font-size:.72rem;color:var(--text3)">⚙️ データ管理・スクレイプ設定</button>
-          </div>
         </div><!-- /htab-detail -->
 
         <!-- ===== 管理タブ ===== -->
         <div id="htab-admin" class="htab-pane">
-          <div style="margin-bottom:10px">
-            <button onclick="switchHallTab('detail')" class="btn btn-ghost btn-sm" style="font-size:.72rem">← 詳細に戻る</button>
-          </div>
           <!-- データ統計サマリー -->
           <div id="db-stats-card" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px"></div>
           <!-- キャッシュ統計 -->
@@ -890,10 +989,10 @@
             <div class="card-col-body">
             <!-- Cookieセクション -->
             <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
-              <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">Cloudflare Cookie設定</div>
+              <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">台番号データ用Cookie（必要な場合のみ）</div>
               <div style="font-size:.68rem;color:var(--text3);margin-bottom:6px">
-                Chrome DevToolsでana-slo.comのCookieをコピーし、下に貼り付けてください。<br>
-                <span style="color:var(--warning)">cf_clearanceが必須です。期限切れになったら再登録してください。</span>
+                通常は設定不要です。取得元からアクセス制限が返ったときだけ、利用者自身のブラウザCookieを設定できます。<br>
+                <span style="color:var(--warning)">Cookieを入れても、取得元に店舗データが掲載されていない場合は台番号履歴を取得できません。</span>
               </div>
               <textarea id="cookie-input" rows="3" style="width:100%;box-sizing:border-box;font-size:.65rem;font-family:monospace;
                 padding:6px;border:1px solid var(--border);border-radius:6px;background:var(--bg1);color:var(--text1);
@@ -929,10 +1028,28 @@
                 <span id="anaslo-status-bar" style="font-size:.68rem;color:var(--text3)"></span>
               </div>
             </div>
+            <!-- 過去データ収集セクション -->
+            <div id="archive-collector" style="margin-bottom:12px;padding:10px;background:var(--bg2);border:1px solid rgba(124,127,245,.25);border-radius:8px">
+              <div style="font-size:.76rem;font-weight:700;color:var(--text1);margin-bottom:4px">🗂 過去データ収集</div>
+              <div style="font-size:.65rem;color:var(--text3);line-height:1.55;margin-bottom:8px">公開レポートの前日・翌日をたどって保存します。途中で閉じても再開できます。取得元の掲載範囲・利用条件に従います。</div>
+              <div style="display:grid;grid-template-columns:minmax(150px,1.4fr) repeat(2,minmax(120px,1fr));gap:6px;margin-bottom:6px">
+                <select id="archive-hall" class="form-select" aria-label="収集店舗"></select>
+                <input id="archive-date-from" type="date" class="form-input" aria-label="収集開始日">
+                <input id="archive-date-to" type="date" class="form-input" aria-label="収集終了日">
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <select id="archive-max-pages" class="form-select" style="width:auto" aria-label="最大ページ数"><option value="60">最大60日</option><option value="120" selected>最大120日</option><option value="240">最大240日</option><option value="365">最大365日</option></select>
+                <button id="archive-start-btn" class="btn btn-primary" style="font-size:.72rem;padding:4px 11px">収集開始</button>
+                <button id="archive-pause-btn" class="btn btn-ghost" style="font-size:.72rem;padding:4px 11px">一時停止</button>
+                <button id="archive-resume-btn" class="btn btn-ghost" style="font-size:.72rem;padding:4px 11px">再開</button>
+              </div>
+              <div id="archive-status" style="margin-top:8px;font-size:.68rem;color:var(--text3);line-height:1.55">状態を読み込んでいます...</div>
+              <div id="archive-coverage" style="margin-top:6px;font-size:.63rem;color:var(--text3)"></div>
+            </div>
             <!-- 全店舗実行セクション -->
             <div style="margin-bottom:12px;padding:10px;background:var(--bg2);border-radius:8px">
               <div style="font-size:.72rem;font-weight:600;color:var(--text2);margin-bottom:6px">全店舗一括実行</div>
-              <div style="font-size:.65rem;color:var(--text3);margin-bottom:8px">アナスロ＋みんレポを全登録店舗で実行。初回は30日以上推奨。</div>
+              <div style="font-size:.65rem;color:var(--text3);margin-bottom:8px">台番号履歴・機種別差枚・現在の設置スマスロを全登録店舗で確認します。取得元に掲載がない項目は「一部取得」と表示します。</div>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
                 <select id="scrape-days-select" class="form-select" style="font-size:.78rem;width:auto">
                   <option value="3">3日分</option>
@@ -943,7 +1060,7 @@
                   <option value="90">90日分</option>
                 </select>
                 <label style="display:flex;align-items:center;gap:4px;font-size:.72rem;cursor:pointer">
-                  <input type="checkbox" id="minrepo-only-check"> みんレポのみ
+                  <input type="checkbox" id="minrepo-only-check"> 台番号履歴を省略
                 </label>
                 <button id="scrape-run-btn" class="btn btn-primary" style="font-size:.75rem;padding:4px 14px">
                   全店舗実行
@@ -1033,7 +1150,7 @@
           <div id="cal-month-stats" style="display:none;margin-top:8px;padding:6px 0"></div>
 
           <!-- ドリルダウンパネル (L2: ホール一覧 / L3: 台別) -->
-          <div id="cal-drill" style="display:none;margin-top:10px;padding:12px" class="card">
+          <div id="cal-drill" style="display:none;margin-top:10px" class="card" style="padding:12px">
             <!-- ブレッドクラム -->
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border)">
               <button id="cal-drill-back" onclick="calDrillBack()" style="display:none;background:none;border:none;color:var(--primary-h);font-size:.8rem;cursor:pointer;padding:2px 6px 2px 0">← 戻る</button>
@@ -1119,54 +1236,244 @@
     <!-- ======================== マップページ ======================== -->
     <section id="page-map" class="page">
       <div class="page-inner" style="padding:0">
-        <div style="padding:12px 16px 8px;background:var(--bg1)">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <span style="font-size:.78rem;color:var(--text2)">データ取得済み店舗の強度マップ</span>
-            <div style="display:flex;gap:8px;align-items:center;font-size:.7rem">
-              <span style="color:#e53e3e">● 強</span>
-              <span style="color:#dd8800">● 中</span>
-              <span style="color:#c8b800">● やや弱</span>
-              <span style="color:#38a169">● 弱</span>
-            </div>
-          </div>
-          <div id="map-hint" style="font-size:.72rem;color:var(--text3)">読み込み中...</div>
+        <div class="page-heading map-page-heading">
+          <div><span class="page-eyebrow">TARGET HEAT MAP</span><h1>日付別 店舗ヒートマップ</h1><p>行く日を指定し、当日の狙い度と長期傾向を地図で比較します。</p></div>
+          <span class="page-number">04</span>
         </div>
-        <div id="hall-map" style="height:60vh;width:100%"></div>
+        <div class="desktop-heat-controls">
+          <form id="desktop-heat-form" class="desktop-heat-form">
+            <label>対象地域<select id="desktop-heat-region" class="form-select"><option value="matsumoto_shiojiri" selected>松本・塩尻</option><option value="nagano">長野県全体</option><option value="osaka">大阪府</option><option value="all">全地域</option></select></label>
+            <label>行く日<input id="desktop-heat-date" class="form-input" type="date" required></label>
+            <label>長期表示<select id="desktop-heat-long-days" class="form-select"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></label>
+            <button id="desktop-heat-button" class="btn btn-primary" type="submit">この日の熱量を表示</button>
+          </form>
+          <div class="desktop-heat-meta">
+            <div class="desktop-heat-legend"><span class="heat-dot heat-hot">かなり熱い</span><span class="heat-dot heat-warm">熱い</span><span class="heat-dot heat-watch">注目</span><span class="heat-dot heat-cool">慎重</span><span class="heat-dot heat-none">不足</span></div>
+            <div id="map-hint">読み込み中...</div>
+          </div>
+        </div>
+        <div class="desktop-heat-layout">
+          <div id="hall-map"></div>
+          <aside id="desktop-heat-detail" class="desktop-heat-detail"><div class="desktop-heat-empty">地図の店舗を選ぶと、長期傾向を表示します。</div></aside>
+        </div>
       </div>
     </section>
 
     <!-- ======================== 機種ページ ======================== -->
     <section id="page-machines" class="page">
       <div class="page-inner">
-        <div class="card" style="padding:10px 12px">
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-            <input type="text" id="machine-search" class="form-input"
-                   placeholder="機種名で検索..." style="flex:1">
-            <select id="machine-sort" class="form-select" style="flex:0 0 auto;width:auto;font-size:.78rem;padding:8px 8px">
-              <option value="name">名前順</option>
-              <option value="sessions">最近使用</option>
-              <option value="kw">機械割↑</option>
-              <option value="myplay">打った機種</option>
-            </select>
-          </div>
-          <div id="machine-cat-chips" style="display:flex;gap:5px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none;-webkit-overflow-scrolling:touch">
-            <button class="cat-chip active" data-cat="all">全て</button>
-            <button class="cat-chip" data-cat="ジャグラー系">🎰 ジャグラー</button>
-            <button class="cat-chip" data-cat="ハナハナ系">🌺 ハナハナ</button>
-            <button class="cat-chip" data-cat="スマスロ系">⚡ スマスロ</button>
-            <button class="cat-chip" data-cat="バジリスク系">🐍 バジリスク</button>
-            <button class="cat-chip" data-cat="カバネリ系">⚙️ カバネリ</button>
-            <button class="cat-chip" data-cat="北斗系">🌟 北斗</button>
-            <button class="cat-chip" data-cat="その他">その他</button>
-          </div>
+        <div class="page-heading">
+          <div><span class="page-eyebrow">MACHINE LIBRARY</span><h1>機種データ</h1><p>登録済みの設定差・機械割を検索できます。</p></div>
+          <span class="page-number">05</span>
+        </div>
+        <div class="card">
+          <input type="text" id="machine-search" class="form-input"
+                 placeholder="機種名で検索...">
         </div>
         <div id="machine-list"></div>
+      </div>
+    </section>
+
+    <!-- ======================== 期待値狙いページ ======================== -->
+    <section id="page-opportunity" class="page">
+      <div class="page-inner">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">OPPORTUNITY DESK</span><h1>期待値狙い</h1><p>根拠・資金・実戦結果を一つにつなぎ、着席判断を厳格化します。</p></div>
+          <span class="page-number">06</span>
+        </div>
+
+        <div id="opp-alert" class="opp-alert" style="display:none"></div>
+
+        <div class="card opp-store-ranking-card">
+          <div class="card-title card-title-row">
+            <span>今からハイエナ向きの店</span><button id="opp-store-ranking-refresh" class="btn btn-secondary btn-sm" type="button">再計算</button>
+          </div>
+          <p class="hint">対応スマスロ・過去稼働・曜日時間帯の混雑・データ鮮度を合成し、巡回候補を自動で絞ります。</p>
+          <div class="opp-store-ranking-controls">
+            <div><label class="form-label">地域</label><select id="opp-store-ranking-prefecture" class="form-select"><option value="">すべて</option><option value="大阪府">大阪府</option><option value="長野県">長野県（松本・塩尻）</option></select></div>
+            <div><label class="form-label">行く日時</label><input id="opp-store-ranking-at" class="form-input" type="datetime-local"></div>
+            <div><label class="form-label">現地の混雑記録用店舗</label><select id="opp-occupancy-hall" class="form-select"><option value="">店舗を選択</option></select></div>
+            <div><label class="form-label">平均回転数（任意）</label><input id="opp-occupancy-rotation" class="form-input" type="number" min="0" max="10000" step="10" placeholder="例：3200"></div>
+          </div>
+          <div class="opp-occupancy-buttons" aria-label="現地の混雑状況を記録">
+            <span>現地の混雑：</span>
+            <button type="button" data-desktop-occupancy="high">高</button>
+            <button type="button" data-desktop-occupancy="mid">中</button>
+            <button type="button" data-desktop-occupancy="low">低</button>
+            <small id="opp-occupancy-status">未記録</small>
+          </div>
+          <div id="opp-store-ranking-list" class="opp-store-ranking-list"><p class="hint center">候補店を計算中...</p></div>
+          <p id="opp-store-ranking-notice" class="opp-guide-note">候補店の順位です。期待値のある空き台を保証するものではありません。</p>
+        </div>
+
+        <div class="card opp-guide-card">
+          <div class="card-title card-title-row">
+            <span>打つ・見送る早見表</span><span id="opp-guide-count" class="opp-live-badge">0件</span>
+          </div>
+          <p class="hint" style="margin-bottom:12px">機種ごとの狙い目ラインと期待値を一覧表示。行の「10秒判定」から実際の台を最終確認できます。</p>
+          <div class="opp-guide-summary">
+            <div><small>打つ候補</small><strong id="opp-guide-ready-count">0条件</strong></div>
+            <div><small>最大期待値</small><strong id="opp-guide-max-ev">--</strong></div>
+            <div><small>登録機種</small><strong id="opp-guide-machine-count">0機種</strong></div>
+          </div>
+          <div class="opp-guide-controls">
+            <input id="opp-guide-search" class="form-input" type="search" placeholder="機種名・条件で絞り込み" autocomplete="off">
+            <select id="opp-guide-mode" class="form-select">
+              <option value="targets">狙い目ラインだけ</option>
+              <option value="all">全ゲーム数の期待値</option>
+            </select>
+          </div>
+          <div class="opp-guide-table-wrap">
+            <table class="opp-guide-table">
+              <thead><tr><th>判定</th><th>機種・条件</th><th>現在値</th><th>期待値</th><th>必要資金</th><th></th></tr></thead>
+              <tbody id="opp-guide-body"><tr><td colspan="6" class="hint center">読み込み中...</td></tr></tbody>
+            </table>
+          </div>
+          <p class="opp-guide-note">「打つ候補」は登録条件・期待値・現在の資金枠だけを見た目安です。交換率、持ちメダル、リセット、閉店時刻は10秒判定で確認してください。</p>
+        </div>
+
+        <div class="card opp-quick-card">
+          <div class="card-title card-title-row"><span>10秒判定</span><span class="opp-live-badge">現場用</span></div>
+          <p class="hint" style="margin-bottom:12px">台の条件を選び、現在値を入れるだけで資金・閉店リスクまで判定します。</p>
+          <form id="opp-quick-form">
+            <div class="form-row-2col">
+              <div><label class="form-label">機種</label><select id="opp-quick-machine" class="form-select" required><option value="">機種を選択</option></select></div>
+              <div><label class="form-label">条件別ルール</label><select id="opp-quick-profile" class="form-select" required disabled><option value="">機種を先に選択</option></select></div>
+            </div>
+              <div class="form-row">
+                <label id="opp-quick-current-label" class="form-label">現在値</label>
+                <input id="opp-quick-current" class="form-input form-input-lg" type="number" min="0" step="1" inputmode="numeric" required placeholder="例：650">
+              </div>
+              <div class="opp-quick-templates">
+                <button type="button" data-opp-template="zero">0G</button><button type="button" data-opp-template="heaven">天国抜け</button><button type="button" data-opp-template="ceiling">天井到達</button>
+                <label class="btn btn-secondary btn-sm">📷 OCR<input id="opp-quick-ocr" type="file" accept="image/*" capture="environment" hidden></label>
+              </div>
+              <div class="opp-quick-conditions">
+              <div><label class="form-label">交換条件</label><select id="opp-quick-exchange" class="form-select"><option value="equivalent">等価</option><option value="56">5.6枚</option><option value="other">その他</option></select></div>
+              <div><label class="form-label">投資方法</label><select id="opp-quick-funding" class="form-select"><option value="cash">現金</option><option value="medals">持ちメダル</option></select></div>
+              <div><label class="form-label">台の状態</label><select id="opp-quick-reset" class="form-select"><option value="normal">通常・据え置き</option><option value="reset_confirmed">リセット確定</option><option value="unknown">不明</option></select></div>
+                <div><label class="form-label">閉店時刻</label><input id="opp-quick-close" class="form-input" type="time" value="22:45" required></div>
+              </div>
+              <div class="opp-quick-conditions opp-dynamic-conditions">
+                <div><label class="form-label">有利区間の現在差枚</label><input id="opp-section-diff" class="form-input" type="number" min="-20000" max="20000" step="100" placeholder="不明なら空欄"></div>
+                <div><label class="form-label">交換率</label><input id="opp-exchange-rate" class="form-input" type="number" min="5" max="20" step="0.1" value="5.6"></div>
+                <div><label class="form-label">再プレイ上限（枚）</label><input id="opp-replay-limit" class="form-input" type="number" min="0" max="10000" step="10" value="460"></div>
+                <div><label class="form-label">今日使用済み（枚）</label><input id="opp-replay-used" class="form-input" type="number" min="0" max="50000" step="10" value="0"></div>
+              </div>
+              <div id="opp-quick-extra-fields" class="opp-quick-conditions opp-dynamic-conditions"></div>
+              <button class="btn btn-primary btn-full opp-quick-submit" type="submit">この台を判定</button>
+          </form>
+          <div id="opp-quick-result" class="opp-quick-result" aria-live="polite"></div>
+        </div>
+
+        <div class="card opp-crawler-card">
+          <div class="card-title card-title-row">
+            <span>期待値データ更新</span>
+            <span id="opp-crawler-status" class="optional-note">未確認</span>
+          </div>
+          <p class="hint" style="margin-bottom:12px">公開ページから見つけた変更候補です。数値は自動反映せず、出典と差分を確認して承認したものだけを採用します。</p>
+          <div class="opp-crawler-actions">
+            <button id="opp-crawler-run" class="btn btn-secondary btn-sm" type="button">公開ソースを確認</button>
+            <span id="opp-crawler-supabase" class="hint">Supabase未設定</span>
+          </div>
+          <div id="opp-crawler-candidates" class="opp-crawler-list"><p class="hint center">更新候補はありません</p></div>
+        </div>
+
+        <div class="card opp-budget-card">
+          <div class="card-title card-title-row">
+            <span>月間リスク管理</span><span id="opp-budget-status" class="required-note">未設定</span>
+          </div>
+          <div class="opp-summary-grid">
+            <div class="opp-summary-item"><small>現在資金</small><strong id="opp-current-bankroll">--</strong></div>
+            <div class="opp-summary-item"><small>残り損失枠</small><strong id="opp-remaining-loss">--</strong></div>
+            <div class="opp-summary-item"><small>当月収支</small><strong id="opp-net-profit">--</strong></div>
+            <div class="opp-summary-item"><small>実戦数</small><strong id="opp-plays">--</strong></div>
+          </div>
+          <form id="opp-budget-form" class="opp-form-grid" style="margin-top:14px">
+            <div><label class="form-label">対象月</label><input id="opp-month" class="form-input" type="month" required></div>
+            <div><label class="form-label">運用資金（円）</label><input id="opp-bankroll" class="form-input" type="number" min="0" step="1000" required></div>
+            <div><label class="form-label">損失上限（円）</label><input id="opp-loss-limit" class="form-input" type="number" min="0" step="1000" required></div>
+            <button class="btn btn-secondary" type="submit">資金設定を保存</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-title card-title-row"><span>候補台を登録</span><span class="required-note">ルール必須</span></div>
+          <form id="opp-candidate-form">
+            <div class="form-row-2col">
+              <div><label class="form-label">機種</label><input id="opp-machine" class="form-input" list="opp-machine-datalist" placeholder="機種を選択" required autocomplete="off"><datalist id="opp-machine-datalist"></datalist></div>
+              <div><label class="form-label">狙い目ルール</label><select id="opp-profile" class="form-select" required><option value="">機種を先に選択</option></select></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">店舗</label><input id="opp-hall" class="form-input" list="hall-datalist" placeholder="任意"></div>
+              <div><label class="form-label">台番号</label><input id="opp-seat" class="form-input" type="number" min="1" placeholder="任意"></div>
+            </div>
+            <div class="form-row">
+              <label id="opp-current-label" class="form-label">現在値</label>
+              <input id="opp-current-value" class="form-input form-input-lg" type="number" min="0" step="1" inputmode="numeric" required>
+            </div>
+            <button class="btn btn-primary btn-full" type="submit">候補へ追加して判定</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-title card-title-row"><span>候補台ランキング</span><span id="opp-open-count" class="optional-note">0台</span></div>
+          <div id="opp-candidate-list"><p class="hint center">候補台はまだありません</p></div>
+        </div>
+
+        <details class="card opp-rule-editor">
+          <summary><span>狙い目ルールを登録</span><small>出典・確認日・必要資金まで登録します</small></summary>
+          <form id="opp-profile-form" style="margin-top:16px">
+            <div class="form-row"><label class="form-label">機種</label><input id="opp-rule-machine" class="form-input" list="opp-machine-datalist" required autocomplete="off"></div>
+            <div class="form-row"><label class="form-label">適用条件</label><input id="opp-condition" class="form-input" value="通常・等価" placeholder="例：リセット確定・5.6枚現金" required></div>
+            <div class="opp-quick-conditions opp-rule-conditions">
+              <div><label class="form-label">交換条件</label><select id="opp-rule-exchange" class="form-select"><option value="equivalent">等価</option><option value="56">5.6枚</option><option value="other">その他</option><option value="unknown">未確認</option></select></div>
+              <div><label class="form-label">投資方法</label><select id="opp-rule-funding" class="form-select"><option value="any">どちらでも</option><option value="cash">現金</option><option value="medals">持ちメダル</option></select></div>
+              <div><label class="form-label">台の状態</label><select id="opp-rule-reset" class="form-select"><option value="normal">通常・据え置き</option><option value="reset_confirmed">リセット確定</option><option value="any">どちらでも</option><option value="unknown">未確認</option></select></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">判定指標</label><input id="opp-metric" class="form-input" value="現在ゲーム数" required></div>
+              <div><label class="form-label">単位</label><input id="opp-unit" class="form-input" value="G" required></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">開始ライン</label><input id="opp-start" class="form-input" type="number" min="0" step="1" required></div>
+              <div><label class="form-label">天井・上限</label><input id="opp-ceiling" class="form-input" type="number" min="0" step="1" placeholder="不明なら空欄"></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">期待値（円）</label><input id="opp-expected" class="form-input" type="number" min="0" step="100" placeholder="不明なら空欄"></div>
+              <div><label class="form-label">想定消化時間（分）</label><input id="opp-estimated-minutes" class="form-input" type="number" min="1" max="1440" placeholder="時間効率の計算用"></div>
+            </div>
+            <div class="form-row"><label class="form-label">必要資金目安（円）</label><input id="opp-worst" class="form-input" type="number" min="0" step="1000" required></div>
+            <div class="form-row"><label class="form-label">やめどき</label><input id="opp-stop-rule" class="form-input" placeholder="例：AT終了後、前兆を確認して終了" required></div>
+            <div class="form-row-2col">
+              <div><label class="form-label">情報源名</label><input id="opp-source-name" class="form-input" placeholder="公式サイト・資料名" required></div>
+              <div><label class="form-label">情報源URL</label><input id="opp-source-url" class="form-input" type="url" placeholder="https://..."></div>
+            </div>
+            <div class="form-row-2col">
+              <div><label class="form-label">確認日</label><input id="opp-verified-on" class="form-input" type="date" required></div>
+              <div><label class="form-label">信頼度</label><select id="opp-confidence" class="form-select"><option value="verified">複数情報で確認済み</option><option value="official">公式情報</option><option value="reference">参考情報</option><option value="unverified">未確認</option></select></div>
+            </div>
+            <p class="hint" style="margin-bottom:12px">「公式情報」「複数情報で確認済み」かつ確認日・必要資金目安があるルールだけが着席候補になります。目安は損失上限の判定用で、実際の最大投資を保証しません。</p>
+            <button class="btn btn-primary btn-full" type="submit">ルールを保存</button>
+          </form>
+          <div id="opp-profile-list" style="margin-top:16px"></div>
+        </details>
+
+        <div class="card">
+          <div class="card-title">直近の実戦結果</div>
+          <div id="opp-result-list"><p class="hint center">実戦結果はまだありません</p></div>
+        </div>
       </div>
     </section>
 
     <!-- ======================== AIページ ======================== -->
     <section id="page-ai" class="page">
       <div class="page-inner">
+
+        <div class="page-heading">
+          <div><span class="page-eyebrow">AI ANALYST</span><h1>AI分析</h1><p>蓄積データを横断し、狙い目と根拠を文章で整理します。</p></div>
+          <span class="page-number">07</span>
+        </div>
 
         <!-- AI ヘッダーバナー -->
         <div class="card" id="ai-status-card" style="background:linear-gradient(135deg,rgba(99,102,241,0.18) 0%,rgba(6,182,212,0.10) 100%);border-color:rgba(99,102,241,0.25)">
@@ -1200,35 +1507,29 @@
 
         <!-- A. チャット -->
         <div class="card">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <div class="card-title" style="margin:0">データに質問する</div>
-            <button id="ai-chat-clear" class="btn btn-ghost btn-sm" style="font-size:.68rem;padding:3px 10px;opacity:.7">クリア</button>
-          </div>
+          <div class="card-title">データに質問する</div>
           <div id="ai-chat-messages"
                style="min-height:100px;max-height:320px;overflow-y:auto;margin-bottom:12px;display:flex;flex-direction:column;gap:6px;padding:2px"></div>
           <div class="grad-line"></div>
-          <div style="display:flex;gap:8px;margin-bottom:4px">
+          <div style="display:flex;gap:8px;margin-bottom:10px">
             <input type="text" id="ai-chat-input" class="form-input"
                    placeholder="例: 今日どの店に行くべき？"
                    style="flex:1;font-size:.85rem">
             <button id="ai-chat-send" class="btn btn-primary btn-sm" style="white-space:nowrap;padding:0 18px">送信</button>
           </div>
-          <div style="font-size:.6rem;color:var(--text3);margin-bottom:8px;padding-left:2px">Enter で送信 · Shift+Enter で改行</div>
           <!-- 全店舗モードのクイックボタン -->
-          <div id="ai-quick-all" style="display:flex;gap:5px;flex-wrap:wrap">
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今日どの店に行くべきか教えて。スコアと根拠も示して">🔥 今日どの店?</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="全店舗で直近最も高設定が出ている店と機種トップ3を教えて">📊 高設定が出てる店</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今週のイベント候補日・ホールを曜日別に分析して">📅 イベント予測</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分の実戦データ（収支・機種・ホール）を分析して改善点を教えて">💡 実戦の課題</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今どのデータが不足してる？何をスクレイプすれば分析精度が上がる？">❓ 何が足りない?</button>
+          <div id="ai-quick-all" style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今日どの店に行くべきか教えて">今日どの店が熱い？</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="全店舗の中で直近最も高設定が出ている店と機種を教えて">高設定が出てる店</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今どのデータが不足してる？何をスクレイプすればいい？">何が足りてない？</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分の実戦データから改善すべき点は？">実戦の課題</button>
           </div>
           <!-- 単店舗モードのクイックボタン -->
-          <div id="ai-quick-hall" style="display:none;gap:5px;flex-wrap:wrap">
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今日打つべき台番とその根拠をベスト3で教えて">🎯 狙い台ベスト3</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="設定6が入っている可能性が最も高い台番と機種を根拠付きで教えて">⭐ 設定6候補</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="末尾番号・曜日傾向から今日の立ち回りを具体的に提案して">📐 末尾傾向</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="このホールで今日打つなら最も期待値が高い機種と台番を教えて">💰 期待値機種</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分のこのホールでの実戦を分析して改善点を教えて">💡 実戦の課題</button>
+          <div id="ai-quick-hall" style="display:none;gap:6px;flex-wrap:wrap">
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="狙い目の台番ベスト3を教えて">狙い目ベスト3</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分の実戦で改善すべき点は？">実戦の課題</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="末尾の傾向から今日の立ち回りを提案して">末尾傾向</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今どのデータが不足してる？">何が足りてない？</button>
           </div>
         </div>
 
@@ -1251,15 +1552,28 @@
     <div id="modal-body" class="modal-body"></div>
     <div class="modal-footer">
       <button id="modal-delete" class="btn btn-danger">削除</button>
-      <button id="modal-copy" class="btn btn-ghost" title="テキストコピー">📋</button>
       <button id="modal-edit" class="btn btn-secondary">編集</button>
       <button id="modal-close2" class="btn btn-ghost">閉じる</button>
     </div>
   </div>
 </div>
 
+<!-- Version and patch notes -->
+<div id="version-overlay" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="version-dialog-title">
+  <div class="modal version-modal">
+    <div class="modal-header">
+      <div><span class="version-eyebrow">UPDATE HISTORY</span><span id="version-dialog-title">バージョン・更新内容</span></div>
+      <button id="version-close" class="modal-close" type="button" aria-label="閉じる">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="desktop-release-current" class="desktop-release-current"></div>
+      <div id="desktop-patch-notes" class="desktop-patch-notes"></div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
-<script src="/js/app.js?v=26"></script>
+<script src="/js/app.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

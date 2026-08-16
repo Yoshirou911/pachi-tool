@@ -475,7 +475,7 @@ def _load_machine_theory(machine_name: str) -> str:
     if not path.exists():
         return ""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         settings = data.get("settings", [])
         elements = data.get("elements", [])
         kw = data.get("machine_kw", {})
@@ -519,6 +519,34 @@ def _call(client, messages: list, max_tokens: int = 800) -> str:
         if "invalid_api_key" in err.lower() or "authentication" in err.lower():
             return "APIキーが無効です。GROQ_API_KEYを確認してください。"
         return f"AIエラー: {err[:200]}"
+
+
+def explain_trend_profile(profile: dict) -> str | None:
+    """統計APIの店舗カルテを、断定を避けた短い攻略メモへ変換する。"""
+    client = _get_client()
+    if client is None:
+        return None
+    compact_profile = {
+        "hall_name": profile.get("hall_name"),
+        "visit_date": profile.get("visit_date"),
+        "sample_days": profile.get("sample_days"),
+        "confidence": profile.get("confidence"),
+        "overall": profile.get("overall"),
+        "weekday_profile": profile.get("weekday_profile", []),
+        "digit_profile": profile.get("digit_profile", []),
+        "machine_profile": profile.get("machine_profile", [])[:8],
+        "next_dates": profile.get("next_dates", [])[:5],
+        "statistical_insights": profile.get("insights", []),
+    }
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT + "\n"
+         "店舗傾向の事実と仮説を混ぜないでください。"
+         "出力は『確認できた傾向』『次回の見方』『注意点』の3項目、各2文以内。"
+         "入力にない数値・イベント・台番号を作らないでください。"},
+        {"role": "user", "content": "次の統計カルテを説明してください。\n" + json.dumps(compact_profile, ensure_ascii=False)},
+    ]
+    result = _call(client, messages, max_tokens=500)
+    return result if result and not result.startswith("AIエラー") else None
 
 
 # ---------------------------------------------------------------------------
@@ -663,7 +691,7 @@ def _all_halls_top_machines() -> str:
             hall_machines[r[0]].append(r)
 
         lines = ["【店舗別 機種ランキング（直近30日 各店TOP4）】"]
-        lines.append("（「ジャグラーはどの店？」などの質問に使う機種×店舗データ）")
+        lines.append("（「スマスロ北斗はどの店？」などの質問に使う機種×店舗データ）")
         for hall, machines in hall_machines.items():
             lines.append(f"\n▼ {hall}")
             for m in machines[:4]:

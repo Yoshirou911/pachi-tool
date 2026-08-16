@@ -13,6 +13,7 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from core.bayes_engine import CountElement, MachineProfile, Observation, SettingEstimator
+from core.setting_change import detect_setting_change
 from value.ev import EVResult, compute_ev
 
 
@@ -95,6 +96,20 @@ class TestMachineProfile:
         assert "3" not in profile.settings
         assert len(profile.settings) == 5
 
+    def test_bonus_combined_probability_is_recalculated(self):
+        data = {
+            "machine_name": "合算補正テスト",
+            "settings": ["1", "6"],
+            "elements": [
+                {"name": "BB確率", "p": {"1": 0.01, "6": 0.02}},
+                {"name": "RB確率", "p": {"1": 0.02, "6": 0.03}},
+                {"name": "合算確率", "p": {"1": 0.001, "6": 0.002}},
+            ],
+        }
+        profile = MachineProfile.from_dict(data)
+        combined = next(e for e in profile.elements if e.name == "合算確率")
+        assert combined.probabilities == {"1": 0.03, "6": 0.05}
+
 
 # ---------------------------------------------------------------------------
 # SettingEstimator
@@ -157,6 +172,34 @@ class TestSettingEstimator:
         with pytest.raises(ValueError):
             estimator.estimate(Observation(1000, {"ベル": 1001}))  # count > total_games
 
+    def test_invalid_observation_and_prior_raise(self, estimator):
+        with pytest.raises(ValueError, match="総ゲーム数"):
+            Observation(-1, {})
+        with pytest.raises(ValueError, match="事前分布"):
+            estimator.estimate(Observation(100, {}), prior={"1": 0, "2": 0})
+
+
+class TestSettingChange:
+    def test_zero_count_is_valid_evidence(self):
+        profile = MachineProfile.from_dict({
+            "machine_name": "二設定テスト機",
+            "settings": ["1", "6"],
+            "elements": [{"name": "当選", "p": {"1": 0.01, "6": 0.10}}],
+        })
+        result = detect_setting_change(
+            profile,
+            Observation(100, {"当選": 0}),
+            Observation(100, {"当選": 10}),
+            change_prior=0.10,
+        )
+        assert result.change_prob > 0.5
+
+    def test_change_prior_must_be_probability(self, demo_profile):
+        with pytest.raises(ValueError, match="事前確率"):
+            detect_setting_change(
+                demo_profile, Observation(100, {}), Observation(100, {}), change_prior=1.0
+            )
+
 
 # ---------------------------------------------------------------------------
 # value/ev
@@ -197,9 +240,9 @@ class TestComputeEV:
         assert abs(sum(result.posterior.values()) - 1.0) < 1e-9
 
     def test_loads_kw_from_machine_json(self):
-        # ゴーゴージャグラーの machine_kw を自動ロード
-        posterior = {"1":1/6,"2":1/6,"3":1/6,"4":1/6,"5":1/6,"6":1/6}
-        result = compute_ev(posterior, machine_name="ゴーゴージャグラー")
+        # スマスロ北斗の拳の machine_kw を自動ロード
+        posterior = {"1":0.2,"2":0.2,"4":0.2,"5":0.2,"6":0.2}
+        result = compute_ev(posterior, machine_name="スマスロ北斗の拳")
         assert result.kw_source == "machine_data"
         assert result.ev > 0.9  # 妥当な範囲
 
@@ -216,12 +259,16 @@ class TestComputeEV:
 class TestRealMachineData:
     def _load_json(self, name: str) -> dict:
         path = ROOT / "data" / "machines" / f"{name}.json"
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
 
-    def test_gogojuggler_loadable(self):
-        data = self._load_json("ゴーゴージャグラー")
+    def test_juggler_profiles_are_removed(self):
+        machines_dir = ROOT / "data" / "machines"
+        assert not list(machines_dir.glob("*ジャグラー*.json"))
+
+    def test_smartslot_hokuto_loadable(self):
+        data = self._load_json("スマスロ北斗の拳")
         profile = MachineProfile.from_dict(data)
-        assert len(profile.elements) == 6
+        assert len(profile.elements) == 5
         assert "1" in profile.settings and "6" in profile.settings
 
     def test_kabaneri_partial_settings(self):
@@ -243,7 +290,7 @@ class TestRealMachineData:
     def test_all_machines_estimable(self):
         machines_dir = ROOT / "data" / "machines"
         for path in machines_dir.glob("*.json"):
-            data = json.loads(path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
             try:
                 profile = MachineProfile.from_dict(data)
                 est = SettingEstimator(profile)

@@ -1,12 +1,12 @@
 """
-パチスロ設定推測 CLI ツール。
+スマスロ設定推測 CLI ツール。
 
 スマホ/PCの端末で直接使える対話型コンソール。
 APIサーバなしにローカルで設定推測・EV計算を完結させる。
 
 使い方:
     python -m core.cli                       # 対話モード
-    python -m core.cli --machine ゴーゴージャグラー --games 3000  # ワンショット
+    python -m core.cli --machine スマスロ北斗の拳 --games 3000  # ワンショット
 """
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def load_profile(machine_name: str) -> MachineProfile | None:
     if not path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
         return MachineProfile.from_dict(data)
     except Exception as e:
         print(red(f"エラー: {e}"))

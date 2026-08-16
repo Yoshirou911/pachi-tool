@@ -24,7 +24,6 @@ from scraper.pachiseven import save, scrape_machine, INTERVAL
 # ベガスベガス大東店で頻繁に登場する機種のパチ7 ID
 # ID は pachiseven.jp/machines/{id}/cutout/4 から確認
 DAITO_MACHINES: dict[str, int] = {
-    "ゴーゴージャグラー":          4421,   # 確認済み
     "パチスロ甲鉄城のカバネリ":    6548,   # 確認済み
     "スマスロ北斗の拳":            6692,   # 確認済み
     "スマスロディスクアップ2":     7120,   # 要確認
@@ -37,8 +36,6 @@ DAITO_MACHINES: dict[str, int] = {
     "スマスロ不二子TYPE-B":        7100,   # 要確認
     "バジリスク絆2":               5932,   # 要確認
     "ハナハナホウオウ天翔":        5100,   # 要確認
-    "アイムジャグラーEX":          4200,   # 要確認
-    "マイジャグラー5":             6100,   # 要確認
 }
 
 

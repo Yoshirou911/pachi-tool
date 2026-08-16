@@ -1,20 +1,83 @@
-# pachi-tool 起動スクリプト (Windows PowerShell)
-# 実行: .\start.ps1
+# PACHI TOOL desktop launcher (ASCII for Windows PowerShell 5.1 compatibility)
+$ErrorActionPreference = "Stop"
 
-$host.UI.RawUI.WindowTitle = "pachi-tool"
-Write-Host "=== pachi-tool ===" -ForegroundColor Cyan
+$projectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$pythonExe = Join-Path $projectDir ".venv\Scripts\python.exe"
+$appUrl = "http://localhost:8000/"
+$braveExe = "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
 
-# 依存チェック
-try {
-    python -c "import fastapi, uvicorn" 2>&1 | Out-Null
-} catch {
-    Write-Host "依存パッケージをインストールします..." -ForegroundColor Yellow
-    pip install -r requirements.txt
+function Open-PachiTool {
+    if (-not (Test-Path -LiteralPath $braveExe)) {
+        throw "Brave was not found: $braveExe"
+    }
+    Start-Process -FilePath $braveExe -ArgumentList "--app=$appUrl", "--start-maximized"
 }
 
-Write-Host "サーバ起動中... http://localhost:8000" -ForegroundColor Green
-Write-Host "停止: Ctrl+C" -ForegroundColor Gray
-Write-Host ""
+$host.UI.RawUI.WindowTitle = "PACHI TOOL"
+Set-Location -LiteralPath $projectDir
 
-# APIサーバ起動（フロントエンドも一緒に配信）
-python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+Write-Host ""
+Write-Host "  PACHI TOOL" -ForegroundColor Cyan
+Write-Host "  -----------------------------" -ForegroundColor DarkGray
+
+if (-not (Test-Path -LiteralPath $pythonExe)) {
+    Write-Host "  Runtime (.venv) was not found." -ForegroundColor Red
+    Write-Host "  Please ask Codex to set up the runtime." -ForegroundColor Yellow
+    Write-Host ""
+    Read-Host "  Press Enter to close"
+    exit 1
+}
+
+# If the app is already running, only open the browser.
+$listener = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
+if ($listener) {
+    Write-Host "  Already running. Opening the browser..." -ForegroundColor Green
+    Open-PachiTool
+    Start-Sleep -Seconds 1
+    exit 0
+}
+
+Write-Host "  Starting server..." -ForegroundColor Yellow
+
+$server = Start-Process `
+    -FilePath $pythonExe `
+    -ArgumentList "-m", "uvicorn", "api.main:app", "--host", "127.0.0.1", "--port", "8000" `
+    -WorkingDirectory $projectDir `
+    -NoNewWindow `
+    -PassThru
+
+try {
+    $ready = $false
+    for ($i = 0; $i -lt 60; $i++) {
+        if ($server.HasExited) {
+            throw "The server stopped before startup completed."
+        }
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing "${appUrl}api/machines" -TimeoutSec 1
+            if ($response.StatusCode -eq 200) {
+                $ready = $true
+                break
+            }
+        } catch {
+            # Waiting for startup.
+        }
+        Start-Sleep -Milliseconds 500
+    }
+
+    if (-not $ready) {
+        throw "Startup check timed out."
+    }
+
+    Write-Host "  Ready: $appUrl" -ForegroundColor Green
+    Write-Host "  Close this window to stop PACHI TOOL." -ForegroundColor DarkGray
+    Write-Host ""
+    Open-PachiTool
+    Wait-Process -Id $server.Id
+} catch {
+    Write-Host "  Startup error: $($_.Exception.Message)" -ForegroundColor Red
+    Read-Host "  Press Enter to close"
+} finally {
+    if (-not $server.HasExited) {
+        Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+    }
+}

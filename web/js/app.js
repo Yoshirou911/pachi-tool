@@ -8,12 +8,47 @@ const API = window.location.hostname === 'localhost' || window.location.hostname
 // ---------------------------------------------------------------------------
 // API クライアント
 // ---------------------------------------------------------------------------
-async function apiFetch(path, opts = {}) {
-  const url = API + path;
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
+// サーバー側で PACHI_ACCESS_TOKEN を設定した場合のみ要求されるアクセスキー。
+// 未設定のサーバー（ローカル/デスクトップ版）に対しては何も送らず、従来どおり動く。
+const TOKEN_KEY = 'pachi_access_token';
+const TARGET_REGION_KEY = 'pachi-target-region';
+function getStoredToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
+}
+function setStoredToken(token) {
+  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
+}
+function getTargetRegion() {
+  try { return localStorage.getItem(TARGET_REGION_KEY) || 'matsumoto_shiojiri'; } catch { return 'matsumoto_shiojiri'; }
+}
+function syncTargetRegion(region) {
+  const value = region || 'matsumoto_shiojiri';
+  try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
+  ['desktop-target-region', 'desktop-heat-region'].forEach(id => {
+    const element = document.getElementById(id);
+    if (element) element.value = value;
   });
+  return value;
+}
+
+async function apiFetch(path, opts = {}, _retried = false) {
+  const url = API + path;
+  let res;
+  try {
+    const headers = opts.body ? { 'Content-Type': 'application/json', ...(opts.headers || {}) } : (opts.headers || {});
+    const token = getStoredToken();
+    if (token) headers['X-Pachi-Token'] = token;
+    res = await fetch(url, { ...opts, headers });
+  } catch {
+    throw new Error('サーバーに接続できません。起動状態とネットワークを確認してください');
+  }
+  if (res.status === 401 && !_retried) {
+    const entered = window.prompt('アクセスキーを入力してください');
+    if (entered) {
+      setStoredToken(entered);
+      return apiFetch(path, opts, true);
+    }
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || res.statusText);
@@ -22,6 +57,7 @@ async function apiFetch(path, opts = {}) {
 }
 
 const api = {
+  getVersion: () => apiFetch(`/api/version?ts=${Date.now()}`),
   getMachines: () => apiFetch('/api/machines'),
   getMachine: (name) => apiFetch(`/api/machines/${encodeURIComponent(name)}`),
   estimate: (body) => apiFetch('/api/estimate', { method: 'POST', body: JSON.stringify(body) }),
@@ -29,11 +65,75 @@ const api = {
   getSessions: (params = {}) => apiFetch('/api/sessions?' + new URLSearchParams(params)),
   getSession: (id) => apiFetch(`/api/sessions/${id}`),
   deleteSession: (id) => apiFetch(`/api/sessions/${id}`, { method: 'DELETE' }),
-  updateSession: (id, body) => apiFetch(`/api/sessions/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   getHalls: () => apiFetch('/api/halls'),
   getDaitoAnalysis: () => apiFetch('/api/hall/daito'),
   getMachineRanking: (hall) => apiFetch(`/api/hall/machine_ranking?hall_name=${encodeURIComponent(hall)}`),
+  getOpportunityDashboard: (month) => apiFetch(`/api/opportunity/dashboard?month=${encodeURIComponent(month)}`),
+  quickAssessOpportunity: (body) => apiFetch('/api/opportunity/quick-assess', { method: 'POST', body: JSON.stringify(body) }),
+  createOpportunityProfile: (body) => apiFetch('/api/opportunity/profiles', { method: 'POST', body: JSON.stringify(body) }),
+  deleteOpportunityProfile: (id) => apiFetch(`/api/opportunity/profiles/${id}`, { method: 'DELETE' }),
+  createOpportunityCandidate: (body) => apiFetch('/api/opportunity/candidates', { method: 'POST', body: JSON.stringify(body) }),
+  updateOpportunityCandidate: (id, body) => apiFetch(`/api/opportunity/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  createOpportunityResult: (id, body) => apiFetch(`/api/opportunity/candidates/${id}/result`, { method: 'POST', body: JSON.stringify(body) }),
+  updateOpportunityBudget: (body) => apiFetch('/api/opportunity/budget', { method: 'PUT', body: JSON.stringify(body) }),
+  getOpportunityCrawlerStatus: () => apiFetch('/api/opportunity/crawler/status'),
+  getOpportunityCrawlerCandidates: () => apiFetch('/api/opportunity/crawler/candidates?limit=50'),
+  runOpportunityCrawler: () => apiFetch('/api/opportunity/crawler/run?max_profiles=100', { method: 'POST' }),
+  approveOpportunityCrawlerCandidate: (id) => apiFetch(`/api/opportunity/crawler/candidates/${id}/approve`, { method: 'POST', body: JSON.stringify({ note: 'PC画面で出典と差分を確認して承認' }) }),
+  rejectOpportunityCrawlerCandidate: (id) => apiFetch(`/api/opportunity/crawler/candidates/${id}/reject`, { method: 'POST', body: JSON.stringify({ note: 'PC画面で不採用' }) }),
+  getHyenaStoreRanking: (at, prefecture = '') => {
+    const params = new URLSearchParams({ at, limit: '20', ts: String(Date.now()) });
+    if (prefecture) params.set('prefecture', prefecture);
+    return apiFetch(`/api/occupancy/hyena-stores?${params}`);
+  },
+  recordOccupancy: (body) => apiFetch('/api/occupancy', { method: 'POST', body: JSON.stringify(body) }),
 };
+
+const VERSION_SEEN_KEY = 'pachi-version-seen';
+let desktopReleaseInfo = null;
+
+function versionDateLabel(value) {
+  return String(value || '').replace(/-/g, '/');
+}
+
+function renderDesktopVersion() {
+  if (!desktopReleaseInfo) return;
+  const seen = localStorage.getItem(VERSION_SEEN_KEY) === desktopReleaseInfo.version;
+  document.getElementById('desktop-version-label').textContent = `v${desktopReleaseInfo.version}`;
+  document.getElementById('desktop-version-button').classList.toggle('seen', seen);
+  document.getElementById('desktop-release-current').innerHTML = `<strong>PACHI TOOL v${esc(desktopReleaseInfo.version)}</strong>${esc(desktopReleaseInfo.channel)}・${versionDateLabel(desktopReleaseInfo.released_on)}公開`;
+  document.getElementById('desktop-patch-notes').innerHTML = (desktopReleaseInfo.patch_notes || []).map(note => `
+    <article class="desktop-patch-note">
+      <div class="desktop-patch-note-head"><strong>v${esc(note.version)}</strong><time>${versionDateLabel(note.released_on)}</time></div>
+      <h3>${esc(note.title)}</h3>
+      <ul>${(note.items || []).map(item => `<li>${esc(item)}</li>`).join('')}</ul>
+    </article>`).join('');
+}
+
+async function loadDesktopVersion() {
+  try {
+    desktopReleaseInfo = await api.getVersion();
+    renderDesktopVersion();
+  } catch (_) {
+    document.getElementById('desktop-version-label').textContent = 'v2.6.4';
+  }
+}
+
+function openVersionNotes() {
+  document.getElementById('version-overlay').style.display = 'flex';
+  if (desktopReleaseInfo) localStorage.setItem(VERSION_SEEN_KEY, desktopReleaseInfo.version);
+  renderDesktopVersion();
+}
+
+function closeVersionNotes() {
+  document.getElementById('version-overlay').style.display = 'none';
+}
+
+document.getElementById('desktop-version-button').addEventListener('click', openVersionNotes);
+document.getElementById('version-close').addEventListener('click', closeVersionNotes);
+document.getElementById('version-overlay').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeVersionNotes();
+});
 
 // ---------------------------------------------------------------------------
 // Loading helpers
@@ -74,52 +174,162 @@ const state = {
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
-function switchTab(tabId) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+const sidebarToggle = document.getElementById('sidebar-toggle');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+const mainNavigation = document.getElementById('main-navigation');
+const desktopSidebar = window.matchMedia('(min-width: 900px)');
+const navBackButton = document.getElementById('nav-back');
+const navForwardButton = document.getElementById('nav-forward');
+let navigationEntries = ['home'];
+let navigationIndex = 0;
+let activeModule = 'home';
+let desktopTargetSearchData = null;
+let desktopTrendProfileData = null;
+let desktopFloorData = null;
+let desktopFloorEditorSeats = [];
+let desktopHallOptions = [];
+const TARGET_MODULE_TABS = new Set(['target-search', 'trend-profile', 'floor-map', 'estimate', 'hall', 'map', 'ai']);
+const HYENA_MODULE_TABS = new Set(['opportunity', 'machines', 'session']);
+
+function updateModuleNavigation() {
+  document.body.dataset.module = activeModule;
+  let visibleCount = 0;
+  document.querySelectorAll('.tab-btn').forEach(button => {
+    const moduleName = button.dataset.moduleNav;
+    const visible = button.dataset.tab === 'home' || moduleName === activeModule;
+    button.hidden = !visible;
+    if (visible) visibleCount += 1;
+  });
+  const modeTitle = document.getElementById('sidebar-mode-title');
+  const modeSubtitle = document.getElementById('sidebar-mode-subtitle');
+  const help = document.getElementById('sidebar-help');
+  if (activeModule === 'hyena') {
+    modeTitle.textContent = 'ハイエナ専用';
+    modeSubtitle.textContent = 'HYENA MODE';
+    help.textContent = '空き台判定・期待値・実戦記録だけを表示しています';
+  } else if (activeModule === 'target') {
+    modeTitle.textContent = '狙い台捜索専用';
+    modeSubtitle.textContent = 'TARGET MODE';
+    help.textContent = '店舗・曜日・機種の分析機能だけを表示しています';
+  } else {
+    modeTitle.textContent = 'モード選択';
+    modeSubtitle.textContent = 'CHOOSE A MODE';
+    help.textContent = 'ホームから攻略モードを選んでください';
+  }
+  mainNavigation.classList.toggle('module-home-only', visibleCount === 1);
+}
+
+function updateNavigationButtons() {
+  navBackButton.disabled = navigationIndex <= 0;
+  navForwardButton.disabled = navigationIndex >= navigationEntries.length - 1;
+}
+
+function recordNavigation(tabId) {
+  if (navigationEntries[navigationIndex] === tabId) return;
+  navigationEntries = navigationEntries.slice(0, navigationIndex + 1);
+  navigationEntries.push(tabId);
+  navigationIndex = navigationEntries.length - 1;
+}
+
+function sidebarIsOpen() {
+  return desktopSidebar.matches
+    ? !document.body.classList.contains('sidebar-closed')
+    : document.body.classList.contains('sidebar-open');
+}
+
+function updateSidebarA11y() {
+  const isOpen = sidebarIsOpen();
+  sidebarToggle.setAttribute('aria-expanded', String(isOpen));
+  sidebarToggle.setAttribute('aria-label', isOpen ? 'メニューを閉じる' : 'メニューを開く');
+  mainNavigation.toggleAttribute('inert', !isOpen);
+  mainNavigation.setAttribute('aria-hidden', String(!isOpen));
+}
+
+function setSidebar(open) {
+  if (desktopSidebar.matches) {
+    document.body.classList.remove('sidebar-open');
+    document.body.classList.toggle('sidebar-closed', !open);
+    localStorage.setItem('pachi_sidebar_closed', String(!open));
+  } else {
+    document.body.classList.remove('sidebar-closed');
+    document.body.classList.toggle('sidebar-open', open);
+  }
+  updateSidebarA11y();
+}
+
+function initializeSidebar() {
+  const open = desktopSidebar.matches
+    ? localStorage.getItem('pachi_sidebar_closed') !== 'true'
+    : false;
+  setSidebar(open);
+}
+
+sidebarToggle.addEventListener('click', () => setSidebar(!sidebarIsOpen()));
+sidebarBackdrop.addEventListener('click', () => setSidebar(false));
+desktopSidebar.addEventListener('change', initializeSidebar);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && sidebarIsOpen()) setSidebar(false);
+});
+initializeSidebar();
+
+function switchTab(tabId, options = {}) {
+  const { record = true, resetHistory = false } = options;
+  if (!document.getElementById(`page-${tabId}`)) return;
+  if (tabId === 'home') activeModule = 'home';
+  else if (TARGET_MODULE_TABS.has(tabId)) activeModule = 'target';
+  else if (HYENA_MODULE_TABS.has(tabId)) activeModule = 'hyena';
+  updateModuleNavigation();
+  if (resetHistory) {
+    navigationEntries = [tabId];
+    navigationIndex = 0;
+  } else if (record) {
+    recordNavigation(tabId);
+  }
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    const active = b.dataset.tab === tabId;
+    b.classList.toggle('active', active);
+    if (active) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
   document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${tabId}`));
   window.scrollTo(0, 0);
   localStorage.setItem('pachi_last_tab', tabId);
+  if (!desktopSidebar.matches) setSidebar(false);
   if (tabId === 'session') loadSessions();
   if (tabId === 'hall') {
-    const last = localStorage.getItem('pachi_last_hall_tab') || 'today';
+    const last = localStorage.getItem('pachi_last_hall_tab') || 'compare';
     switchHallTab(last);
   }
   if (tabId === 'map') loadMapPage();
+  if (tabId === 'trend-profile' && !desktopTrendProfileData) loadDesktopTrendProfile();
+  if (tabId === 'floor-map' && !desktopFloorData) loadDesktopFloorHeat();
   if (tabId === 'ai') loadAiPage();
   if (tabId === 'machines') loadMachinesPage();
+  if (tabId === 'opportunity') loadOpportunityPage();
+  if (tabId === 'target-search' && !desktopTargetSearchData) loadDesktopTargetSearch();
+  updateNavigationButtons();
 }
 
-function startEstimateForHall(hallName) {
-  switchTab('estimate');
-  const estHallEl = document.getElementById('est-hall');
-  if (estHallEl) {
-    estHallEl.value = hallName;
-    state.currentHall = hallName;
-    loadHallTodayIndicator(hallName);
-    if (state.currentMachine) { loadPriorQuality(); saveDraft(); }
-  }
-  showToast(`${hallName} をセット`, 'success');
+function navigateHistory(direction) {
+  const nextIndex = navigationIndex + direction;
+  if (nextIndex < 0 || nextIndex >= navigationEntries.length) return;
+  navigationIndex = nextIndex;
+  switchTab(navigationEntries[navigationIndex], { record: false });
 }
 
-function _startSessionReplay(machineName, hallName) {
-  closeModal();
-  switchTab('estimate');
-  // ホールを先にセット（autoEstimateで参照されるため）
-  const estHallEl = document.getElementById('est-hall');
-  if (hallName && estHallEl) {
-    estHallEl.value = hallName;
-    state.currentHall = hallName;
-    loadHallTodayIndicator(hallName);
+navBackButton.addEventListener('click', () => navigateHistory(-1));
+navForwardButton.addEventListener('click', () => navigateHistory(1));
+document.addEventListener('keydown', event => {
+  if (!event.altKey) return;
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault();
+    navigateHistory(-1);
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault();
+    navigateHistory(1);
   }
-  // 機種をセット
-  const estMachineEl = document.getElementById('est-machine');
-  if (estMachineEl) {
-    estMachineEl.value = machineName;
-    estMachineEl.dispatchEvent(new Event('change'));
-  }
-  const hint = hallName ? `${machineName} @ ${hallName}` : machineName;
-  showToast(`${hint} をセット`, 'success');
-}
+});
+updateNavigationButtons();
 
 function switchHallTab(htabId) {
   document.querySelectorAll('.hall-sub-btn').forEach(b => b.classList.toggle('active', b.dataset.htab === htabId));
@@ -127,7 +337,6 @@ function switchHallTab(htabId) {
     p.classList.toggle('active', p.id === `htab-${htabId}`);
   });
   localStorage.setItem('pachi_last_hall_tab', htabId);
-  if (htabId === 'today') loadTodayRecommendation();
   if (htabId === 'compare') loadHallCompare();
   if (htabId === 'detail') loadHallPage();
   if (htabId === 'admin') loadScrapeManager();
@@ -138,29 +347,365 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 });
 
+document.getElementById('page-home').addEventListener('click', event => {
+  const destination = event.target.closest('[data-home-destination]');
+  if (destination) switchTab(destination.dataset.homeDestination);
+});
+
+function localDateValue(offsetDays = 0) {
+  const value = new Date();
+  value.setDate(value.getDate() + offsetDays);
+  return value.toLocaleDateString('sv');
+}
+
+function desktopSignedCoins(value) {
+  const number = Number(value || 0);
+  return `${number >= 0 ? '+' : ''}${number.toLocaleString('ja-JP')}枚`;
+}
+
+function renderDesktopTargetSearch(data) {
+  const container = document.getElementById('desktop-target-results');
+  const halls = data.halls || [];
+  const insufficient = data.insufficient_halls || [];
+  if (!halls.length) {
+    container.innerHTML = `<div class="card desktop-target-empty"><strong>${esc(data.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(data.notice || '取得日数が増えるまでお待ちください。')}</span></div>
+      ${insufficient.length ? `<details class="desktop-insufficient" open><summary>除外・データ不足 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="desktop-target-heading"><div><span class="page-eyebrow">${esc(data.region_label || '')}・${esc(data.visit_date)} ${esc(data.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="badge">${halls.length}店舗</span></div>
+    ${halls.map(hall => `<article class="card desktop-target-hall">
+      <div class="desktop-target-hall-head"><span class="desktop-target-rank">${hall.rank}</span><div><h3>${esc(hall.hall_name)}</h3><p>${esc(hall.basis)}・最終データ ${esc(hall.latest_date)}</p></div><div class="desktop-target-score"><b>${hall.score}</b><small>点</small></div></div>
+      <div class="desktop-target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>実績日数</small><b>${hall.sample_days}日</b></span><span><small>信頼度</small><b class="target-confidence-${hall.confidence === '高' ? 'high' : hall.confidence === '中' ? 'mid' : 'low'}">${esc(hall.confidence)}</b></span></div>
+      <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
+      <div class="desktop-target-machines">
+        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・最終${esc(machine.latest_date || '--')}・${esc(machine.installation_status || '設置未確認')}</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
+      </div>
+    </article>`).join('')}
+    ${insufficient.length ? `<details class="desktop-insufficient"><summary>データ不足の店舗 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}
+    <p class="target-search-disclaimer">${esc(data.notice)}</p>`;
+}
+
+async function loadDesktopTargetSearch() {
+  const dateInput = document.getElementById('desktop-target-date');
+  const daysInput = document.getElementById('desktop-target-days');
+  const region = syncTargetRegion(document.getElementById('desktop-target-region').value);
+  const button = document.getElementById('desktop-target-search-button');
+  const status = document.getElementById('desktop-target-status');
+  if (!dateInput.value) dateInput.value = localDateValue(1);
+  button.disabled = true;
+  status.textContent = '店舗・曜日・機種データを分析中...';
+  try {
+    desktopTargetSearchData = await apiFetch(`/api/hall/target_search?visit_date=${encodeURIComponent(dateInput.value)}&days=${encodeURIComponent(daysInput.value)}&region=${encodeURIComponent(region)}`);
+    renderDesktopTargetSearch(desktopTargetSearchData);
+    status.textContent = `${desktopTargetSearchData.region_label}・${desktopTargetSearchData.generated_at}時点の公開データで分析しました。`;
+  } catch (error) {
+    desktopTargetSearchData = null;
+    document.getElementById('desktop-target-results').innerHTML = `<div class="card desktop-target-empty"><strong>分析できませんでした</strong><span>${esc(error.message)}</span></div>`;
+    status.textContent = '分析サーバーとの接続を確認してください。';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.getElementById('desktop-target-search-form').addEventListener('submit', event => {
+  event.preventDefault();
+  loadDesktopTargetSearch();
+});
+
+document.getElementById('desktop-target-date').value = localDateValue(1);
+syncTargetRegion(getTargetRegion());
+
+function safeExternalUrl(raw) {
+  try {
+    const url = new URL(raw, window.location.href);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch { return ''; }
+}
+
+async function loadDesktopHallOptions() {
+  if (!desktopHallOptions.length) {
+    try {
+      const rows = await apiFetch('/api/scrape/halls');
+      desktopHallOptions = (rows || []).filter(row => row.hall_name);
+    } catch { /* fallback below */ }
+  }
+  if (!desktopHallOptions.length) {
+    desktopHallOptions = [{ hall_name: 'キコーナ四條畷店' }, { hall_name: 'ひま・わり四條畷店' }];
+  }
+  const localPriority = new Map([['キコーナ四條畷店', 0], ['ひま・わり四條畷店', 1], ['キコーナ野崎店', 2]]);
+  desktopHallOptions.sort((a, b) => {
+    const aPriority = localPriority.has(a.hall_name) ? localPriority.get(a.hall_name) : 99;
+    const bPriority = localPriority.has(b.hall_name) ? localPriority.get(b.hall_name) : 99;
+    return aPriority - bPriority || (b.db_record_count || 0) - (a.db_record_count || 0);
+  });
+  const html = desktopHallOptions.map(row => `<option value="${esc(row.hall_name)}">${esc(row.hall_name)}</option>`).join('');
+  ['desktop-trend-hall', 'desktop-floor-hall'].forEach(id => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = html;
+    if ([...select.options].some(option => option.value === current)) select.value = current;
+  });
+}
+
+function desktopProfileBars(rows, labelKey) {
+  if (!rows?.length) return '<p class="desktop-analysis-empty">分析できる実績がありません。</p>';
+  const max = Math.max(1, ...rows.map(row => Math.abs(Number(row.avg_diff || 0))));
+  return `<div class="desktop-profile-bars">${rows.map(row => {
+    const value = Number(row.avg_diff || 0);
+    const width = Math.max(4, Math.round(Math.abs(value) / max * 100));
+    return `<div><span>${esc(row[labelKey])}</span><i><b class="${value >= 0 ? 'profile-up' : 'profile-down'}" style="width:${width}%"></b></i><strong class="${value >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(value)}</strong><small>${row.sample_days || 0}日</small></div>`;
+  }).join('')}</div>`;
+}
+
+function renderDesktopTrendProfile(aiResult = null) {
+  const root = document.getElementById('desktop-trend-results');
+  const data = desktopTrendProfileData;
+  if (!data || data.status !== '分析済み') {
+    root.innerHTML = `<div class="card desktop-analysis-empty"><strong>まだ分析できる実績がありません</strong><span>${esc(data?.notice || '公開データを収集すると自動で表示されます。')}</span></div>`;
+    return;
+  }
+  const aiText = aiResult?.summary || (data.insights || []).map(item => `・${item}`).join('\n');
+  const sources = (data.source_urls || []).map((url, index) => {
+    const safe = safeExternalUrl(url);
+    return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">出典${index + 1}</a>` : '';
+  }).join('');
+  root.innerHTML = `
+    <article class="card desktop-profile-hero">
+      <div><span class="page-eyebrow">${esc(data.reference_date)}までの実績</span><h2>${esc(data.hall_name)}</h2><p>${data.sample_days}日分・信頼度 ${esc(data.confidence)}</p></div>
+      <div class="desktop-profile-score"><small>全体平均</small><b class="${data.overall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(data.overall.avg_diff)}</b><span>プラス日率 ${data.overall.positive_day_rate}%</span></div>
+    </article>
+    <article class="card desktop-ai-brief"><div class="card-title card-title-row"><span>分析の要点</span><em>${esc(aiResult?.engine || '統計エンジン')}</em></div><p>${esc(aiText).replace(/\n/g, '<br>')}</p><small>断定ではなく、取得済み実績から見た傾向です。</small></article>
+    <div class="desktop-analysis-grid">
+      <article class="card"><div class="card-title">曜日別</div>${desktopProfileBars(data.weekday_profile, 'weekday')}</article>
+      <article class="card"><div class="card-title">日付末尾別</div>${desktopProfileBars(data.digit_profile, 'digit')}</article>
+    </div>
+    <article class="card"><div class="card-title card-title-row"><span>直近42日の実績カレンダー</span><small>点数は店舗内の相対評価</small></div><div class="desktop-trend-calendar">${(data.calendar || []).slice(-42).map(day => `<div style="--calendar-score:${Math.max(0, Math.min(100, Number(day.score || 0)))}%"><span>${esc(day.date.slice(5).replace('-', '/'))}</span><b>${day.score}</b><small class="${day.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(day.avg_diff)}</small></div>`).join('')}</div></article>
+    <article class="card"><div class="card-title">次の注目日</div><div class="desktop-next-dates">${(data.next_dates || []).map(day => `<div class="${day.score >= 60 ? 'hot' : ''}"><strong>${esc(day.date.slice(5).replace('-', '/'))}</strong><span>${esc(day.weekday)}曜</span><b>${day.score}点</b><small>${esc(day.evidence)}</small></div>`).join('')}</div></article>
+    <article class="card"><div class="card-title">扱いが強い機種</div><div class="desktop-profile-machines">${(data.machine_profile || []).slice(0, 12).map((machine, index) => `<div><span>${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('')}</div></article>
+    <details class="card desktop-analysis-sources"><summary>出典と注意事項</summary><div>${sources || '<span>データ内に出典URLはありません。</span>'}<p>${esc(data.notice)}</p></div></details>`;
+}
+
+async function loadDesktopTrendProfile() {
+  await loadDesktopHallOptions();
+  const hall = document.getElementById('desktop-trend-hall').value;
+  const visitDate = document.getElementById('desktop-trend-date').value || localDateValue(1);
+  const days = document.getElementById('desktop-trend-days').value;
+  const button = document.getElementById('desktop-trend-button');
+  const status = document.getElementById('desktop-trend-status');
+  button.disabled = true;
+  status.textContent = '公開実績と日付パターンを分析中...';
+  try {
+    const query = new URLSearchParams({ hall_name: hall, visit_date: visitDate, days });
+    const [profile, aiResult] = await Promise.all([
+      apiFetch(`/api/hall/trend_profile?${query}`),
+      apiFetch(`/api/ai/hall_profile?${query}`).catch(() => null),
+    ]);
+    desktopTrendProfileData = profile;
+    renderDesktopTrendProfile(aiResult);
+    status.textContent = profile.status === '分析済み' ? `${profile.sample_days}日分・信頼度${profile.confidence}で分析しました。` : profile.notice;
+  } catch (error) {
+    desktopTrendProfileData = null;
+    document.getElementById('desktop-trend-results').innerHTML = `<div class="card desktop-analysis-empty"><strong>分析できませんでした</strong><span>${esc(error.message)}</span></div>`;
+    status.textContent = '分析サーバーとの接続を確認してください。';
+  } finally { button.disabled = false; }
+}
+
+function renderDesktopFloorDetail(seat) {
+  const detail = document.getElementById('desktop-floor-detail');
+  if (!seat) {
+    detail.innerHTML = '<div class="desktop-floor-empty">座席を選ぶと分析根拠を表示します。</div>';
+    return;
+  }
+  detail.innerHTML = `<div class="desktop-seat-detail-head"><div><span>台番号 ${seat.seat_number}</span><h2>${esc(seat.machine_name || '機種未登録')}</h2><small>${esc(seat.island_name || '')}</small></div><div style="--seat-color:${esc(seat.color)}"><b>${seat.score ?? '--'}</b><small>点</small><span>${esc(seat.heat_level)}</span></div></div><div class="desktop-seat-metrics"><div><small>指定日推定</small><strong class="${seat.estimate >= 0 ? 'money-up' : 'money-down'}">${seat.estimate == null ? '--' : desktopSignedCoins(seat.estimate)}</strong></div><div><small>プラス率</small><strong>${seat.positive_rate == null ? '--' : `${seat.positive_rate}%`}</strong></div><div><small>実績</small><strong>${seat.sample_days}日</strong></div><div><small>当日結果</small><strong>${seat.actual ? desktopSignedCoins(seat.actual.diff) : '--'}</strong></div></div><div class="desktop-seat-reasons">${(seat.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>`;
+}
+
+function renderDesktopFloorMap() {
+  const canvas = document.getElementById('desktop-floor-canvas');
+  const meta = document.getElementById('desktop-floor-meta');
+  const data = desktopFloorData;
+  if (!data?.layout || !data.seats?.length) {
+    canvas.innerHTML = '<div class="desktop-floor-empty"><strong>座席マップはまだありません</strong><span>下の登録欄から、出典と台番号範囲を登録できます。</span></div>';
+    canvas.style.aspectRatio = 'auto';
+    meta.innerHTML = `<span>${esc(data?.status || '未登録')}</span><small>${esc(data?.notice || '')}</small>`;
+    renderDesktopFloorDetail(null);
+    return;
+  }
+  const layout = data.layout;
+  canvas.style.aspectRatio = `${layout.width} / ${layout.height}`;
+  canvas.innerHTML = data.seats.map(seat => `<button type="button" class="desktop-floor-seat" data-desktop-seat="${seat.seat_number}" style="left:${seat.x / layout.width * 100}%;top:${seat.y / layout.height * 100}%;width:${seat.width / layout.width * 100}%;height:${seat.height / layout.height * 100}%;--seat-color:${esc(seat.color)}"><b>${seat.seat_number}</b><span>${seat.score ?? '--'}</span></button>`).join('');
+  const source = safeExternalUrl(layout.source_url);
+  meta.innerHTML = `<span>${esc(layout.floor_name)}・${esc(layout.verification_status)}</span><small>${esc(layout.source_label || '利用者登録マップ')}・台番号実績 ${data.data_coverage.seat_count}台</small>${source ? `<a href="${esc(source)}" target="_blank" rel="noopener">出典を開く</a>` : ''}`;
+  canvas.querySelectorAll('[data-desktop-seat]').forEach(button => button.addEventListener('click', () => renderDesktopFloorDetail(data.seats.find(seat => seat.seat_number === Number(button.dataset.desktopSeat)))));
+  renderDesktopFloorDetail(data.seats[0]);
+}
+
+function syncDesktopFloorEditor() {
+  const layout = desktopFloorData?.layout;
+  if (!layout) return;
+  document.getElementById('desktop-layout-valid-from').value = layout.valid_from || localDateValue();
+  document.getElementById('desktop-layout-source-label').value = layout.source_label || '';
+  document.getElementById('desktop-layout-source-url').value = layout.source_url || '';
+  document.getElementById('desktop-layout-verification').value = layout.verification_status || '未確認';
+  document.getElementById('desktop-layout-notes').value = layout.notes || '';
+  desktopFloorEditorSeats = (desktopFloorData.seats || []).map(seat => ({ seat_number: seat.seat_number, machine_name: seat.machine_name || '', island_name: seat.island_name || '', x: seat.x, y: seat.y, width: seat.width, height: seat.height, rotation: seat.rotation || 0 }));
+}
+
+async function loadDesktopFloorHeat() {
+  await loadDesktopHallOptions();
+  const hall = document.getElementById('desktop-floor-hall').value;
+  const visitDate = document.getElementById('desktop-floor-date').value || localDateValue(1);
+  const days = document.getElementById('desktop-floor-days').value;
+  const button = document.getElementById('desktop-floor-button');
+  const status = document.getElementById('desktop-floor-status');
+  button.disabled = true;
+  status.textContent = '店内レイアウトと台番号実績を照合中...';
+  try {
+    desktopFloorData = await apiFetch(`/api/layouts/seat_heat?hall_name=${encodeURIComponent(hall)}&visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`);
+    syncDesktopFloorEditor();
+    renderDesktopFloorMap();
+    status.textContent = `${desktopFloorData.status}・${desktopFloorData.data_coverage.history_rows}件の台番号実績を使用`;
+  } catch (error) {
+    desktopFloorData = null;
+    document.getElementById('desktop-floor-canvas').innerHTML = `<div class="desktop-floor-empty"><strong>表示できませんでした</strong><span>${esc(error.message)}</span></div>`;
+    status.textContent = '分析サーバーとの接続を確認してください。';
+  } finally { button.disabled = false; }
+}
+
+function createDesktopAutoLayout() {
+  const start = Number(document.getElementById('desktop-layout-seat-start').value);
+  const end = Number(document.getElementById('desktop-layout-seat-end').value);
+  if (!start || !end || end < start) return showToast('正しい開始・終了台番号を入力してください', 'error');
+  if (end - start + 1 > 300) return showToast('一度に登録できるのは300台までです', 'error');
+  const island = document.getElementById('desktop-layout-island').value.trim() || 'スロット島';
+  const numbers = Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  desktopFloorEditorSeats = numbers.map((seatNumber, index) => ({ seat_number: seatNumber, machine_name: island, island_name: island, x: 55 + (index % 14) * 64, y: 70 + Math.floor(index / 14) * 100, width: 52, height: 44, rotation: 0 }));
+  const height = Math.max(420, 170 + Math.ceil(numbers.length / 14) * 100);
+  desktopFloorData = { hall_name: document.getElementById('desktop-floor-hall').value, status: '仮配置', notice: '公式情報または現地で位置を確認してください。', data_coverage: { history_rows: 0, seat_count: 0 }, layout: { id: null, hall_name: document.getElementById('desktop-floor-hall').value, floor_name: 'スロットフロア', valid_from: document.getElementById('desktop-layout-valid-from').value || localDateValue(), width: 1000, height, source_url: document.getElementById('desktop-layout-source-url').value, source_label: document.getElementById('desktop-layout-source-label').value || '利用者登録マップ', verification_status: document.getElementById('desktop-layout-verification').value, notes: '仮配置です。実際の位置を確認してください。' }, seats: desktopFloorEditorSeats.map(seat => ({ ...seat, score: null, color: '#64748b', heat_level: 'データ不足', reasons: ['配置確認待ち'], sample_days: 0 })) };
+  renderDesktopFloorMap();
+  showToast(`${numbers.length}台を仮配置しました`, 'success');
+}
+
+async function saveDesktopFloorLayout(event) {
+  event.preventDefault();
+  if (!desktopFloorEditorSeats.length) return showToast('先に台番号を仮配置してください', 'error');
+  const sourceUrl = document.getElementById('desktop-layout-source-url').value.trim();
+  const sourceLabel = document.getElementById('desktop-layout-source-label').value.trim();
+  const body = {
+    hall_name: document.getElementById('desktop-floor-hall').value,
+    floor_name: 'スロットフロア',
+    valid_from: document.getElementById('desktop-layout-valid-from').value || localDateValue(),
+    width: desktopFloorData?.layout?.width || 1000,
+    height: desktopFloorData?.layout?.height || 700,
+    source_url: sourceUrl,
+    source_label: sourceLabel || (sourceUrl ? '公開店内マップ' : '利用者登録マップ'),
+    source_kind: sourceUrl ? 'official' : 'manual',
+    verification_status: document.getElementById('desktop-layout-verification').value,
+    notes: document.getElementById('desktop-layout-notes').value.trim(),
+    seats: desktopFloorEditorSeats,
+  };
+  const button = document.getElementById('desktop-layout-save');
+  button.disabled = true;
+  try {
+    await apiFetch('/api/layouts', { method: 'POST', body: JSON.stringify(body) });
+    showToast('店内マップを保存しました', 'success');
+    await loadDesktopFloorHeat();
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { button.disabled = false; }
+}
+
+function parseSeatResultCsv(text) {
+  const parseLine = line => {
+    const values = []; let value = ''; let quoted = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"' && quoted && line[i + 1] === '"') { value += '"'; i += 1; }
+      else if (char === '"') quoted = !quoted;
+      else if (char === ',' && !quoted) { values.push(value.trim()); value = ''; }
+      else value += char;
+    }
+    values.push(value.trim());
+    return values;
+  };
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(line => line.trim());
+  if (lines.length < 2) throw new Error('見出しと1件以上のデータが必要です');
+  const aliases = {
+    seat_number: ['seat_number', '台番号', '台番'], machine_name: ['machine_name', '機種名', '機種'],
+    diff_coins: ['diff_coins', '差枚'], games: ['games', 'g数', 'ゲーム数'],
+  };
+  const headers = parseLine(lines[0]).map(value => value.toLowerCase());
+  const indexOf = key => headers.findIndex(header => aliases[key].includes(header));
+  const indexes = Object.fromEntries(Object.keys(aliases).map(key => [key, indexOf(key)]));
+  if (indexes.seat_number < 0 || indexes.diff_coins < 0) throw new Error('「台番号」と「差枚」列が必要です');
+  return lines.slice(1).map((line, lineIndex) => {
+    const cols = parseLine(line);
+    const seat = Number(cols[indexes.seat_number]);
+    const diff = Number(String(cols[indexes.diff_coins]).replace(/[+,枚]/g, ''));
+    const games = indexes.games >= 0 && cols[indexes.games] !== '' ? Number(String(cols[indexes.games]).replace(/[,Gg]/g, '')) : null;
+    if (!Number.isInteger(seat) || !Number.isFinite(diff) || (games != null && !Number.isFinite(games))) throw new Error(`${lineIndex + 2}行目の数値を確認してください`);
+    return { seat_number: seat, machine_name: indexes.machine_name >= 0 ? cols[indexes.machine_name] : '', diff_coins: diff, games };
+  });
+}
+
+async function saveDesktopSeatResults(rows, sourceLabel) {
+  const status = document.getElementById('desktop-seat-result-status');
+  const body = {
+    hall_name: document.getElementById('desktop-floor-hall').value,
+    report_date: document.getElementById('desktop-seat-result-date').value || localDateValue(),
+    source_label: sourceLabel || document.getElementById('desktop-seat-result-source').value.trim() || '現地入力',
+    rows,
+  };
+  status.textContent = `${rows.length}件を保存中...`;
+  const result = await apiFetch('/api/layouts/seat_results', { method: 'POST', body: JSON.stringify(body) });
+  status.textContent = `${result.report_date}・${result.message}`;
+  showToast(result.message, 'success');
+  await loadDesktopFloorHeat();
+}
+
+document.getElementById('desktop-seat-result-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = document.getElementById('desktop-seat-result-save');
+  button.disabled = true;
+  try {
+    await saveDesktopSeatResults([{
+      seat_number: Number(document.getElementById('desktop-seat-result-number').value),
+      machine_name: document.getElementById('desktop-seat-result-machine').value.trim(),
+      diff_coins: Number(document.getElementById('desktop-seat-result-diff').value),
+      games: document.getElementById('desktop-seat-result-games').value === '' ? null : Number(document.getElementById('desktop-seat-result-games').value),
+    }]);
+    ['desktop-seat-result-number', 'desktop-seat-result-machine', 'desktop-seat-result-diff', 'desktop-seat-result-games'].forEach(id => { document.getElementById(id).value = ''; });
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { button.disabled = false; }
+});
+
+document.getElementById('desktop-seat-result-csv').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try { await saveDesktopSeatResults(parseSeatResultCsv(await file.text()), `CSV: ${file.name}`); }
+  catch (error) { showToast(error.message, 'error'); }
+  finally { event.target.value = ''; }
+});
+
+document.getElementById('desktop-seat-result-template').addEventListener('click', () => {
+  const blob = new Blob(['台番号,機種名,差枚,G数\n501,スマスロ北斗の拳,1800,7200\n'], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = 'seat-results-template.csv'; anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+document.getElementById('desktop-trend-form').addEventListener('submit', event => { event.preventDefault(); loadDesktopTrendProfile(); });
+document.getElementById('desktop-floor-form').addEventListener('submit', event => { event.preventDefault(); loadDesktopFloorHeat(); });
+document.getElementById('desktop-layout-auto').addEventListener('click', createDesktopAutoLayout);
+document.getElementById('desktop-layout-form').addEventListener('submit', saveDesktopFloorLayout);
+document.getElementById('desktop-trend-date').value = localDateValue(1);
+document.getElementById('desktop-floor-date').value = localDateValue(1);
+document.getElementById('desktop-layout-valid-from').value = localDateValue();
+document.getElementById('desktop-seat-result-date').value = localDateValue();
+
 document.querySelectorAll('.hall-sub-btn').forEach(btn => {
   btn.addEventListener('click', () => switchHallTab(btn.dataset.htab));
 });
-
-// ホールページのスワイプジェスチャー（左右で次/前タブ）
-{
-  const hallPage = document.getElementById('page-hall');
-  const HTAB_ORDER = ['today', 'compare', 'detail', 'calendar'];
-  let _swipeStartX = 0, _swipeStartY = 0;
-  hallPage?.addEventListener('touchstart', e => {
-    _swipeStartX = e.touches[0].clientX;
-    _swipeStartY = e.touches[0].clientY;
-  }, { passive: true });
-  hallPage?.addEventListener('touchend', e => {
-    const dx = e.changedTouches[0].clientX - _swipeStartX;
-    const dy = e.changedTouches[0].clientY - _swipeStartY;
-    if (Math.abs(dx) < 40 || Math.abs(dy) > Math.abs(dx) * 0.8) return;
-    const current = [...document.querySelectorAll('.hall-sub-btn')].find(b => b.classList.contains('active'))?.dataset.htab;
-    const idx = HTAB_ORDER.indexOf(current);
-    if (dx < 0 && idx < HTAB_ORDER.length - 1) switchHallTab(HTAB_ORDER[idx + 1]);
-    else if (dx > 0 && idx > 0) switchHallTab(HTAB_ORDER[idx - 1]);
-  }, { passive: true });
-}
 
 // 折りたたみカード（イベント委譲で動的追加要素にも対応）
 document.addEventListener('click', e => {
@@ -209,7 +754,6 @@ async function loadWeeklyHighlight() {
       html += hotMachines.slice(0, 5).map(h => {
         const sign = h.surge >= 0 ? '+' : '';
         const col = h.surge > 0 ? 'var(--success)' : 'var(--danger)';
-        const encHM = encodeURIComponent(h.hall_name), encMM = encodeURIComponent(h.machine_name);
         return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04)">
           <div style="flex:1;min-width:0">
             <div style="font-size:.74rem;font-weight:700;color:var(--text1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.machine_name)}</div>
@@ -219,8 +763,6 @@ async function loadWeeklyHighlight() {
             <div style="font-size:.72rem;font-weight:700;color:${col}">${sign}${h.surge}枚</div>
             <div style="font-size:.58rem;color:var(--text3)">${h.recent_avg >= 0 ? '+' : ''}${h.recent_avg} / ${h.base_avg >= 0 ? '+' : ''}${h.base_avg}</div>
           </div>
-          <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMM}'),decodeURIComponent('${encHM}'))"
-            style="font-size:.55rem;padding:2px 5px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
         </div>`;
       }).join('');
     }
@@ -238,35 +780,6 @@ async function loadWeeklyHighlight() {
   }
 }
 
-let _todayHotCache = null; // { events: [], hotHalls: [] }
-
-async function loadTodayPnlBanner() {
-  const banner = document.getElementById('today-pnl-banner');
-  const body = document.getElementById('today-pnl-body');
-  if (!banner || !body) return;
-  try {
-    const today = new Date().toISOString().slice(0, 10);
-    const sessions = await api.getSessions({ date_from: today, date_to: today, limit: 100 }).catch(() => []);
-    if (!sessions || sessions.length === 0) { banner.style.display = 'none'; return; }
-    const total = sessions.length;
-    const wins = sessions.filter(s => (s.diff_yen || 0) > 0).length;
-    const pnl = sessions.reduce((s, r) => s + (r.diff_yen || 0), 0);
-    const pnlCol = pnl >= 0 ? 'var(--success)' : 'var(--danger)';
-    const pnlSign = pnl >= 0 ? '+' : '';
-    const wr = Math.round(wins / total * 100);
-    banner.style.display = 'block';
-    body.innerHTML = `
-      <span style="color:var(--text3);font-size:.72rem;font-weight:600">📅 今日</span>
-      <span style="color:var(--text2)">${wins}勝${total - wins}敗</span>
-      <span style="font-weight:800;color:${pnlCol}">${pnlSign}${pnl.toLocaleString()}円</span>
-      <span style="font-size:.68rem;color:var(--text3)">勝率${wr}%</span>
-      <button onclick="switchTab('session')" style="margin-left:auto;font-size:.65rem;padding:2px 8px;background:none;border:1px solid var(--border);border-radius:5px;cursor:pointer;color:var(--text3)">詳細 →</button>
-    `;
-  } catch(e) {
-    if (banner) banner.style.display = 'none';
-  }
-}
-
 async function loadTodayHotCard() {
   const card = document.getElementById('today-hot-card');
   const body = document.getElementById('today-hot-body');
@@ -280,7 +793,6 @@ async function loadTodayHotCard() {
     const todayEvents = evData.events || [];
     const todayHotHalls = (hotData.hot_days || []).filter(h => h.date === today);
     todayHotHalls.sort((a, b) => b.z_score - a.z_score);
-    _todayHotCache = { events: todayEvents, hotHalls: todayHotHalls };
 
     if (todayEvents.length === 0 && todayHotHalls.length === 0) {
       card.style.display = 'none';
@@ -308,27 +820,6 @@ async function loadTodayHotCard() {
   }
 }
 
-function loadHallTodayIndicator(hall) {
-  const el = document.getElementById('est-hall-today-indicator');
-  if (!el) return;
-  if (!hall || !_todayHotCache) { el.style.display = 'none'; return; }
-  const { events, hotHalls } = _todayHotCache;
-  const hallEvents = events.filter(e => e.hall_name === hall);
-  const hallHot = hotHalls.find(h => h.hall_name === hall);
-  if (!hallEvents.length && !hallHot) { el.style.display = 'none'; return; }
-  const parts = [];
-  if (hallHot) {
-    const icon = hallHot.z_score >= 2.0 ? '🔥🔥' : '🔥';
-    parts.push(`${icon} <strong>${hallHot.label}</strong> (z=${hallHot.z_score.toFixed(1)}σ, 直近平均${hallHot.avg_diff >= 0 ? '+' : ''}${hallHot.avg_diff}枚)`);
-  }
-  if (hallEvents.length) {
-    parts.push(`📅 ${hallEvents.map(e => `<span class="ev-badge ev-badge-${e.event_type}" style="margin:0 2px;font-size:.6rem">${e.event_type}</span>`).join('')}`);
-  }
-  const isHot = !!hallHot;
-  el.style.cssText = `display:block;margin-top:5px;font-size:.7rem;padding:5px 10px;border-radius:6px;background:${isHot ? 'rgba(251,191,36,.1)' : 'rgba(124,127,245,.08)'};border:1px solid ${isHot ? 'rgba(251,191,36,.25)' : 'rgba(124,127,245,.2)'};color:${isHot ? 'var(--warning)' : 'var(--primary-h)'}`;
-  el.innerHTML = parts.join(' &nbsp;|&nbsp; ');
-}
-
 // ---------------------------------------------------------------------------
 // Estimate page
 // ---------------------------------------------------------------------------
@@ -344,6 +835,54 @@ const estResult = document.getElementById('est-result');
 const estSaveBtn = document.getElementById('est-save-btn');
 const estSaveForm = document.getElementById('est-save-form');
 const estResetBtn = document.getElementById('est-reset-btn');
+const estReadyText = document.getElementById('est-ready-text');
+const estReadyBar = document.getElementById('est-ready-bar');
+
+function getEstimateReadiness() {
+  const machineReady = Boolean(state.currentMachine && state.currentProfile);
+  const games = Number.parseInt(estGames.value, 10) || 0;
+  const startedFrom = Number.parseInt(document.getElementById('est-started-from')?.value, 10) || 0;
+  const observedGames = games - startedFrom;
+
+  if (!machineReady) return { ready: false, progress: 0, text: 'まず機種を選択してください' };
+  if (games <= 0) return { ready: false, progress: 50, text: '総ゲーム数を入力してください' };
+  if (startedFrom > games) return { ready: false, progress: 65, text: '引き継ぎG数が総G数を超えています' };
+
+  const invalidCount = [...estCountsList.querySelectorAll('.count-input')].find(input => {
+    const value = Number.parseInt(input.value, 10) || 0;
+    return value < 0 || value > observedGames;
+  });
+  if (invalidCount) {
+    return { ready: false, progress: 80, text: `${invalidCount.dataset.el}の回数を確認してください` };
+  }
+
+  const entered = [...estCountsList.querySelectorAll('.count-input')]
+    .filter(input => (Number.parseInt(input.value, 10) || 0) > 0).length;
+  const suffix = entered ? `・カウント${entered}項目` : '・事前分布のみ';
+  return {
+    ready: true,
+    progress: 100,
+    text: `${state.currentMachine}・実観測${observedGames.toLocaleString()}G${suffix}`,
+  };
+}
+
+function updateEstimateReadiness() {
+  const status = getEstimateReadiness();
+  estRunBtn.disabled = !status.ready;
+  if (estReadyText) {
+    estReadyText.textContent = status.text;
+    estReadyText.style.color = status.ready ? 'var(--success)' :
+      status.progress >= 65 ? 'var(--warning)' : 'var(--text2)';
+  }
+  if (estReadyBar) estReadyBar.style.width = `${status.progress}%`;
+
+  const steps = document.querySelectorAll('.flow-step');
+  steps.forEach((step, index) => {
+    const active = index === 0 ? !state.currentMachine : index === 1 ? !status.ready : status.ready;
+    step.classList.toggle('active', active);
+  });
+  return status;
+}
 
 async function loadMachineSelect() {
   try {
@@ -352,8 +891,6 @@ async function loadMachineSelect() {
     if (dl) {
       dl.innerHTML = state.machines.map(m => `<option value="${esc(m)}">`).join('');
     }
-    _renderRecentMachines();
-    _renderRecentCombos();
   } catch (e) {
     showToast('機種一覧の取得に失敗: ' + e.message, 'error');
   }
@@ -444,7 +981,7 @@ document.getElementById('est-seat-number')?.addEventListener('input', async func
     const wrCol = sd.win_rate >= 50 ? 'var(--success)' : 'var(--danger)';
     let badges = '';
     if (sd.win_streak >= 2) badges += `<span style="color:var(--success);font-size:.63rem"> 🔥${sd.win_streak}連勝</span>`;
-    if (sd.best_weekday) badges += `<span style="color:var(--primary-h);font-size:.63rem"> ${esc(sd.best_weekday.weekday)}曜強</span>`;
+    if (sd.best_weekday) badges += `<span style="color:var(--primary-h);font-size:.63rem"> ${sd.best_weekday.weekday}曜強</span>`;
     html += `<div style="margin-top:3px;font-size:.7rem">
       <span style="color:var(--text3)">この台${sd.total_days}日 </span>
       <span style="color:${diffCol};font-weight:700">${sign(sd.avg_diff)}枚</span>
@@ -461,25 +998,34 @@ document.getElementById('est-seat-number')?.addEventListener('input', async func
   }
 });
 
+let _machineInputTimer;
+estMachine.addEventListener('input', () => {
+  clearTimeout(_machineInputTimer);
+  const name = estMachine.value.trim();
+  // datalist はモバイルブラウザによって change の発火タイミングが異なるため、
+  // 有効な完全一致候補は input からも確定する。
+  if (name && state.machines.includes(name) && name !== state.currentMachine) {
+    _machineInputTimer = setTimeout(() => estMachine.dispatchEvent(new Event('change')), 120);
+  }
+});
+
 estMachine.addEventListener('change', async () => {
   const name = estMachine.value.trim();
   if (name && state.machines && !state.machines.includes(name)) return; // 無効な入力は無視
-  if (name) _trackRecentMachine(name);
   state.currentMachine = name;
   state.estimateHistory = [];
   state.minSetting = null;  // 確定演出リセット
   if (!name) {
     estCountsList.innerHTML = '<p class="hint">機種を選択するとカウント入力欄が表示されます</p>';
     estResetBtn.style.display = 'none';
-    estRunBtn.disabled = true;
     state.currentProfile = null;
     document.getElementById('est-confirm-section').style.display = 'none';
+    updateEstimateReadiness();
     return;
   }
   try {
     state.currentProfile = await api.getMachine(name);
     renderCountInputs(state.currentProfile);
-    estRunBtn.disabled = false;
     estResetBtn.style.display = 'block';
     document.getElementById('est-confirm-section').style.display = 'block';
     updateConfirmBadge();
@@ -488,63 +1034,20 @@ estMachine.addEventListener('change', async () => {
     renderCdCounts(state.currentProfile);
     // 保存したドラフトを復元
     restoreDraft(name);
+    updateDerivedCountState(null);
     // 直近セッション表示
     loadRecentSessions(name);
     // 事前分布品質バッジ更新
     loadPriorQuality();
     // 機械割目安テーブル表示
     renderKwHint(state.currentProfile);
+    updateEstimateReadiness();
   } catch (e) {
+    state.currentProfile = null;
+    updateEstimateReadiness();
     showToast('機種データ取得失敗: ' + e.message, 'error');
   }
 });
-
-function _trackRecentMachine(name) {
-  try {
-    let recents = JSON.parse(localStorage.getItem('pachi_recent_machines') || '[]');
-    recents = [name, ...recents.filter(m => m !== name)].slice(0, 5);
-    localStorage.setItem('pachi_recent_machines', JSON.stringify(recents));
-    _renderRecentMachines();
-  } catch {}
-}
-
-function _trackRecentCombo(machine, hall) {
-  if (!machine || !hall) return;
-  try {
-    let combos = JSON.parse(localStorage.getItem('pachi_recent_combos') || '[]');
-    combos = [{ machine, hall }, ...combos.filter(c => !(c.machine === machine && c.hall === hall))].slice(0, 4);
-    localStorage.setItem('pachi_recent_combos', JSON.stringify(combos));
-    _renderRecentCombos();
-  } catch {}
-}
-
-function _renderRecentCombos() {
-  const el = document.getElementById('est-recent-combos-bar');
-  if (!el) return;
-  try {
-    const combos = JSON.parse(localStorage.getItem('pachi_recent_combos') || '[]');
-    if (!combos.length) { el.style.display = 'none'; return; }
-    el.style.display = 'flex';
-    el.innerHTML = combos.map(c =>
-      `<button class="btn btn-ghost btn-sm" style="font-size:.63rem;padding:3px 8px;white-space:nowrap;color:var(--text3)"
-        onclick='_startSessionReplay(${JSON.stringify(c.machine)},${JSON.stringify(c.hall)})'>${esc(c.machine)}<span style="opacity:.5;margin:0 2px">@</span>${esc(c.hall)}</button>`
-    ).join('');
-  } catch { el.style.display = 'none'; }
-}
-
-function _renderRecentMachines() {
-  let el = document.getElementById('est-recent-machines-bar');
-  if (!el) return;
-  try {
-    const recents = JSON.parse(localStorage.getItem('pachi_recent_machines') || '[]');
-    if (!recents.length) { el.style.display = 'none'; return; }
-    el.style.display = 'flex';
-    el.innerHTML = recents.map(m =>
-      `<button class="btn btn-ghost btn-sm" style="font-size:.65rem;padding:3px 8px;white-space:nowrap"
-        onclick='document.getElementById("est-machine").value=${JSON.stringify(m)};document.getElementById("est-machine").dispatchEvent(new Event("change"))'>${esc(m)}</button>`
-    ).join('');
-  } catch { el.style.display = 'none'; }
-}
 
 function renderKwHint(profile) {
   let el = document.getElementById('est-kw-hint');
@@ -680,18 +1183,9 @@ async function loadRecentSessions(machineName) {
 }
 
 function renderCountInputs(profile) {
-  // キーボードショートカットヒント
-  const kbHint = `<div style="font-size:.62rem;color:var(--text3);padding:2px 0 8px;display:flex;gap:8px;flex-wrap:wrap">
-    <span style="opacity:.7">⌨ キー:</span>
-    <span><kbd style="background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:.6rem">B</kbd> BB</span>
-    <span><kbd style="background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:.6rem">R</kbd> RB</span>
-    <span><kbd style="background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:.6rem">G</kbd> ブドウ</span>
-    <span><kbd style="background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 4px;font-size:.6rem">C</kbd> チェリー</span>
-  </div>`;
-
-  estCountsList.innerHTML = kbHint + profile.elements.map(el => `
+  estCountsList.innerHTML = profile.elements.map(el => `
     <div class="count-row" data-element="${esc(el.name)}">
-      <span class="count-name">${esc(el.name)}</span>
+      <span class="count-name">${esc(el.name)}${el.name.includes('合算') ? '<small>BB/RB入力時は自動除外</small>' : ''}</span>
       <div class="count-stepper">
         <button class="count-btn" data-dir="-1">−</button>
         <input class="count-input" type="number" min="0" value="0"
@@ -709,37 +1203,56 @@ function renderCountInputs(profile) {
       const cur = parseInt(input.value) || 0;
       const next = Math.max(0, cur + parseInt(btn.dataset.dir));
       input.value = next;
+      updateDerivedCountState(input);
       saveDraft();
+      updateEstimateReadiness();
       autoEstimate();
     });
   });
 
   // 直接入力
   estCountsList.querySelectorAll('.count-input').forEach(input => {
-    input.addEventListener('input', () => { saveDraft(); autoEstimate(); });
+    input.addEventListener('input', () => {
+      updateDerivedCountState(input);
+      saveDraft();
+      updateEstimateReadiness();
+      autoEstimate();
+    });
   });
 }
 
+function updateDerivedCountState(changedInput) {
+  const combined = [...estCountsList.querySelectorAll('.count-input')]
+    .find(input => input.dataset.el?.includes('合算'));
+  if (!combined) return;
+  const components = [...estCountsList.querySelectorAll('.count-input')]
+    .filter(input => input !== combined && /BB|RB|BIG|REG/.test(input.dataset.el || ''));
+  const hasComponentCounts = components.some(input => (Number.parseInt(input.value, 10) || 0) > 0);
+  if (hasComponentCounts && changedInput !== combined) combined.value = 0;
+  combined.disabled = hasComponentCounts;
+  combined.closest('.count-row')?.classList.toggle('count-row-muted', hasComponentCounts);
+}
+
 // ゲーム数変更でも自動推測
-estGames.addEventListener('input', () => { saveDraft(); autoEstimate(); });
+estGames.addEventListener('input', () => { saveDraft(); updateEstimateReadiness(); autoEstimate(); });
+document.getElementById('est-started-from')?.addEventListener('input', () => {
+  updateEstimateReadiness();
+  autoEstimate();
+});
 estHall.addEventListener('change', () => {
   state.currentHall = estHall.value;
   autoEstimate();
-  loadHallTodayIndicator(estHall.value);
-  if (state.currentMachine) { loadPriorQuality(); saveDraft(); }
-});
-let _hallIndicatorTimer;
-estHall.addEventListener('input', () => {
-  clearTimeout(_hallIndicatorTimer);
-  _hallIndicatorTimer = setTimeout(() => loadHallTodayIndicator(estHall.value), 300);
+  if (state.currentMachine) loadPriorQuality();
 });
 estWeekday.addEventListener('change', autoEstimate);
 estDom.addEventListener('input', autoEstimate);
 estEvent.addEventListener('change', autoEstimate);
 
 let _autoTimer;
+let _estimateRequestId = 0;
 function autoEstimate() {
   clearTimeout(_autoTimer);
+  if (!getEstimateReadiness().ready) return;
   _autoTimer = setTimeout(runEstimate, 600);
 }
 
@@ -777,18 +1290,6 @@ timerToggle?.addEventListener('click', () => {
       const el = Date.now() - _timerStart;
       timerDisplay.dataset.elapsed = el;
       timerDisplay.textContent = formatElapsed(el);
-      // G/h レート
-      const rateEl = document.getElementById('timer-rate');
-      if (rateEl) {
-        const games = parseInt(estGames?.value) || 0;
-        const hours = el / 3600000;
-        if (games > 0 && hours > 0.05) {
-          rateEl.textContent = `${Math.round(games / hours).toLocaleString()} G/h`;
-          rateEl.style.display = 'inline';
-        } else {
-          rateEl.style.display = 'none';
-        }
-      }
     }, 1000);
     timerToggle.textContent = '⏸ 一時停止';
     timerToggle.classList.add('btn-primary');
@@ -804,27 +1305,9 @@ timerReset?.addEventListener('click', () => {
   timerDisplay.textContent = '00:00:00';
   timerDisplay.dataset.elapsed = '0';
   timerDisplay.style.display = 'none';
-  const rateEl = document.getElementById('timer-rate');
-  if (rateEl) rateEl.style.display = 'none';
-  timerToggle.textContent = '⏱ タイマー';
+  timerToggle.textContent = '⏱ タイマー開始';
   timerToggle.classList.remove('btn-primary');
   timerReset.style.display = 'none';
-});
-
-// ---------------------------------------------------------------------------
-// G数クイック加算ボタン
-// ---------------------------------------------------------------------------
-document.querySelectorAll('.g-inc-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const inc = parseInt(btn.dataset.inc) || 0;
-    const cur = parseInt(estGames.value) || 0;
-    estGames.value = cur + inc;
-    estGames.dispatchEvent(new Event('input'));
-  });
-});
-document.getElementById('g-set-0-btn')?.addEventListener('click', () => {
-  estGames.value = '0';
-  estGames.dispatchEvent(new Event('input'));
 });
 
 // ---------------------------------------------------------------------------
@@ -842,15 +1325,19 @@ document.querySelectorAll('.note-tag').forEach(btn => {
 });
 
 async function runEstimate() {
-  if (!state.currentMachine) return;
+  const readiness = updateEstimateReadiness();
+  if (!readiness.ready) return;
   const counts = getCountValues();
   const games = parseInt(estGames.value) || 0;
-  estRunBtn.textContent = '推測中…';
   const startedFrom = parseInt(document.getElementById('est-started-from')?.value) || 0;
   const seatNum = parseInt(document.getElementById('est-seat-number')?.value) || null;
   const weekday = estWeekday.value !== '' ? parseInt(estWeekday.value) : null;
   const dom = estDom.value ? parseInt(estDom.value) : null;
+  const requestId = ++_estimateRequestId;
 
+  const originalText = estRunBtn.textContent;
+  estRunBtn.disabled = true;
+  estRunBtn.textContent = '推定中…';
   try {
     const result = await api.estimate({
       machine_name: state.currentMachine,
@@ -864,8 +1351,8 @@ async function runEstimate() {
       ...(state.minSetting ? { min_setting: state.minSetting } : {}),
       ...(seatNum ? { seat_number: seatNum } : {}),
     });
+    if (requestId !== _estimateRequestId) return;
     state.lastEstimate = { result, machine: state.currentMachine, games, startedFrom, counts };
-    _trackRecentCombo(state.currentMachine, estHall.value);
     // 推測履歴を積む（最大20件）
     if (result.expected_setting) {
       state.estimateHistory.push({ games, expected: result.expected_setting, confidence: result.confidence || 0 });
@@ -873,9 +1360,12 @@ async function runEstimate() {
     }
     renderEstimateResult(result);
   } catch (e) {
-    showToast('推測エラー: ' + e.message, 'error');
+    if (requestId === _estimateRequestId) showToast('推測エラー: ' + e.message, 'error');
   } finally {
-    estRunBtn.textContent = '設定を推測する';
+    if (requestId === _estimateRequestId) {
+      estRunBtn.textContent = originalText;
+      updateEstimateReadiness();
+    }
   }
 }
 
@@ -906,7 +1396,7 @@ function renderEstimateResult(r) {
   if (!warnEl) {
     warnEl = document.createElement('div');
     warnEl.id = 'res-sample-warning';
-    warnEl.style.cssText = 'display:none;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:var(--warning);font-size:0.82rem;line-height:1.4';
+    warnEl.style.cssText = 'display:none;margin-bottom:10px;padding:8px 12px;border-radius:8px;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:#fbbf24;font-size:0.82rem;line-height:1.4';
     confEl.parentNode.insertBefore(warnEl, confEl);
   }
   if (r.sample_warning) {
@@ -930,35 +1420,6 @@ function renderEstimateResult(r) {
   }
 
   expectedEl.textContent = r.expected_setting != null ? r.expected_setting.toFixed(2) : '--';
-
-  // 判定バッジ（期待設定に基づく簡易サマリー）
-  let verdictEl = document.getElementById('res-verdict-badge');
-  if (!verdictEl) {
-    verdictEl = document.createElement('div');
-    verdictEl.id = 'res-verdict-badge';
-    expectedEl.parentNode.appendChild(verdictEl);
-  }
-  // 毎回リセット（繰り返し呼ばれたとき色が蓄積するバグを防ぐ）
-  const _verdictBase = 'margin-top:5px;font-size:.67rem;font-weight:800;padding:2px 9px;border-radius:99px;display:inline-block;letter-spacing:.03em';
-  if (r.expected_setting != null) {
-    const es = r.expected_setting;
-    if (es >= 5.0) {
-      verdictEl.textContent = '高設定確定圏';
-      verdictEl.style.cssText = _verdictBase + ';background:rgba(16,185,129,.2);color:#34d399;border:1px solid rgba(16,185,129,.35)';
-    } else if (es >= 4.0) {
-      verdictEl.textContent = '高設定優勢';
-      verdictEl.style.cssText = _verdictBase + ';background:rgba(16,185,129,.12);color:#34d399;border:1px solid rgba(16,185,129,.2)';
-    } else if (es >= 3.0) {
-      verdictEl.textContent = '中間設定帯';
-      verdictEl.style.cssText = _verdictBase + ';background:rgba(251,191,36,.12);color:var(--warning);border:1px solid rgba(251,191,36,.2)';
-    } else {
-      verdictEl.textContent = '低設定濃厚';
-      verdictEl.style.cssText = _verdictBase + ';background:rgba(244,63,94,.12);color:#fb7185;border:1px solid rgba(244,63,94,.2)';
-    }
-    verdictEl.style.display = 'inline-block';
-  } else {
-    verdictEl.style.display = 'none';
-  }
 
   // 90%信用区間をサブテキストで表示
   let ciEl = document.getElementById('res-credible-interval');
@@ -1021,31 +1482,11 @@ function renderEstimateResult(r) {
     }
   }
 
-  const highPct = r.high_setting_prob != null ? (r.high_setting_prob * 100).toFixed(0) : '--';
-  highEl.textContent = highPct + (highPct !== '--' ? '%' : '');
-  highEl.style.color = (r.high_setting_prob ?? 0) > 0.5 ? 'var(--success)' : (r.high_setting_prob ?? 0) > 0.3 ? 'var(--warning)' : 'var(--danger)';
-  evEl.textContent = r.ev_pct != null ? r.ev_pct.toFixed(1) + '%' : '--';
+  const highPct = (r.high_setting_prob * 100).toFixed(0);
+  highEl.textContent = highPct + '%';
+  highEl.style.color = r.high_setting_prob > 0.5 ? 'var(--success)' : r.high_setting_prob > 0.3 ? 'var(--warning)' : 'var(--danger)';
+  evEl.textContent = r.ev_pct.toFixed(1) + '%';
   evEl.style.color = r.ev >= 1.0 ? 'var(--success)' : r.ev >= 0.98 ? 'var(--warning)' : 'var(--danger)';
-  // EV解説ラベル
-  let evLabelEl = document.getElementById('res-ev-label');
-  if (!evLabelEl) {
-    evLabelEl = document.createElement('div');
-    evLabelEl.id = 'res-ev-label';
-    evLabelEl.style.cssText = 'margin-top:4px;font-size:.62rem;font-weight:700;padding:1px 7px;border-radius:99px;display:inline-block';
-    evEl.parentNode.appendChild(evLabelEl);
-  }
-  if (r.ev_pct != null) {
-    if (r.ev >= 1.0) {
-      evLabelEl.textContent = 'プラス'; evLabelEl.style.background = 'rgba(16,185,129,.15)'; evLabelEl.style.color = '#34d399';
-    } else if (r.ev >= 0.98) {
-      evLabelEl.textContent = 'ほぼ均衡'; evLabelEl.style.background = 'rgba(251,191,36,.12)'; evLabelEl.style.color = 'var(--warning)';
-    } else {
-      evLabelEl.textContent = 'マイナス'; evLabelEl.style.background = 'rgba(244,63,94,.12)'; evLabelEl.style.color = '#fb7185';
-    }
-    evLabelEl.style.display = 'inline-block';
-  } else {
-    evLabelEl.style.display = 'none';
-  }
 
   // 要素識別力ランキング（折りたたみ）
   let powerEl = document.getElementById('res-element-powers');
@@ -1059,11 +1500,11 @@ function renderEstimateResult(r) {
     const sorted = Object.entries(r.element_powers).sort((a,b) => b[1]-a[1]);
     const maxPow = sorted[0]?.[1] || 1;
     const corrWarning = r.correlated_elements?.length
-      ? `<div style="color:#f97316;font-size:.7rem;margin-top:6px">相関要素あり（二重計上の可能性）: ${r.correlated_elements.map(([a,b]) => `${a}↔${b}`).join(', ')}</div>`
+      ? `<div style="color:#fb923c;font-size:.7rem;margin-top:7px;line-height:1.45">相関の強い組み合わせが${r.correlated_elements.length}件あります。合算値と内訳の重複入力に注意してください。</div>`
       : '';
     powerEl.style.display = 'block';
     powerEl.innerHTML = `<div style="font-size:.68rem;color:var(--text3);margin-bottom:5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em">要素別識別力</div>
-      ${sorted.map(([name, pow]) => {
+      ${sorted.slice(0, 3).map(([name, pow]) => {
         const pct = Math.round(pow / maxPow * 100);
         const col = pct >= 70 ? 'var(--success)' : pct >= 40 ? 'var(--warning)' : 'var(--text3)';
         return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
@@ -1201,7 +1642,7 @@ function renderEstimateResult(r) {
   fetchAiEstimateComment(r);
 
   // スクロール
-  setTimeout(() => estResult.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 100);
+  setTimeout(() => estResult.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
 }
 
 async function fetchAiEstimateComment(r) {
@@ -1234,7 +1675,7 @@ async function fetchAiEstimateComment(r) {
       }),
     }).then(res => res.json());
     if (data.comment) {
-      el.innerHTML = `<span style="font-size:.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:4px">AIコメント</span>${_renderMarkdown(data.comment)}`;
+      el.innerHTML = `<span style="font-size:.7rem;color:var(--accent);font-weight:600;display:block;margin-bottom:4px">AIコメント</span>${esc(data.comment)}`;
     } else {
       el.style.display = 'none';
     }
@@ -1264,13 +1705,7 @@ function renderAdvice(r) {
     icon.textContent = '⏳';
     text.textContent = 'データ収集中';
     text.style.color = 'var(--text2)';
-    const target = 1000;
-    const pct = Math.min(100, Math.round(games / target * 100));
-    detail.innerHTML = `G数を増やすと推測精度が向上します（目安: ${target.toLocaleString()}G以上）
-      <div style="margin-top:6px;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden">
-        <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,rgba(124,127,245,.8),var(--primary-h));border-radius:3px;transition:width .3s"></div>
-      </div>
-      <div style="font-size:.6rem;color:var(--text3);margin-top:3px">${games.toLocaleString()}G / ${target.toLocaleString()}G (${pct}%)</div>`;
+    detail.textContent = 'G数を増やすと推測精度が向上します';
     return;
   }
 
@@ -1410,10 +1845,6 @@ estResetBtn.addEventListener('click', () => {
 estSaveBtn.addEventListener('click', () => {
   estSaveForm.style.display = estSaveForm.style.display === 'none' ? 'block' : 'none';
   if (estSaveForm.style.display === 'block') {
-    // 台番号を推測フォームから自動引継ぎ
-    const estSeat = document.getElementById('est-seat-number')?.value;
-    const saveSeat = document.getElementById('save-seat');
-    if (estSeat && saveSeat && !saveSeat.value) saveSeat.value = estSeat;
     estSaveForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 });
@@ -1438,8 +1869,7 @@ function updateSaveDiff() {
     diffEl.style.display = 'none';
   }
   if (coins && hintEl) {
-    const denomYen = parseFloat(document.getElementById('denom-select')?.value || '20');
-    const coinYen = Math.round(coins * denomYen);
+    const coinYen = coins * 20;
     hintEl.textContent = `≈ ${coinYen >= 0 ? '+' : ''}${coinYen.toLocaleString()}円`;
     hintEl.style.color = coinYen >= 0 ? 'var(--success)' : 'var(--danger)';
   } else if (hintEl) {
@@ -1481,8 +1911,6 @@ document.getElementById('save-confirm-btn').addEventListener('click', async () =
     });
     showToast('セッションを保存しました ✓', 'success');
     estSaveForm.style.display = 'none';
-    _todayRecLoaded = false; // 個人実績バッジ再計算のためキャッシュ無効化
-    loadTodayPnlBanner();
     // フォームリセット
     ['save-inv','save-ret','save-seat','save-coins','save-notes'].forEach(id => {
       document.getElementById(id).value = '';
@@ -1494,30 +1922,12 @@ document.getElementById('save-confirm-btn').addEventListener('click', async () =
 });
 
 // ---------------------------------------------------------------------------
-// 詳細設定トグル
-// ---------------------------------------------------------------------------
-function toggleEstDetail() {
-  const sec = document.getElementById('est-detail-section');
-  const arrow = document.getElementById('est-detail-arrow');
-  const open = sec.style.display === 'none' || sec.style.display === '';
-  sec.style.display = open ? 'block' : 'none';
-  if (arrow) arrow.textContent = open ? '▾' : '▸';
-}
-
-// ---------------------------------------------------------------------------
 // Draft (localStorage)
 // ---------------------------------------------------------------------------
 function saveDraft() {
   if (!state.currentMachine) return;
   const counts = getCountValues();
-  const draft = {
-    machine: state.currentMachine,
-    hall: estHall?.value || '',
-    games: estGames.value,
-    started_from: document.getElementById('est-started-from')?.value || '',
-    seat: document.getElementById('est-seat-number')?.value || '',
-    counts,
-  };
+  const draft = { machine: state.currentMachine, games: estGames.value, counts };
   localStorage.setItem('pachi_draft', JSON.stringify(draft));
 }
 
@@ -1528,11 +1938,6 @@ function restoreDraft(machine) {
     const draft = JSON.parse(raw);
     if (draft.machine !== machine) return;
     estGames.value = draft.games || '';
-    if (draft.hall && estHall) estHall.value = draft.hall;
-    const sfEl = document.getElementById('est-started-from');
-    if (sfEl && draft.started_from) sfEl.value = draft.started_from;
-    const seatEl = document.getElementById('est-seat-number');
-    if (seatEl && draft.seat) seatEl.value = draft.seat;
     Object.entries(draft.counts || {}).forEach(([el, cnt]) => {
       const input = estCountsList.querySelector(`[data-el="${el}"]`);
       if (input) input.value = cnt;
@@ -1551,53 +1956,19 @@ async function loadSessions() {
   const hallFilter = document.getElementById('ses-hall-filter').value;
   const machineFilter = document.getElementById('ses-machine-filter').value;
   const monthFilter = document.getElementById('ses-month-filter')?.value;
-  const periodOverride = document.getElementById('ses-month-filter')?.dataset.periodOverride || '';
 
   try {
     const params = {};
     if (hallFilter) params.hall_name = hallFilter;
     if (machineFilter) params.machine_name = machineFilter;
-
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
-
-    if (periodOverride === 'today') {
-      params.date_from = todayStr;
-      params.date_to = todayStr;
-    } else if (periodOverride === 'thisweek') {
-      const day = now.getDay();
-      const mon = new Date(now); mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-      params.date_from = mon.toISOString().slice(0, 10);
-      params.date_to = todayStr;
-    } else if (monthFilter) {
+    if (monthFilter) {
       params.date_from = monthFilter + '-01';
       const [y, m] = monthFilter.split('-').map(Number);
       const lastDay = new Date(y, m, 0).getDate();
       params.date_to = `${monthFilter}-${lastDay}`;
     }
 
-    params.limit = 500;
-    let sessions = await api.getSessions(params);
-    // テキスト検索フィルター（クライアント側）
-    const searchQ = (document.getElementById('ses-search-filter')?.value || '').trim().toLowerCase();
-    if (searchQ) {
-      sessions = sessions.filter(s =>
-        (s.machine_name || '').toLowerCase().includes(searchQ) ||
-        (s.hall_name || '').toLowerCase().includes(searchQ) ||
-        (s.notes || '').toLowerCase().includes(searchQ)
-      );
-    }
-    // 勝ち/負け フィルター
-    const wlFilter = document.querySelector('.ses-wl-btn.active')?.dataset.wl || 'all';
-    if (wlFilter === 'win') sessions = sessions.filter(s => (s.diff_yen || 0) > 0);
-    else if (wlFilter === 'loss') sessions = sessions.filter(s => (s.diff_yen || 0) <= 0);
-    // ソート
-    const sortBy = document.getElementById('ses-sort-filter')?.value || 'date_desc';
-    if (sortBy === 'date_asc') sessions = [...sessions].sort((a, b) => a.date < b.date ? -1 : 1);
-    else if (sortBy === 'diff_desc') sessions = [...sessions].sort((a, b) => (b.diff_yen||0) - (a.diff_yen||0));
-    else if (sortBy === 'diff_asc') sessions = [...sessions].sort((a, b) => (a.diff_yen||0) - (b.diff_yen||0));
-    else if (sortBy === 'games_desc') sessions = [...sessions].sort((a, b) => (b.games_total||0) - (a.games_total||0));
-    else sessions = [...sessions].sort((a, b) => a.date < b.date ? 1 : -1); // date_desc default
+    const sessions = await api.getSessions(params);
     state.sessions = sessions;
     renderSessions(sessions);
     renderSessionSummary(sessions);
@@ -1605,9 +1976,7 @@ async function loadSessions() {
     renderMonthlyStats(sessions);
     renderMonthlyBarChart(sessions);
     renderMachineBreakdownChart(sessions);
-    renderHallBreakdown(sessions);
     renderSeatAnalysis(sessions);
-    renderWeekdayAnalysis(sessions);
     renderDailyProfitChart(sessions);
     loadEstimationAccuracy(hallFilter || null);
   } catch (e) {
@@ -1667,55 +2036,7 @@ async function loadEstimationAccuracy(hallName) {
     card.style.display = 'none';
   }
 }
-document.getElementById('ses-month-filter')?.addEventListener('change', () => {
-  // 月フィルターを直接変更したら期間ボタンをリセット
-  document.querySelectorAll('.ses-period-btn').forEach(b => b.classList.remove('active'));
-  const monthEl = document.getElementById('ses-month-filter');
-  if (monthEl) delete monthEl.dataset.periodOverride;
-  loadSessions();
-});
-let _searchTimer;
-document.getElementById('ses-search-filter')?.addEventListener('input', () => {
-  clearTimeout(_searchTimer);
-  _searchTimer = setTimeout(loadSessions, 350);
-});
-document.getElementById('ses-sort-filter')?.addEventListener('change', loadSessions);
-
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('.ses-wl-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.ses-wl-btn').forEach(b => {
-        b.classList.remove('active');
-        b.style.background = 'var(--bg3)';
-        b.style.fontWeight = '';
-      });
-      btn.classList.add('active');
-      btn.style.background = 'var(--bg2)';
-      btn.style.fontWeight = '700';
-      loadSessions();
-    });
-  });
-});
-
-// 期間クイックフィルター
-document.querySelectorAll('.ses-period-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.ses-period-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    const period = btn.dataset.period;
-    const monthEl = document.getElementById('ses-month-filter');
-    const now = new Date();
-    const y = now.getFullYear(), m = now.getMonth() + 1;
-    if (period === 'today' || period === 'thisweek' || period === 'thismonth') {
-      monthEl.value = `${y}-${String(m).padStart(2, '0')}`;
-    } else {
-      monthEl.value = '';
-    }
-    // Attach date filter override for today/thisweek
-    monthEl.dataset.periodOverride = period;
-    loadSessions();
-  });
-});
+document.getElementById('ses-month-filter')?.addEventListener('change', loadSessions);
 
 async function populateSessionFilters() {
   try {
@@ -1762,27 +2083,6 @@ function renderSessionSummary(sessions) {
   diffEl.className = 'stat-value ' + (diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow');
   document.getElementById('sum-wr').textContent = total ? Math.round(wins / total * 100) + '%' : '--%';
 
-  // 追加サマリー
-  const avgGEl = document.getElementById('sum-avg-games');
-  const totalInvEl = document.getElementById('sum-total-inv');
-  const avgDiffEl = document.getElementById('sum-avg-diff');
-  if (avgGEl && total > 0) {
-    const avgG = Math.round(sessions.reduce((s, r) => s + (r.games_total || 0), 0) / total);
-    avgGEl.textContent = avgG.toLocaleString();
-    const totalInv = sessions.reduce((s, r) => s + (r.investment || 0), 0);
-    if (totalInv) {
-      const roi = Math.round(diffYen / totalInv * 100);
-      totalInvEl.innerHTML = `${(totalInv / 10000).toFixed(1)}万 <span style="font-size:.6rem;color:${roi >= 0 ? 'var(--success)' : 'var(--danger)'}">ROI${roi >= 0 ? '+' : ''}${roi}%</span>`;
-    } else {
-      totalInvEl.textContent = '--';
-    }
-    const avgD = Math.round(diffYen / total);
-    avgDiffEl.textContent = (avgD >= 0 ? '+' : '') + avgD.toLocaleString() + '円';
-    avgDiffEl.style.color = avgD >= 0 ? 'var(--success)' : 'var(--danger)';
-  } else if (avgGEl) {
-    avgGEl.textContent = '--'; totalInvEl.textContent = '--'; avgDiffEl.textContent = '--';
-  }
-
   // 連続記録（直近のW/L streak）
   const streakEl = document.getElementById('sum-streak');
   if (streakEl && total > 0) {
@@ -1796,261 +2096,11 @@ function renderSessionSummary(sessions) {
     if (streak > 1) {
       const label = first ? `🔥${streak}連勝中` : `❄${streak}連敗中`;
       const color = first ? 'var(--success)' : 'var(--danger)';
-      let sub = '';
-      if (!first && streak >= 5) {
-        sub = `<div style="font-size:.6rem;color:var(--danger);opacity:.8;margin-top:1px">冷静に再考を。一時休止を検討してください</div>`;
-      } else if (!first && streak >= 3) {
-        sub = `<div style="font-size:.6rem;color:var(--text3);margin-top:1px">今日はお休みも選択肢のひとつです</div>`;
-      }
-      streakEl.innerHTML = `<span style="color:${color}">${label}</span>${sub}`;
+      streakEl.innerHTML = `<span style="color:${color}">${label}</span>`;
     } else {
       streakEl.innerHTML = '';
     }
-
-    // 累積P&L スパークライン（SVGライン）
-    const sparkEl = document.getElementById('sum-sparkline');
-    if (sparkEl && total >= 3) {
-      const chronological = sorted.slice().reverse(); // 古い順
-      const W = 120, H = 30, PAD = 2;
-      let cum = 0;
-      const cumPoints = chronological.map(s => { cum += (s.diff_yen || 0); return cum; });
-      const minV = Math.min(0, ...cumPoints);
-      const maxV = Math.max(0, ...cumPoints);
-      const range = maxV - minV || 1;
-      const n = cumPoints.length;
-      const pts = cumPoints.map((v, i) => {
-        const x = PAD + i / Math.max(n - 1, 1) * (W - PAD * 2);
-        const y = H - PAD - (v - minV) / range * (H - PAD * 2);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-      }).join(' ');
-      // ゼロライン
-      const zeroY = (H - PAD - (0 - minV) / range * (H - PAD * 2)).toFixed(1);
-      const endCum = cumPoints[n - 1];
-      const lineCol = endCum >= 0 ? 'var(--success)' : 'var(--danger)';
-      sparkEl.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible" title="累積収支: ${endCum >= 0 ? '+' : ''}${endCum.toLocaleString()}円">
-        <line x1="${PAD}" y1="${zeroY}" x2="${W - PAD}" y2="${zeroY}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,2"/>
-        <polyline points="${pts}" fill="none" stroke="${lineCol}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
-        <circle cx="${(PAD + (n-1)/Math.max(n-1,1)*(W-PAD*2)).toFixed(1)}" cy="${(H-PAD-(endCum-minV)/range*(H-PAD*2)).toFixed(1)}" r="2.5" fill="${lineCol}"/>
-      </svg>`;
-      sparkEl.style.display = 'block';
-    } else if (sparkEl) {
-      sparkEl.style.display = 'none';
-    }
   }
-
-  // コピー用サマリーテキストを構築してボタンを表示
-  if (total > 0) {
-    const avgG = Math.round(sessions.reduce((s, r) => s + (r.games_total || 0), 0) / total);
-    const totalInv = sessions.reduce((s, r) => s + (r.investment || 0), 0);
-    const avgD = Math.round(diffYen / total);
-    const bestSession = sessions.reduce((best, s) => (s.diff_yen || 0) > (best.diff_yen || 0) ? s : best, sessions[0]);
-    const activeBtn = document.querySelector('.ses-period-btn.active');
-    const periodText = activeBtn ? activeBtn.textContent : '';
-    _sessionSummaryCopy = [
-      `📊 パチスロ実戦記録 ${periodText}`,
-      `${wins}勝${total - wins}敗 (勝率${Math.round(wins / total * 100)}%) / ${total}セッション`,
-      `総収支: ${diffYen >= 0 ? '+' : ''}${diffYen.toLocaleString()}円`,
-      `平均G数: ${avgG.toLocaleString()}G / 平均収支: ${avgD >= 0 ? '+' : ''}${avgD.toLocaleString()}円`,
-      totalInv ? `総投資: ${(totalInv / 10000).toFixed(1)}万円` : '',
-      bestSession && bestSession.diff_yen > 0
-        ? `ベストセッション: ${bestSession.machine_name} +${bestSession.diff_yen.toLocaleString()}円`
-        : '',
-    ].filter(Boolean).join('\n');
-    const copyBtn = document.getElementById('sum-copy-btn');
-    if (copyBtn) copyBtn.style.display = 'inline';
-  } else {
-    _sessionSummaryCopy = null;
-    const copyBtn = document.getElementById('sum-copy-btn');
-    if (copyBtn) copyBtn.style.display = 'none';
-  }
-
-  // 機種別ベスト/ワーストインサイト
-  const insightEl = document.getElementById('sum-machine-insight');
-  if (insightEl) {
-    const machineMap = {};
-    for (const s of sessions) {
-      const m = s.machine_name;
-      if (!m) continue;
-      if (!machineMap[m]) machineMap[m] = { sum: 0, count: 0 };
-      machineMap[m].sum += (s.diff_yen || 0);
-      machineMap[m].count++;
-    }
-    const entries = Object.entries(machineMap).filter(([, v]) => v.count >= 2);
-    // ホール別集計
-    const hallMap = {};
-    for (const s of sessions) {
-      const h = s.hall_name;
-      if (!h) continue;
-      if (!hallMap[h]) hallMap[h] = { sum: 0, count: 0 };
-      hallMap[h].sum += (s.diff_yen || 0);
-      hallMap[h].count++;
-    }
-    const hallEntries = Object.entries(hallMap).filter(([, v]) => v.count >= 2);
-    if (entries.length >= 2 || hallEntries.length >= 1) {
-      let parts = [];
-      if (entries.length >= 2) {
-        entries.sort((a, b) => (b[1].sum / b[1].count) - (a[1].sum / a[1].count));
-        const [bestM, bestV] = entries[0];
-        const [worstM, worstV] = entries[entries.length - 1];
-        const bAvg = Math.round(bestV.sum / bestV.count);
-        const wAvg = Math.round(worstV.sum / worstV.count);
-        parts.push(`<span style="color:var(--success)">▲ ${esc(bestM)}</span> ${bAvg >= 0?'+':''}${bAvg.toLocaleString()}円/回`);
-        parts.push(`<span style="color:var(--danger)">▼ ${esc(worstM)}</span> ${wAvg >= 0?'+':''}${wAvg.toLocaleString()}円/回`);
-      }
-      if (hallEntries.length >= 1) {
-        hallEntries.sort((a, b) => (b[1].sum / b[1].count) - (a[1].sum / a[1].count));
-        const [topH, topV] = hallEntries[0];
-        const hAvg = Math.round(topV.sum / topV.count);
-        parts.push(`<span style="color:var(--primary-h)">🏪 ${esc(topH)}</span> ${hAvg >= 0?'+':''}${hAvg.toLocaleString()}円/回`);
-      }
-      insightEl.style.display = 'block';
-      insightEl.innerHTML = parts.join('&ensp;·&ensp;');
-    } else {
-      insightEl.style.display = 'none';
-    }
-  }
-
-  // ベストセッションハイライト
-  const recEl = document.getElementById('sum-records');
-  if (recEl && total >= 5) {
-    const sorted = [...sessions].sort((a, b) => (b.diff_yen || 0) - (a.diff_yen || 0));
-    const best = sorted[0];
-    const worst = sorted[sorted.length - 1];
-    const chips = [];
-    if (best && (best.diff_yen || 0) > 0) {
-      const bCol = 'rgba(16,185,129,.12)';
-      const bBdr = 'rgba(16,185,129,.28)';
-      const bDate = best.date?.slice(5).replace('-', '/') || '';
-      chips.push(`<span style="background:${bCol};border:1px solid ${bBdr};border-radius:99px;padding:2px 10px;cursor:pointer;white-space:nowrap;color:var(--success)"
-        onclick="openSessionModal(${best.id})">🏆 ベスト ${bDate} +${(best.diff_yen/10000).toFixed(1)}万</span>`);
-    }
-    if (worst && (worst.diff_yen || 0) < -5000) {
-      const wDate = worst.date?.slice(5).replace('-', '/') || '';
-      chips.push(`<span style="background:rgba(244,63,94,.08);border:1px solid rgba(244,63,94,.22);border-radius:99px;padding:2px 10px;cursor:pointer;white-space:nowrap;color:var(--danger)"
-        onclick="openSessionModal(${worst.id})">↓ ワースト ${wDate} ${(worst.diff_yen/10000).toFixed(1)}万</span>`);
-    }
-    if (chips.length) {
-      recEl.style.display = 'flex';
-      recEl.innerHTML = chips.join('');
-    } else {
-      recEl.style.display = 'none';
-    }
-  } else if (recEl) {
-    recEl.style.display = 'none';
-  }
-
-  // 月間目標トラッカー
-  _renderMonthlyTarget(diffYen);
-}
-
-function _renderMonthlyTarget(currentYen) {
-  const el = document.getElementById('sum-monthly-target');
-  if (!el) return;
-  const periodBtn = document.querySelector('.ses-period-btn.active');
-  const period = periodBtn?.dataset.period || '';
-  if (period !== 'thismonth' && period !== 'today' && period !== 'thisweek') { el.style.display = 'none'; return; }
-  const stored = parseInt(localStorage.getItem('pachi_monthly_target') || '0');
-  const now = new Date();
-  el.style.display = 'block';
-  const pct = stored > 0 ? Math.min(120, Math.round(currentYen / stored * 100)) : 0;
-  const col = stored > 0 ? (currentYen >= stored ? 'var(--success)' : pct >= 70 ? 'var(--warning)' : 'var(--danger)') : 'var(--text3)';
-  const sign = currentYen >= 0 ? '+' : '';
-  const remaining = stored > 0 ? stored - currentYen : null;
-  const remHtml = remaining !== null && currentYen < stored
-    ? `<span style="font-size:.6rem;color:var(--text3);margin-left:6px">あと ${remaining.toLocaleString()}円</span>`
-    : remaining !== null && currentYen >= stored
-      ? `<span style="font-size:.6rem;color:var(--success);margin-left:6px">✅ 達成！</span>`
-      : '';
-  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-    <span style="font-size:.65rem;color:var(--text3);font-weight:600">月間目標</span>
-    <div style="display:flex;align-items:center;gap:5px">
-      ${stored > 0 ? `<span style="font-size:.75rem;font-weight:700;color:${col}">${sign}${currentYen.toLocaleString()}円 / ${stored.toLocaleString()}円</span>${remHtml}` : `<span style="font-size:.65rem;color:var(--text3)">未設定</span>`}
-      <button onclick="_editMonthlyTarget()" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:.6rem;padding:1px 5px;cursor:pointer;white-space:nowrap">目標設定</button>
-    </div>
-  </div>
-  ${stored > 0 ? `<div style="height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
-    <div style="width:${pct}%;height:100%;background:${col};border-radius:2px;transition:width .4s ease"></div>
-  </div>` : ''}`;
-}
-
-function _editMonthlyTarget() {
-  const stored = parseInt(localStorage.getItem('pachi_monthly_target') || '0');
-  const val = prompt('今月の目標収支を入力してください（円）\n例: 30000', stored || '');
-  if (val === null) return;
-  const n = parseInt(val.replace(/[^0-9-]/g, ''));
-  if (!isNaN(n)) {
-    localStorage.setItem('pachi_monthly_target', n);
-    loadSessions();
-  }
-}
-
-function copySessionSummary() {
-  if (!_sessionSummaryCopy) return;
-  navigator.clipboard.writeText(_sessionSummaryCopy).then(() => showToast('サマリーをコピーしました', 'success'));
-}
-
-function _renderSessionCard(s, bestDiff, bestGames, totalCount = 0) {
-  const diffYen = s.diff_yen || 0;
-  const expectedSetting = s.posterior ? calcExpectedSetting(s.posterior) : null;
-  const highProb = s.posterior ? Object.entries(s.posterior).filter(([k]) => parseInt(k)>=4).reduce((a,[,p])=>a+p,0) : 0;
-
-  let settingLabel = '';
-  if (s.posterior) {
-    if (expectedSetting >= 4.5 || highProb >= 0.6) {
-      settingLabel = `<span style="background:rgba(16,185,129,.15);color:var(--success);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">高設定濃厚</span>`;
-    } else if (expectedSetting >= 3.5 || highProb >= 0.35) {
-      settingLabel = `<span style="background:rgba(251,146,60,.12);color:var(--warning);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">中間設定</span>`;
-    } else if (expectedSetting !== null && expectedSetting < 2.5) {
-      settingLabel = `<span style="background:rgba(239,68,68,.1);color:var(--danger);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">低設定</span>`;
-    }
-  }
-
-  const isBestDiff = totalCount >= 3 && bestDiff > 0 && diffYen > 0 && diffYen === bestDiff;
-  const isBestGames = totalCount >= 3 && (s.games_total || 0) === bestGames && bestGames > 0;
-  const tags = [
-    s.is_event_day ? '<span class="tag tag-event">イベント</span>' : '',
-    s.is_corner ? '<span class="tag tag-corner">角台</span>' : '',
-    settingLabel,
-    isBestDiff ? '<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.15));color:var(--warning);font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">🏆自己最高</span>' : '',
-    isBestGames && !isBestDiff ? '<span style="background:rgba(99,102,241,.15);color:var(--primary-h);font-size:.58rem;padding:1px 5px;border-radius:3px;font-weight:700">最長G</span>' : '',
-  ].filter(Boolean).join('');
-
-  let posteriorBar = '';
-  if (s.posterior) {
-    const entries = Object.entries(s.posterior).sort((a,b) => parseInt(a[0])-parseInt(b[0]));
-    const bars = entries.map(([setting, prob]) => {
-      const w = Math.round(prob * 100);
-      const col = parseInt(setting) >= 4 ? 'var(--primary-h)' : parseInt(setting) >= 2 ? 'var(--text3)' : 'rgba(255,255,255,0.2)';
-      return `<div title="設定${setting}: ${Math.round(prob*100)}%" style="flex:${w||1};height:3px;background:${col};border-radius:1px"></div>`;
-    }).join('');
-    const eSetting = expectedSetting !== null ? expectedSetting.toFixed(1) : '';
-    const highCol = highProb >= 0.5 ? 'var(--success)' : highProb >= 0.3 ? 'var(--warning)' : 'var(--text3)';
-    posteriorBar = `<div style="margin-top:5px">
-      <div style="display:flex;gap:1px;height:3px;border-radius:2px;overflow:hidden;margin-bottom:3px">${bars}</div>
-      <div style="font-size:.65rem;color:var(--text3)">推測設定 <strong style="color:var(--text2)">${eSetting}</strong> 高設定 <strong style="color:${highCol}">${Math.round(highProb*100)}%</strong></div>
-    </div>`;
-  }
-
-  const _sMEnc = encodeURIComponent(s.machine_name), _sHEnc = encodeURIComponent(s.hall_name || '');
-  return `
-    <div class="session-item ${diffYen >= 0 ? 'pos' : 'neg'}" data-id="${s.id}">
-      <div class="session-item-header">
-        <span class="session-machine">${esc(s.machine_name)}</span>
-        ${tags}
-        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${_sMEnc}'),decodeURIComponent('${_sHEnc}'))"
-          style="margin-left:auto;font-size:.6rem;padding:2px 7px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.28);border-radius:4px;cursor:pointer;white-space:nowrap;flex-shrink:0">🎰 推測</button>
-      </div>
-      <div class="session-hall">${esc(s.hall_name || '')}${s.seat_number ? `&ensp;<span style="color:var(--text3);font-size:.75rem">${s.seat_number}番台</span>` : ''}</div>
-      <div class="session-stats" style="margin-top:6px">
-        <span class="session-stat">G数: <span class="val">${(s.games_total || 0).toLocaleString()}</span></span>
-        <span class="session-stat">収支: <span class="val ${diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow'}" style="font-weight:800">${fmt(diffYen)}</span></span>
-        ${s.investment ? `<span class="session-stat" style="color:var(--text3)">投資: <span class="val">${(s.investment/10000).toFixed(1)}万</span></span>` : ''}
-        ${s.diff_coins && s.games_total ? (() => { const rate = (s.diff_coins / s.games_total).toFixed(2); const col = parseFloat(rate) >= 0 ? 'var(--success)' : 'var(--danger)'; return `<span class="session-stat" style="color:var(--text3)">枚/G: <span class="val" style="color:${col}">${parseFloat(rate)>=0?'+':''}${rate}</span></span>`; })() : ''}
-      </div>
-      ${posteriorBar}
-      ${s.notes ? `<div style="font-size:.63rem;color:var(--text3);margin-top:5px;padding-top:5px;border-top:1px solid var(--border);display:flex;align-items:flex-start;gap:4px"><span style="flex-shrink:0;opacity:.55">📝</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(s.notes.slice(0, 80))}${s.notes.length > 80 ? '…' : ''}</span></div>` : ''}
-    </div>
-  `;
 }
 
 function renderSessions(sessions) {
@@ -2063,75 +2113,62 @@ function renderSessions(sessions) {
     </div>`;
     return;
   }
+  container.innerHTML = sessions.map(s => {
+    const diffYen = s.diff_yen || 0;
+    const expectedSetting = s.posterior ? calcExpectedSetting(s.posterior) : null;
+    const highProb = s.posterior ? Object.entries(s.posterior).filter(([k]) => parseInt(k)>=4).reduce((a,[,p])=>a+p,0) : 0;
 
-  const bestDiff = Math.max(...sessions.map(s => s.diff_yen || 0));
-  const bestGames = Math.max(...sessions.map(s => s.games_total || 0));
-
-  // 今日フィルター時の収支サマリーバナー
-  const periodOverride = document.getElementById('ses-month-filter')?.dataset.periodOverride || '';
-  const todayBanner = periodOverride === 'today' ? (() => {
-    const dayTotal = sessions.reduce((s, r) => s + (r.diff_yen || 0), 0);
-    const dayGames = sessions.reduce((s, r) => s + (r.games_total || 0), 0);
-    const wins = sessions.filter(s => (s.diff_yen || 0) > 0).length;
-    const col = dayTotal >= 0 ? 'var(--success)' : 'var(--danger)';
-    const bg  = dayTotal >= 0 ? 'rgba(16,185,129,.07)' : 'rgba(244,63,94,.07)';
-    const bdr = dayTotal >= 0 ? 'rgba(16,185,129,.25)' : 'rgba(244,63,94,.25)';
-    const icon = dayTotal >= 5000 ? '🎉' : dayTotal >= 0 ? '✅' : dayTotal <= -5000 ? '😔' : '📊';
-    const sign = dayTotal >= 0 ? '+' : '';
-    return `<div style="background:${bg};border:1.5px solid ${bdr};border-radius:12px;padding:14px 16px;margin-bottom:12px;text-align:center">
-      <div style="font-size:.65rem;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.08em">今日の収支</div>
-      <div style="font-size:2rem;font-weight:900;color:${col};letter-spacing:-.04em;line-height:1">${icon} ${sign}${dayTotal.toLocaleString()}<span style="font-size:.9rem">円</span></div>
-      <div style="font-size:.68rem;color:var(--text3);margin-top:6px">${sessions.length}セッション · ${wins}勝${sessions.length - wins}敗 · ${dayGames.toLocaleString()}G</div>
-    </div>`;
-  })() : '';
-
-  // 日付でグループ化
-  const dayGroups = {};
-  sessions.forEach(s => {
-    const d = s.date || '不明';
-    if (!dayGroups[d]) dayGroups[d] = [];
-    dayGroups[d].push(s);
-  });
-
-  const dayNames = ['日','月','火','水','木','金','土'];
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().slice(0, 10);
-
-  let html = '';
-  Object.entries(dayGroups).forEach(([dateStr, daySessions]) => {
-    const dayTotal = daySessions.reduce((sum, s) => sum + (s.diff_yen || 0), 0);
-    const dayColor = dayTotal >= 0 ? 'var(--success)' : 'var(--danger)';
-    const daySign = dayTotal >= 0 ? '+' : '';
-    const dayWins = daySessions.filter(s => (s.diff_yen || 0) > 0).length;
-    const dayLoss = daySessions.length - dayWins;
-    const dayGames = daySessions.reduce((sum, s) => sum + (s.games_total || 0), 0);
-    const wlBadge = daySessions.length > 1
-      ? `<span style="font-size:.6rem;color:var(--text3);margin-right:4px">${dayWins}勝${dayLoss}敗</span>`
-      : '';
-    const gamesBadge = dayGames > 0
-      ? `<span style="font-size:.6rem;color:var(--text3);margin-right:6px">${dayGames.toLocaleString()}G</span>`
-      : '';
-
-    let dateLabel = dateStr;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-      const [y, m, d] = dateStr.split('-').map(Number);
-      const dn = dayNames[new Date(y, m - 1, d).getDay()];
-      if (dateStr === todayStr) dateLabel = `今日 (${m}/${d} ${dn})`;
-      else if (dateStr === yesterdayStr) dateLabel = `昨日 (${m}/${d} ${dn})`;
-      else dateLabel = `${m}/${d}(${dn})`;
+    // 自動推定ラベル
+    let settingLabel = '';
+    if (s.posterior) {
+      if (expectedSetting >= 4.5 || highProb >= 0.6) {
+        settingLabel = `<span style="background:rgba(16,185,129,.15);color:var(--success);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">高設定濃厚</span>`;
+      } else if (expectedSetting >= 3.5 || highProb >= 0.35) {
+        settingLabel = `<span style="background:rgba(251,146,60,.12);color:var(--warning);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">中間設定</span>`;
+      } else if (expectedSetting !== null && expectedSetting < 2.5) {
+        settingLabel = `<span style="background:rgba(239,68,68,.1);color:var(--danger);font-size:.6rem;padding:1px 5px;border-radius:3px;font-weight:700">低設定</span>`;
+      }
     }
 
-    html += `<div class="ses-date-header">
-      <span class="ses-date-label">${dateLabel}</span>
-      <div class="ses-date-line"></div>
-      ${gamesBadge}${wlBadge}<span class="ses-date-total" style="color:${dayColor}">${daySign}${dayTotal.toLocaleString()}円</span>
-    </div>`;
+    const tags = [
+      s.is_event_day ? '<span class="tag tag-event">イベント</span>' : '',
+      s.is_corner ? '<span class="tag tag-corner">角台</span>' : '',
+      settingLabel,
+    ].filter(Boolean).join('');
 
-    html += daySessions.map(s => _renderSessionCard(s, bestDiff, bestGames, sessions.length)).join('');
-  });
+    // 設定分布バー（推測結果がある場合）
+    let posteriorBar = '';
+    if (s.posterior) {
+      const entries = Object.entries(s.posterior).sort((a,b) => parseInt(a[0])-parseInt(b[0]));
+      const bars = entries.map(([setting, prob]) => {
+        const w = Math.round(prob * 100);
+        const col = parseInt(setting) >= 4 ? 'var(--primary-h)' : parseInt(setting) >= 2 ? 'var(--text3)' : 'rgba(255,255,255,0.2)';
+        return `<div title="設定${setting}: ${Math.round(prob*100)}%" style="flex:${w||1};height:3px;background:${col};border-radius:1px"></div>`;
+      }).join('');
+      const eSetting = expectedSetting !== null ? expectedSetting.toFixed(1) : '';
+      const highCol = highProb >= 0.5 ? 'var(--success)' : highProb >= 0.3 ? 'var(--warning)' : 'var(--text3)';
+      posteriorBar = `<div style="margin-top:5px">
+        <div style="display:flex;gap:1px;height:3px;border-radius:2px;overflow:hidden;margin-bottom:3px">${bars}</div>
+        <div style="font-size:.65rem;color:var(--text3)">推測設定 <strong style="color:var(--text2)">${eSetting}</strong> 高設定 <strong style="color:${highCol}">${Math.round(highProb*100)}%</strong></div>
+      </div>`;
+    }
+    return `
+      <div class="session-item ${diffYen >= 0 ? 'pos' : 'neg'}" data-id="${s.id}">
+        <div class="session-item-header">
+          <span class="session-date">${s.date}</span>
+          <span class="session-machine">${esc(s.machine_name)}</span>
+          ${tags}
+        </div>
+        <div class="session-hall">${esc(s.hall_name || '')} ${s.seat_number ? '台' + s.seat_number : ''}</div>
+        <div class="session-stats" style="margin-top:6px">
+          <span class="session-stat">G数: <span class="val">${(s.games_total || 0).toLocaleString()}</span></span>
+          <span class="session-stat">収支: <span class="val ${diffYen >= 0 ? 'diff-pos glow' : 'diff-neg glow'}" style="font-weight:800">${fmt(diffYen)}</span></span>
+        </div>
+        ${posteriorBar}
+      </div>
+    `;
+  }).join('');
 
-  container.innerHTML = todayBanner + html;
   container.querySelectorAll('.session-item').forEach(item => {
     item.addEventListener('click', () => openSessionModal(parseInt(item.dataset.id)));
   });
@@ -2150,13 +2187,7 @@ async function openSessionModal(id) {
   const posterior = s.posterior;
   const expectedSetting = posterior ? calcExpectedSetting(posterior).toFixed(2) : '--';
 
-  const mEnc = JSON.stringify(s.machine_name);
-  const hEnc = s.hall_name ? JSON.stringify(s.hall_name) : 'null';
   body.innerHTML = `
-    <div style="display:flex;gap:6px;margin-bottom:12px">
-      <button onclick='_startSessionReplay(${mEnc}, ${hEnc})' style="flex:1;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:8px;color:var(--primary-h);font-size:.72rem;font-weight:700;padding:7px 4px;cursor:pointer">🎰 同機種・同ホールで推測</button>
-      <button onclick='closeModal();switchTab("machines");setTimeout(()=>{const s=document.getElementById("machine-search");if(s){s.value=${mEnc};s.dispatchEvent(new Event("input"))}},100)' style="flex:0 0 auto;background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:.72rem;padding:7px 10px;cursor:pointer">📊 機種DB</button>
-    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
       <div><span style="font-size:.75rem;color:var(--text3)">ホール</span><br><strong>${esc(s.hall_name || '--')}</strong></div>
       <div><span style="font-size:.75rem;color:var(--text3)">台番号</span><br><strong>${s.seat_number ? s.seat_number + '番台' : '--'}</strong></div>
@@ -2165,27 +2196,20 @@ async function openSessionModal(id) {
       <div><span style="font-size:.75rem;color:var(--text3)">収支</span><br><strong class="${diffYen >= 0 ? 'diff-pos' : 'diff-neg'}">${fmt(diffYen)}</strong></div>
       <div><span style="font-size:.75rem;color:var(--text3)">総G数</span><br><strong>${(s.games_total || 0).toLocaleString()}</strong></div>
       <div><span style="font-size:.75rem;color:var(--text3)">差枚</span><br><strong>${(s.diff_coins || 0).toLocaleString()}</strong></div>
-      ${s.diff_coins && s.games_total ? (() => { const rate = (s.diff_coins / s.games_total).toFixed(2); const col = parseFloat(rate) >= 0 ? 'var(--success)' : 'var(--danger)'; return `<div><span style="font-size:.75rem;color:var(--text3)">枚/G効率</span><br><strong style="color:${col}">${parseFloat(rate)>=0?'+':''}${rate}</strong></div>`; })() : `<div></div>`}
       <div><span style="font-size:.75rem;color:var(--text3)">推測設定</span><br><strong>${expectedSetting}</strong></div>
-      ${s.investment > 0 ? (() => { const roi = (((s.returns||0) / s.investment) - 1) * 100; const col = roi >= 0 ? 'var(--success)' : 'var(--danger)'; return `<div><span style="font-size:.75rem;color:var(--text3)">ROI</span><br><strong style="color:${col}">${roi >= 0 ? '+' : ''}${roi.toFixed(1)}%</strong></div>`; })() : `<div></div>`}
     </div>
+    ${s.notes ? `<p style="font-size:.85rem;color:var(--text2);margin-bottom:12px">📝 ${esc(s.notes)}</p>` : ''}
     ${posterior ? renderMiniPosterior(posterior) : ''}
     ${Object.keys(s.element_counts || {}).length ? `
       <div style="margin-top:12px">
         <div style="font-size:.75rem;color:var(--text3);margin-bottom:6px">カウント</div>
-        ${Object.entries(s.element_counts).map(([k, v]) => {
-          const perN = (v > 0 && s.games_total > 0) ? `<span style="color:var(--text3);font-size:.72rem;margin-left:6px">1/${Math.round(s.games_total / v)}</span>` : '';
-          return `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.85rem;border-bottom:1px solid var(--border)">
-            <span style="color:var(--text2)">${esc(k)}</span><span><strong>${v}</strong>${perN}</span>
-          </div>`;
-        }).join('')}
+        ${Object.entries(s.element_counts).map(([k, v]) => `
+          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:.85rem;border-bottom:1px solid var(--border)">
+            <span style="color:var(--text2)">${esc(k)}</span><span><strong>${v}</strong></span>
+          </div>
+        `).join('')}
       </div>
     ` : ''}
-    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-      <div style="font-size:.72rem;color:var(--text3);margin-bottom:4px">📝 メモ</div>
-      <textarea id="modal-notes-input" rows="2" class="form-input" style="font-size:.82rem;resize:vertical;min-height:44px">${esc(s.notes || '')}</textarea>
-      <button id="modal-notes-save" class="btn btn-ghost btn-sm" style="font-size:.68rem;padding:3px 10px;margin-top:4px">保存</button>
-    </div>
   `;
 
   document.getElementById('modal-delete').onclick = async () => {
@@ -2195,28 +2219,6 @@ async function openSessionModal(id) {
     loadSessions();
     showToast('削除しました', 'success');
   };
-
-  document.getElementById('modal-copy').onclick = () => {
-    const highProb = posterior ? Object.entries(posterior).filter(([k]) => parseInt(k)>=4).reduce((a,[,p])=>a+p,0) : null;
-    const lines = [
-      `【${s.machine_name}】${s.date}`,
-      s.hall_name ? `@${s.hall_name}${s.seat_number ? ` ${s.seat_number}番台` : ''}` : '',
-      `G数: ${(s.games_total||0).toLocaleString()} / 収支: ${fmt(diffYen)}`,
-      s.diff_coins ? `差枚: ${s.diff_coins >= 0 ? '+' : ''}${s.diff_coins}枚` : '',
-      expectedSetting !== '--' ? `推測設定: ${expectedSetting} / 高設定確率: ${Math.round((highProb||0)*100)}%` : '',
-      s.notes ? `メモ: ${s.notes}` : '',
-    ].filter(Boolean).join('\n');
-    navigator.clipboard.writeText(lines).then(() => showToast('コピーしました', 'success'));
-  };
-
-  document.getElementById('modal-notes-save')?.addEventListener('click', async () => {
-    const notes = document.getElementById('modal-notes-input')?.value || '';
-    try {
-      await api.updateSession(id, { notes });
-      showToast('メモを保存しました', 'success');
-      loadSessions();
-    } catch { showToast('保存失敗', 'error'); }
-  });
 
   document.getElementById('modal-edit').onclick = () => openSessionEdit(s);
 
@@ -2348,9 +2350,8 @@ function _renderSeatHistory() {
   el.style.display = 'flex';
   el.innerHTML = filtered.map(h => {
     const encH = encodeURIComponent(h.hall), encM = encodeURIComponent(h.machine);
-    const shortName = h.machine.length > 10 ? h.machine.slice(0, 9) + '…' : h.machine;
-    return `<button class="btn btn-ghost" style="font-size:.65rem;padding:3px 8px;flex-shrink:0;white-space:nowrap;display:flex;flex-direction:column;align-items:center;gap:0;line-height:1.2"
-      onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${h.seat})"><span style="font-weight:700">${h.seat}番</span><span style="color:var(--text3);font-size:.58rem">${esc(shortName)}</span></button>`;
+    return `<button class="btn btn-ghost" style="font-size:.68rem;padding:3px 8px;flex-shrink:0;white-space:nowrap"
+      onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${h.seat})">${h.seat}番</button>`;
   }).join('');
 }
 
@@ -2386,7 +2387,7 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
     const dowRows = (data.weekday_stats || []).map(w => {
       const c = w.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       return `<tr>
-        <td style="padding:4px 8px;font-size:.78rem">${esc(w.weekday)}</td>
+        <td style="padding:4px 8px;font-size:.78rem">${w.weekday}</td>
         <td style="padding:4px 8px;font-size:.78rem;color:${c};font-weight:700">${sign(w.avg_diff)}枚</td>
         <td style="padding:4px 8px;font-size:.75rem;color:var(--text3)">${w.count}日 / 勝率${w.win_rate}%</td>
       </tr>`;
@@ -2420,13 +2421,13 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
         })()
       : '';
     const bestDowBadge = data.best_weekday
-      ? `<span style="background:rgba(124,127,245,.1);color:var(--primary-h);font-size:.68rem;padding:2px 8px;border-radius:4px">${esc(data.best_weekday.weekday)}曜に強い (平均${data.best_weekday.avg_diff > 0 ? '+' : ''}${data.best_weekday.avg_diff}枚)</span>`
+      ? `<span style="background:rgba(124,127,245,.1);color:var(--primary-h);font-size:.68rem;padding:2px 8px;border-radius:4px">${data.best_weekday.weekday}曜に強い (平均${data.best_weekday.avg_diff > 0 ? '+' : ''}${data.best_weekday.avg_diff}枚)</span>`
       : '';
     const dateBlockHtml = (data.date_block_analysis && data.date_block_analysis.length > 0)
       ? (() => {
           const best = data.date_block_analysis[0];
           return best.avg_diff > 0
-            ? `<div style="font-size:.68rem;color:var(--text3);margin-top:6px">月内傾向: <strong style="color:var(--success)">${esc(best.block)}</strong>が最強 (平均+${best.avg_diff}枚 / 勝率${best.win_rate}%)</div>`
+            ? `<div style="font-size:.68rem;color:var(--text3);margin-top:6px">月内傾向: <strong style="color:var(--success)">${best.block}</strong>が最強 (平均+${best.avg_diff}枚 / 勝率${best.win_rate}%)</div>`
             : '';
         })()
       : '';
@@ -2434,16 +2435,10 @@ async function showSeatDetailModal(hall, machineName, seatNumber) {
       <div style="margin-bottom:10px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <span style="font-size:1.05rem;font-weight:800">${esc(machineName)} ${seatNumber}番台</span>
-          <div style="display:flex;gap:5px;align-items:center">
-            <button onclick='togglePinSeat(${JSON.stringify(hall)},${JSON.stringify(machineName)},${seatNumber})' id="pin-seat-btn"
-              style="background:none;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">
-              ${isPinnedSeat(hall, machineName, seatNumber) ? '★ ピン中' : '☆ ピン'}
-            </button>
-            <button onclick='_startSessionReplay(${JSON.stringify(machineName)},${JSON.stringify(hall)})'
-              style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);border-radius:5px;padding:3px 8px;font-size:.7rem;cursor:pointer;color:var(--success);font-weight:700">
-              🎰 推測
-            </button>
-          </div>
+          <button onclick="togglePinSeat(${JSON.stringify(hall)},${JSON.stringify(machineName)},${seatNumber})" id="pin-seat-btn"
+            style="background:none;border:1px solid var(--border);border-radius:5px;padding:3px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">
+            ${isPinnedSeat(hall, machineName, seatNumber) ? '★ ピン中' : '☆ ピン'}
+          </button>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:6px">
           <div style="background:var(--bg2);border-radius:6px;padding:6px;text-align:center">
@@ -2617,14 +2612,6 @@ quickEntryBtn?.addEventListener('click', () => {
         const o = document.createElement('option'); o.value = m; machineDL.appendChild(o);
       });
     }
-    // 直近セッションのホール・機種を自動入力（未入力の場合のみ）
-    const qeHall = document.getElementById('qe-hall');
-    const qeMachine = document.getElementById('qe-machine');
-    if (qeHall && !qeHall.value && state.sessions && state.sessions.length > 0) {
-      const rec = state.sessions[0]; // most recent
-      if (rec.hall_name) qeHall.value = rec.hall_name;
-      if (rec.machine_name && qeMachine && !qeMachine.value) qeMachine.value = rec.machine_name;
-    }
     quickEntryForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 });
@@ -2676,8 +2663,6 @@ document.getElementById('qe-save-btn')?.addEventListener('click', async () => {
     document.getElementById('qe-corner').checked = false;
     document.getElementById('qe-diff-display').style.display = 'none';
     loadSessions();
-    loadTodayPnlBanner();
-    _todayRecLoaded = false;
     // ホールdatalist更新
     await populateSessionFilters();
   } catch (e) {
@@ -2756,11 +2741,6 @@ async function loadHallPage() {
   const isStale = () => gen !== _loadHallPageGen;
   _addRecentHall(hall);
   _loadHallMemo(hall);
-  // ホール切替時に前の AI 結果をリセット
-  const _aiOut = document.getElementById('hall-ai-output');
-  const _aiCopy = document.getElementById('hall-ai-copy');
-  if (_aiOut) { _aiOut.style.display = 'none'; _aiOut.innerHTML = ''; }
-  if (_aiCopy) _aiCopy.style.display = 'none';
   const _gradeBanner = document.getElementById('hall-grade-banner');
   if (_gradeBanner) _gradeBanner.style.display = 'none';
   try {
@@ -2825,89 +2805,6 @@ async function loadHallPage() {
   loadTodayDowMachines(hall);
   loadMachineSettingTendency(hall);
   loadSlumpSeats(hall);
-  loadWeekdayMachineMap(hall);
-}
-
-async function loadWeekdayMachineMap(hall) {
-  const card = document.getElementById('weekday-machine-map-card');
-  const body = document.getElementById('weekday-machine-map-body');
-  if (!card || !body) return;
-  try {
-    const rows = await apiFetch(`/api/hall/weekday_machine_stats?hall_name=${encodeURIComponent(hall)}&days=90`);
-    if (!rows || rows.length < 3) { card.style.display = 'none'; return; }
-
-    const DOW = ['月','火','水','木','金','土','日'];
-    const todayDow = (() => { const d = new Date().getDay(); return d === 0 ? '日' : DOW[d - 1]; })();
-
-    // Group by machine, then weekday
-    const byMachine = {};
-    rows.forEach(r => {
-      if (!byMachine[r.machine_name]) byMachine[r.machine_name] = {};
-      byMachine[r.machine_name][r.weekday] = { avg: r.avg_diff, wr: r.win_rate, cnt: r.count };
-    });
-
-    // Only machines with at least 3 weekday entries
-    const machines = Object.entries(byMachine)
-      .filter(([, wmap]) => Object.keys(wmap).length >= 2)
-      .sort((a, b) => {
-        const scoreA = Object.values(a[1]).reduce((s, v) => s + v.avg, 0);
-        const scoreB = Object.values(b[1]).reduce((s, v) => s + v.avg, 0);
-        return scoreB - scoreA;
-      })
-      .slice(0, 10);
-
-    if (!machines.length) { card.style.display = 'none'; return; }
-
-    // Global avg diff for normalizing colors
-    const allAvgs = rows.map(r => r.avg_diff);
-    const globalMean = allAvgs.reduce((a, b) => a + b, 0) / allAvgs.length;
-    const globalStd = Math.sqrt(allAvgs.reduce((s, v) => s + (v - globalMean) ** 2, 0) / allAvgs.length) || 100;
-
-    const cellStyle = (val) => {
-      if (val == null) return 'background:var(--bg3);color:var(--text3)';
-      const z = (val - globalMean) / globalStd;
-      if (z >= 1.2) return 'background:rgba(16,185,129,.25);color:var(--success)';
-      if (z >= 0.4) return 'background:rgba(16,185,129,.12);color:var(--success)';
-      if (z <= -1.2) return 'background:rgba(244,63,94,.2);color:var(--danger)';
-      if (z <= -0.4) return 'background:rgba(244,63,94,.08);color:var(--danger)';
-      return 'background:var(--bg3);color:var(--text3)';
-    };
-
-    const enc = encodeURIComponent(hall);
-    const headerCells = DOW.map(d =>
-      `<th style="padding:3px 4px;font-size:.6rem;font-weight:${d===todayDow?'900':'500'};color:${d===todayDow?'var(--primary-h)':'var(--text3)'};text-align:center;white-space:nowrap">${d}${d===todayDow?'●':''}</th>`
-    ).join('');
-
-    const tableRows = machines.map(([name, wmap]) => {
-      const cells = DOW.map(d => {
-        const v = wmap[d];
-        if (!v) return `<td style="padding:3px 4px;font-size:.58rem;text-align:center;${cellStyle(null)}">—</td>`;
-        const sign = v.avg >= 0 ? '+' : '';
-        return `<td style="padding:3px 4px;font-size:.58rem;text-align:center;border-radius:3px;${cellStyle(v.avg)}" title="${esc(name)} ${d}曜: ${sign}${v.avg}枚 勝率${v.wr}% (${v.cnt}日)">${sign}${v.avg}</td>`;
-      }).join('');
-      const mEnc = encodeURIComponent(name);
-      return `<tr style="cursor:pointer" onclick="_startSessionReplay(decodeURIComponent('${mEnc}'),decodeURIComponent('${enc}'))" title="${esc(name)}を推測フォームにセット">
-        <td style="padding:3px 4px;font-size:.65rem;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px">${esc(name)}</td>
-        ${cells}
-      </tr>`;
-    }).join('');
-
-    body.innerHTML = `
-      <div style="font-size:.65rem;color:var(--text3);margin-bottom:6px">各セルは平均差枚（枚）。タップ行でその機種を推測フォームにセット</div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;min-width:300px">
-          <thead><tr>
-            <th style="padding:3px 4px;font-size:.6rem;color:var(--text3);text-align:left">機種</th>
-            ${headerCells}
-          </tr></thead>
-          <tbody>${tableRows}</tbody>
-        </table>
-      </div>`;
-    card.style.display = 'block';
-  } catch(e) {
-    const c = document.getElementById('weekday-machine-map-card');
-    if (c) c.style.display = 'none';
-  }
 }
 
 async function loadSlumpSeats(hall) {
@@ -2922,7 +2819,7 @@ async function loadSlumpSeats(hall) {
     body.innerHTML = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">直近5日のBB確率が平均より急落（低設定継続 or 変更待ち候補）</p>
       ${rows.slice(0, 8).map(r => {
         const z = r.slump_z;
-        const slumpCol = z > 1.5 ? 'var(--danger)' : z > 1.0 ? 'var(--warning)' : 'var(--text3)';
+        const slumpCol = z > 2.0 ? '#f43f5e' : z > 1.5 ? 'var(--danger)' : z > 1.0 ? 'var(--warning)' : 'var(--text3)';
         const barPct = Math.min(Math.round(z / maxSZ * 100), 100);
         const encHall = encodeURIComponent(hall);
         const encM = encodeURIComponent(r.machine_name);
@@ -2945,8 +2842,6 @@ async function loadSlumpSeats(hall) {
                 style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:2px;color:${isPinnedSeat(hall,r.machine_name,r.seat_number)?'var(--warning)':'var(--text3)'}">
                 ${isPinnedSeat(hall, r.machine_name, r.seat_number) ? '★' : '☆'}
               </button>
-              <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM}'),decodeURIComponent('${encHall}'))"
-                style="font-size:.62rem;padding:2px 6px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;white-space:nowrap">🎰</button>
               <div style="font-size:1.1rem;font-weight:900;color:${slumpCol}">-${z.toFixed(1)}σ</div>
             </div>
           </div>
@@ -2977,11 +2872,8 @@ function renderMachineRankingFromSessions(machineStats) {
       const avgColor = avg >= 0 ? 'var(--success)' : 'var(--danger)';
       const wr = Math.round(d.wins / d.count * 100);
       const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
-      const hall = getSelectedHall();
-      const mEnc = JSON.stringify(machine);
-      const hEnc = hall ? JSON.stringify(hall) : 'null';
       return `
-        <div class="machine-rank-row" style="cursor:pointer" onclick='_startSessionReplay(${mEnc},${hEnc})' title="推測フォームを開く">
+        <div class="machine-rank-row">
           <span class="rank-num">${medal || (i + 1)}</span>
           <span class="rank-machine">${esc(machine)}</span>
           <div style="text-align:right">
@@ -3062,21 +2954,16 @@ function renderWeekdayChart(weekdays) {
 
 function renderMachineRanking(machines) {
   const el = document.getElementById('hall-machine-ranking');
-  const hall = getSelectedHall();
   el.innerHTML = machines.slice(0, 10).map((m, i) => {
     const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
-    const mEnc = JSON.stringify(m.machine);
-    const hEnc = hall ? JSON.stringify(hall) : 'null';
     return `
-      <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
-        <span style="font-size:.75rem;color:var(--text3);width:22px;flex-shrink:0">${medal || (i + 1)}</span>
-        <span style="font-size:.82rem;flex:1;color:var(--text1);cursor:pointer" onclick='_startSessionReplay(${mEnc},${hEnc})'>${esc(m.machine)}</span>
-        <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:.8rem;font-weight:700;color:var(--success)">+${m.score}pt</div>
-          <div style="font-size:.65rem;color:var(--text3)">${m.appearances}回 avg${m.avg}</div>
+      <div class="machine-rank-row">
+        <span class="rank-num">${medal || (i + 1)}</span>
+        <span class="rank-machine">${esc(m.machine)}</span>
+        <div style="text-align:right">
+          <span class="rank-score">+${m.score}pt</span><br>
+          <span class="rank-meta">${m.appearances}回 avg${m.avg}</span>
         </div>
-        <button onclick='event.stopPropagation();_startSessionReplay(${mEnc},${hEnc})'
-          style="font-size:.6rem;padding:2px 6px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
       </div>
     `;
   }).join('');
@@ -3095,18 +2982,13 @@ function renderAnasloMachineRanking(machines) {
       const ta = t > 1 ? '↑' : t < -1 ? '↓' : '→';
       trendHtml = `<span style="font-size:.6rem;color:${tc};margin-left:4px">BB${ta}${t > 0 ? '+' : ''}${t}%</span>`;
     }
-    const hall2 = getSelectedHall();
-    const mEnc2 = JSON.stringify(m.machine);
-    const hEnc2 = hall2 ? JSON.stringify(hall2) : 'null';
     return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
       <span style="font-size:.75rem;color:var(--text3);width:22px;flex-shrink:0">${i+1}</span>
-      <span style="font-size:.82rem;flex:1;color:var(--text1);cursor:pointer" onclick='_startSessionReplay(${mEnc2},${hEnc2})'>${esc(m.machine)}${trendHtml}</span>
+      <span style="font-size:.82rem;flex:1;color:var(--text1)">${esc(m.machine)}${trendHtml}</span>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:.8rem;font-weight:700;color:${diffColor}">${sign(avgDiff)}枚</div>
         <div style="font-size:.65rem;color:${wrColor}">勝率${m.win_rate || 0}%</div>
       </div>
-      <button onclick='event.stopPropagation();_startSessionReplay(${mEnc2},${hEnc2})'
-        style="font-size:.6rem;padding:2px 6px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
     </div>`;
   }).join('');
 }
@@ -3168,7 +3050,7 @@ function renderTodayRecommend(data) {
 
   items.push({
     icon: '🏆',
-    text: `推奨機種: ${topMachines.map(m => esc(m)).join('、')}`,
+    text: `推奨機種: ${topMachines.join('、')}`,
     sub: '過去スコア上位3機種。設定が入りやすい傾向あり。',
   });
 
@@ -3334,7 +3216,6 @@ async function loadScrapeReport(hall, date) {
             <th style="text-align:right;padding:4px 2px">差枚</th>
             <th style="text-align:right;padding:4px 2px">G数</th>
             <th style="text-align:right;padding:4px 2px">出率</th>
-            <th style="padding:4px 2px"></th>
           </tr>
         </thead>
         <tbody>
@@ -3344,19 +3225,15 @@ async function loadScrapeReport(hall, date) {
             const diffStr = diff != null ? (diff > 0 ? '+' : '') + diff.toLocaleString() : '-';
             const encHall = encodeURIComponent(hall).replace(/'/g, '%27');
             const encMachine = encodeURIComponent(r.machine_name).replace(/'/g, '%27');
-            return `<tr style="border-bottom:1px solid var(--border-subtle)">
-              <td style="padding:5px 2px;max-width:120px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:pointer"
-                  onclick="renderMachineTrendChart(decodeURIComponent('${encHall}'),decodeURIComponent('${encMachine}'))">
+            return `<tr style="border-bottom:1px solid var(--border-subtle);cursor:pointer"
+                        onclick="renderMachineTrendChart(decodeURIComponent('${encHall}'),decodeURIComponent('${encMachine}'))">
+              <td style="padding:5px 2px;max-width:130px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">
                 <span style="color:var(--text3);margin-right:4px">${i+1}</span>
-                <span style="color:var(--primary);text-decoration:underline dotted">${esc(r.machine_name)}</span>
+                <span style="color:var(--primary);text-decoration:underline dotted">${r.machine_name}</span>
               </td>
               <td style="text-align:right;padding:5px 2px;color:${diffColor};font-weight:600">${diffStr}</td>
               <td style="text-align:right;padding:5px 2px;color:var(--text3)">${r.avg_games != null ? r.avg_games.toLocaleString() : '-'}</td>
               <td style="text-align:right;padding:5px 2px;color:var(--text2)">${r.ev_pct != null ? r.ev_pct + '%' : '-'}</td>
-              <td style="padding:3px 2px;white-space:nowrap">
-                <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMachine}'),decodeURIComponent('${encHall}'))"
-                  style="font-size:.55rem;padding:2px 5px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;line-height:1.4">🎰</button>
-              </td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -3436,18 +3313,17 @@ async function loadTopMachines(hall) {
       const diffStr = (diff > 0 ? '+' : '') + Math.round(diff).toLocaleString();
       const rankLabel = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}`;
       const encHm = encodeURIComponent(hall), encMm = encodeURIComponent(r.machine_name);
-      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
-        <span style="width:22px;text-align:right;font-size:${i<3?'.82':'.72'}rem;color:var(--text3);flex-shrink:0">${rankLabel}</span>
-        <div style="flex:1;min-width:0;cursor:pointer" onclick="renderMachineTrendChart(decodeURIComponent('${encHm}'),decodeURIComponent('${encMm}'))">
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;cursor:pointer"
+        onclick="renderMachineTrendChart(decodeURIComponent('${encHm}'),decodeURIComponent('${encMm}'))">
+        <span style="width:22px;text-align:right;font-size:${i<3?'.82':'.72'}rem;color:var(--text3)">${rankLabel}</span>
+        <div style="flex:1;min-width:0">
           <div style="font-size:.78rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--primary);text-decoration:underline dotted">${esc(r.machine_name)}</div>
           <div style="height:5px;background:var(--bg3);border-radius:3px;margin-top:2px;overflow:hidden">
             <div class="anim-bar" style="width:${pct}%;height:5px;background:${barColor};border-radius:3px;box-shadow:0 0 6px ${barColor}55"></div>
           </div>
         </div>
-        <span style="font-size:.78rem;font-weight:700;color:${barColor};white-space:nowrap;flex-shrink:0">${diffStr}</span>
-        <span style="font-size:.62rem;color:var(--text3);white-space:nowrap;flex-shrink:0">${r.report_count}日</span>
-        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMm}'),decodeURIComponent('${encHm}'))"
-          style="font-size:.55rem;padding:2px 5px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
+        <span style="font-size:.78rem;font-weight:700;color:${barColor};white-space:nowrap">${diffStr}</span>
+        <span style="font-size:.62rem;color:var(--text3);white-space:nowrap">${r.report_count}日</span>
       </div>`;
     }).join('');
   } catch(e) {
@@ -3739,25 +3615,11 @@ document.getElementById('anaslo-tab-tail').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 // Machines page
 // ---------------------------------------------------------------------------
-let _machineSessionMap = {}; // machine_name → {last_date, count, total_diff}
-
 async function loadMachinesPage() {
   const container = document.getElementById('machine-list');
   container.innerHTML = '<p class="hint center">読み込み中...</p>';
   try {
-    const [machines, sessions] = await Promise.all([
-      api.getMachines(),
-      api.getSessions({ limit: 500 }).catch(() => []),
-    ]);
-    _machineSessionMap = {};
-    for (const s of (Array.isArray(sessions) ? sessions : [])) {
-      if (!s.machine_name) continue;
-      const m = _machineSessionMap[s.machine_name] || { last_date: null, count: 0, total_diff: 0 };
-      m.count++;
-      m.total_diff += s.diff_yen || 0;
-      if (!m.last_date || s.date > m.last_date) m.last_date = s.date;
-      _machineSessionMap[s.machine_name] = m;
-    }
+    const machines = await api.getMachines();
     const profiles = await Promise.all(
       machines.map(m => api.getMachine(m).catch(() => ({ machine_name: m, elements: [], settings: [] })))
     );
@@ -3767,36 +3629,11 @@ async function loadMachinesPage() {
   }
 }
 
-let _machineCatFilter = 'all';
-let _sessionSummaryCopy = null;
-
 function renderMachineList(profiles) {
   const container = document.getElementById('machine-list');
   const search = document.getElementById('machine-search');
-  const sortSel = document.getElementById('machine-sort');
-  if (sortSel && !sortSel._bound) {
-    sortSel._bound = true;
-    sortSel.addEventListener('change', () => render(search?.value || ''));
-  }
-
-  // Category chips
-  const chips = document.querySelectorAll('.cat-chip');
-  if (chips.length && !chips[0]._bound) {
-    chips.forEach(chip => {
-      chip._bound = true;
-      chip.addEventListener('click', () => {
-        chips.forEach(c => c.classList.remove('active'));
-        chip.classList.add('active');
-        _machineCatFilter = chip.dataset.cat;
-        render(search?.value || '');
-      });
-    });
-  }
-  // Sync chip UI to current filter state
-  chips.forEach(c => c.classList.toggle('active', c.dataset.cat === _machineCatFilter));
 
   function categorize(name) {
-    if (/ジャグラー/.test(name)) return 'ジャグラー系';
     if (/ハナハナ/.test(name)) return 'ハナハナ系';
     if (/スマスロ|^S[^マ]|^L[^S]/.test(name)) return 'スマスロ系';
     if (/バジリスク|絆/.test(name)) return 'バジリスク系';
@@ -3806,62 +3643,13 @@ function renderMachineList(profiles) {
   }
 
   function render(filter = '') {
-    let filtered = filter
-      ? profiles.filter(p => p.machine_name.includes(filter) || categorize(p.machine_name).includes(filter))
-      : [...profiles];
-
-    // Category filter
-    if (_machineCatFilter && _machineCatFilter !== 'all') {
-      filtered = filtered.filter(p => categorize(p.machine_name) === _machineCatFilter);
-    }
+    const filtered = filter
+      ? profiles.filter(p => p.machine_name.includes(filter))
+      : profiles;
 
     if (!filtered.length) {
-      const catCtx = _machineCatFilter !== 'all' ? `「${_machineCatFilter}」の` : '';
-      const srchCtx = filter ? `「${esc(filter)}」に一致する` : '';
-      const resetBtn = _machineCatFilter !== 'all'
-        ? `<button class="btn btn-ghost btn-sm cat-chip-reset" style="margin-top:6px;font-size:.72rem">全カテゴリを表示</button>`
-        : '';
-      container.innerHTML = `<div class="empty-hint" style="padding:32px 16px">
-        <span>🔍</span>
-        <strong style="color:var(--text2)">${srchCtx}${catCtx}機種が見つかりません</strong>
-        ${resetBtn}
-      </div>`;
-      container.querySelector('.cat-chip-reset')?.addEventListener('click', () => {
-        _machineCatFilter = 'all';
-        document.querySelectorAll('.cat-chip').forEach(c => c.classList.toggle('active', c.dataset.cat === 'all'));
-        const srch = document.getElementById('machine-search');
-        if (srch) { srch.value = ''; srch.dispatchEvent(new Event('input')); }
-      });
+      container.innerHTML = '<p class="hint center">機種が見つかりません</p>';
       return;
-    }
-
-    // ソート
-    const sortBy = document.getElementById('machine-sort')?.value || 'name';
-    if (sortBy === 'sessions') {
-      const recentMachines = (() => { try { return JSON.parse(localStorage.getItem('pachi_recent_machines') || '[]'); } catch { return []; } })();
-      filtered.sort((a, b) => {
-        const ai = recentMachines.indexOf(a.machine_name);
-        const bi = recentMachines.indexOf(b.machine_name);
-        if (ai !== -1 && bi === -1) return -1;
-        if (bi !== -1 && ai === -1) return 1;
-        if (ai !== -1 && bi !== -1) return ai - bi;
-        return a.machine_name.localeCompare(b.machine_name, 'ja');
-      });
-    } else if (sortBy === 'winrate' || sortBy === 'kw') {
-      filtered.sort((a, b) => {
-        const aw = a.machine_kw ? Math.max(...Object.values(a.machine_kw)) : 0;
-        const bw = b.machine_kw ? Math.max(...Object.values(b.machine_kw)) : 0;
-        return bw - aw;
-      });
-    } else if (sortBy === 'myplay') {
-      filtered.sort((a, b) => {
-        const as = _machineSessionMap[a.machine_name];
-        const bs = _machineSessionMap[b.machine_name];
-        if (as && !bs) return -1;
-        if (!as && bs) return 1;
-        if (as && bs) return (bs.last_date || '') > (as.last_date || '') ? 1 : -1;
-        return a.machine_name.localeCompare(b.machine_name, 'ja');
-      });
     }
 
     // カテゴリ別グループ化
@@ -3871,14 +3659,14 @@ function renderMachineList(profiles) {
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(p);
     });
-    const catOrder = ['ジャグラー系', 'ハナハナ系', 'スマスロ系', 'バジリスク系', 'カバネリ系', '北斗系', 'その他'];
+    const catOrder = ['スマスロ系', '北斗系', 'バジリスク系', 'カバネリ系', 'ハナハナ系', 'その他'];
     const sortedGroups = catOrder.filter(c => groups[c]);
-    // フィルター時はグループ表示なし / ソート時もグループ表示なし
-    const useGroups = !filter && _machineCatFilter === 'all' && sortBy === 'name' && sortedGroups.length > 1;
+    // フィルター時はグループ表示なし
+    const useGroups = !filter && sortedGroups.length > 1;
 
     container.innerHTML = (useGroups ? sortedGroups : ['__all__']).map(cat => {
       const items = useGroups ? groups[cat] : filtered;
-      const header = useGroups ? `<div style="display:flex;align-items:center;gap:8px;padding:10px 2px 5px"><span style="font-size:.7rem;font-weight:800;color:var(--primary-h);text-transform:uppercase;letter-spacing:.08em">${esc(cat)}</span><div style="flex:1;height:1px;background:rgba(124,127,245,.2)"></div><span style="font-size:.6rem;color:var(--text3)">${items.length}機種</span></div>` : '';
+      const header = useGroups ? `<div style="font-size:.72rem;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;padding:8px 4px 4px">${esc(cat)}</div>` : '';
       return header + items.map(p => {
       const settings = p.settings || [];
       const kwTags = p.machine_kw
@@ -3929,47 +3717,16 @@ function renderMachineList(profiles) {
             この機種で推測する →
           </button>`;
 
-      // EV最高グレードバッジ
-      let evGrade = '', evGradeStyle = '';
-      if (p.machine_kw) {
-        const maxKw = Math.max(...Object.values(p.machine_kw));
-        if (maxKw >= 1.12) { evGrade = 'S+'; evGradeStyle = 'background:rgba(16,185,129,.2);color:var(--success);border:1px solid rgba(16,185,129,.4)'; }
-        else if (maxKw >= 1.08) { evGrade = 'A'; evGradeStyle = 'background:rgba(124,127,245,.2);color:var(--primary-h);border:1px solid rgba(124,127,245,.35)'; }
-        else if (maxKw >= 1.04) { evGrade = 'B'; evGradeStyle = 'background:rgba(251,191,36,.15);color:var(--warning);border:1px solid rgba(251,191,36,.3)'; }
-        else if (maxKw >= 1.0) { evGrade = 'C'; evGradeStyle = 'background:rgba(148,163,184,.12);color:var(--text3);border:1px solid var(--border)'; }
-        else { evGrade = 'D'; evGradeStyle = 'background:rgba(239,68,68,.1);color:var(--danger);border:1px solid rgba(239,68,68,.2)'; }
-      }
-      const evBadge = evGrade ? `<span style="font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:4px;margin-left:6px;${evGradeStyle}" title="最高設定機械割グレード">${evGrade}</span>` : '';
-      const sesInfo = _machineSessionMap[p.machine_name];
-      const sesInfoHtml = sesInfo
-        ? (() => {
-            const avgD = Math.round(sesInfo.total_diff / sesInfo.count);
-            const col = sesInfo.total_diff >= 0 ? 'var(--success)' : 'var(--danger)';
-            const sign = sesInfo.total_diff >= 0 ? '+' : '';
-            const lastSlice = sesInfo.last_date ? sesInfo.last_date.slice(5).replace('-', '/') : '';
-            return `<div style="font-size:.6rem;color:var(--text3);margin-top:4px;display:flex;gap:8px;align-items:center;padding:3px 6px;background:rgba(124,127,245,.06);border-radius:4px;border:1px solid rgba(124,127,245,.12)">
-              <span>🎰 ${sesInfo.count}回</span>
-              ${lastSlice ? `<span>最終: ${lastSlice}</span>` : ''}
-              <span style="color:${col};font-weight:700">avg ${sign}${avgD.toLocaleString()}円</span>
-            </div>`;
-          })()
-        : '';
-
       return `
         <div class="machine-card" data-name="${esc(p.machine_name)}">
           <div style="display:flex;align-items:center;justify-content:space-between">
-            <div style="display:flex;align-items:center;min-width:0">
-              <div class="machine-card-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.machine_name)}</div>
-              ${evBadge}
-            </div>
-            <span class="expand-arrow" style="color:var(--text3);font-size:.8rem;transition:transform .2s;flex-shrink:0;margin-left:4px">▶</span>
+            <div class="machine-card-name">${esc(p.machine_name)}</div>
+            <span class="expand-arrow" style="color:var(--text3);font-size:.8rem;transition:transform .2s">▶</span>
           </div>
           <div class="machine-card-meta">
             <span class="machine-tag">設定: ${settings.join('・')}</span>
             <span class="machine-tag">${els.length}要素</span>
-            <span style="font-size:.62rem;color:var(--text3);margin-left:auto">タップで確率表示</span>
           </div>
-          ${sesInfoHtml}
           <div class="machine-card-meta" style="margin-top:6px">${kwTags}</div>
           <div class="machine-stats-wrap" style="display:none"></div>
           ${probTable}
@@ -4018,7 +3775,7 @@ function renderMachineList(profiles) {
                     return `<span style="color:var(--text3);font-size:.7rem">推測設定${e.toFixed(1)}</span>`;
                   })() : '';
                   return `<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:.75rem">
-                    <span style="color:var(--text3)">${s.date||''} ${esc(s.hall_name||'')} #${s.seat_number||'-'}</span>
+                    <span style="color:var(--text3)">${s.date||''} ${s.hall_name||''} #${s.seat_number||'-'}</span>
                     <span style="display:flex;align-items:center;gap:8px">${est}<strong style="color:${d>=0?'var(--success)':'var(--danger)'}">${sg}${(d||0).toLocaleString()}円</strong></span>
                   </div>`;
                 }).join('');
@@ -4042,11 +3799,8 @@ function renderMachineList(profiles) {
     });
   }
 
-  if (search && !search._bound) {
-    search._bound = true;
-    search.addEventListener('input', () => render(search.value));
-  }
-  render(search?.value || '');
+  render();
+  search.addEventListener('input', () => render(search.value));
 }
 
 // ---------------------------------------------------------------------------
@@ -4258,74 +4012,22 @@ function renderMonthlyStats(sessions) {
   }
 
   const months = Object.keys(byMonth).sort().reverse();
-  const maxAbsDiff = Math.max(...months.map(m => Math.abs(byMonth[m].diff)), 1);
   el.innerHTML = months.map(m => {
     const d = byMonth[m];
     const wr = Math.round(d.wins / d.count * 100);
-    const pct = Math.round(Math.abs(d.diff) / maxAbsDiff * 100);
-    const barColor = d.diff >= 0 ? 'var(--success)' : 'var(--danger)';
     return `
-      <div style="padding:9px 0;border-bottom:1px solid var(--border)">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
-          <div style="width:58px;font-size:.82rem;font-weight:700;color:var(--text2);flex-shrink:0">${m}</div>
-          <div style="flex:1;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-            <span style="font-size:.82rem;font-weight:800" class="${d.diff>=0?'diff-pos':'diff-neg'}">${fmt(d.diff)}</span>
-            <span style="font-size:.75rem;color:var(--text3)">${d.count}回 勝率${wr}% ${(d.games/1000).toFixed(1)}kG</span>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+        <div style="width:60px;font-size:.85rem;font-weight:700;color:var(--text2)">${m}</div>
+        <div style="flex:1">
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <span style="font-size:.82rem;color:var(--text2)">${d.count}回</span>
+            <span style="font-size:.82rem;font-weight:700" class="${d.diff>=0?'diff-pos':'diff-neg'}">${fmt(d.diff)}</span>
+            <span style="font-size:.82rem;color:var(--text3)">勝率${wr}%</span>
+            <span style="font-size:.82rem;color:var(--text3)">${(d.games/1000).toFixed(1)}kG</span>
           </div>
-        </div>
-        <div style="height:4px;background:var(--bg3);border-radius:2px;margin-left:68px">
-          <div style="width:${pct}%;height:100%;background:${barColor};border-radius:2px;transition:width .3s"></div>
         </div>
       </div>
     `;
-  }).join('');
-}
-
-// ---------------------------------------------------------------------------
-// Hall breakdown
-// ---------------------------------------------------------------------------
-function renderHallBreakdown(sessions) {
-  const card = document.getElementById('hall-breakdown-card');
-  const el = document.getElementById('hall-breakdown-stats');
-  if (!card || !el) return;
-  const withHall = sessions.filter(s => s.hall_name);
-  if (withHall.length < 3) { card.style.display = 'none'; return; }
-  card.style.display = 'block';
-
-  const byHall = {};
-  for (const s of withHall) {
-    const h = s.hall_name;
-    if (!byHall[h]) byHall[h] = { total: 0, wins: 0, pnl: 0, games: 0 };
-    byHall[h].total++;
-    byHall[h].pnl += (s.diff_yen || 0);
-    byHall[h].games += (s.games_total || 0);
-    if ((s.diff_yen || 0) > 0) byHall[h].wins++;
-  }
-
-  const entries = Object.entries(byHall).sort((a, b) => b[1].pnl - a[1].pnl);
-  const maxAbs = Math.max(...entries.map(([, v]) => Math.abs(v.pnl)), 1);
-
-  el.innerHTML = entries.map(([hall, d]) => {
-    const pct = Math.round(Math.abs(d.pnl) / maxAbs * 100);
-    const isPos = d.pnl >= 0;
-    const barColor = isPos ? 'var(--success)' : 'var(--danger)';
-    const wr = Math.round(d.wins / d.total * 100);
-    const avgPnl = Math.round(d.pnl / d.total);
-    const sign = d.pnl >= 0 ? '+' : '';
-    const hEnc = encodeURIComponent(hall);
-    return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px">
-        <span style="font-size:.82rem;font-weight:700;flex:1;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-          onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${hEnc}')),150)">${esc(hall)}</span>
-        <span style="font-size:.82rem;font-weight:800;color:${barColor};flex-shrink:0">${sign}${(d.pnl/10000).toFixed(1)}万</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <div style="flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden">
-          <div class="anim-bar" style="width:${pct}%;height:100%;background:${barColor};border-radius:2px"></div>
-        </div>
-        <span style="font-size:.63rem;color:var(--text3);flex-shrink:0">${d.total}回 ${wr}% avg${sign}${(avgPnl/1000).toFixed(1)}k</span>
-      </div>
-    </div>`;
   }).join('');
 }
 
@@ -4391,56 +4093,6 @@ function renderSeatAnalysis(sessions) {
         </div>`;
       }).join('')}
     </div>
-  `;
-}
-
-function renderWeekdayAnalysis(sessions) {
-  const card = document.getElementById('weekday-card');
-  const el = document.getElementById('weekday-analysis');
-  if (!card || !el) return;
-  if (sessions.length < 7) { card.style.display = 'none'; return; }
-
-  const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-  const byDay = Array.from({length: 7}, () => []);
-  for (const s of sessions) {
-    if (!s.date || !/^\d{4}-\d{2}-\d{2}$/.test(s.date)) continue;
-    const [y, m, d] = s.date.split('-').map(Number);
-    byDay[new Date(y, m - 1, d).getDay()].push(s.diff_yen || 0);
-  }
-  if (!byDay.some(d => d.length)) { card.style.display = 'none'; return; }
-
-  const todayDow = new Date().getDay();
-  const dayStats = byDay.map((diffs, i) => {
-    if (!diffs.length) return { i, count: 0, avg: 0, wr: 0 };
-    const avg = Math.round(diffs.reduce((a, b) => a + b, 0) / diffs.length);
-    const wr = Math.round(diffs.filter(d => d > 0).length / diffs.length * 100);
-    return { i, count: diffs.length, avg, wr };
-  });
-  const maxAbs = Math.max(...dayStats.map(d => Math.abs(d.avg)), 1);
-  const bestDay = dayStats.reduce((b, d) => (d.count && d.avg > b.avg ? d : b), {avg: -Infinity, i: -1});
-
-  card.style.display = 'block';
-  el.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:8px">
-      ${dayStats.map(({i, count, avg, wr}) => {
-        const isToday = i === todayDow;
-        const isBest = count >= 2 && i === bestDay.i;
-        const col = avg >= 500 ? 'var(--success)' : avg <= -500 ? 'var(--danger)' : 'var(--text3)';
-        const bg = avg >= 500 ? 'rgba(34,197,94,.1)' : avg <= -500 ? 'rgba(239,68,68,.08)' : 'var(--bg3)';
-        const barH = count ? Math.max(3, Math.round(Math.abs(avg) / maxAbs * 26)) : 0;
-        const barCol = avg >= 0 ? 'var(--success)' : 'var(--danger)';
-        return `<div style="text-align:center;padding:5px 2px 4px;border-radius:7px;background:${bg};border:1.5px solid ${isToday ? 'var(--primary-h)' : 'transparent'}">
-          <div style="font-size:.7rem;font-weight:${isToday?'700':'400'};color:${isToday?'var(--primary-h)':isBest?'var(--warning)':'var(--text2)'}">${dayNames[i]}${isBest?' ★':''}</div>
-          <div style="height:28px;display:flex;align-items:flex-end;justify-content:center;margin:2px 0">
-            ${count ? `<div style="width:10px;height:${barH}px;background:${barCol};border-radius:2px;opacity:.75"></div>` : `<div style="width:10px;height:3px;background:var(--border);border-radius:2px"></div>`}
-          </div>
-          <div style="font-size:.6rem;color:${col};font-weight:600;min-height:9px">${count ? (avg >= 0?'+':'') + Math.round(avg/100)/10 + 'k' : ''}</div>
-          <div style="font-size:.57rem;color:var(--text3)">${count ? wr+'%' : '--'}</div>
-          <div style="font-size:.52rem;color:var(--text3);opacity:.6">${count ? count+'回' : ''}</div>
-        </div>`;
-      }).join('')}
-    </div>
-    ${bestDay.i >= 0 && bestDay.count >= 2 ? `<div style="font-size:.68rem;color:var(--text3);text-align:center">★ ベスト曜日: <strong style="color:var(--warning)">${dayNames[bestDay.i]}曜日</strong> (平均 ${bestDay.avg >= 0?'+':''}${bestDay.avg.toLocaleString()}円 / 勝率${bestDay.wr}%)</div>` : ''}
   `;
 }
 
@@ -4533,12 +4185,10 @@ function renderPinnedSeatsCard() {
          <div style="font-size:.62rem;color:var(--text3)">${esc(p.hall)}</div>
          ${memoSnip}
        </div>
-       <div style="display:flex;gap:5px;flex-shrink:0">
-         <button onclick='_startSessionReplay(${JSON.stringify(p.machine)},${JSON.stringify(p.hall)})'
-           style="background:rgba(16,185,129,.15);border:1px solid rgba(16,185,129,.3);border-radius:5px;padding:4px 7px;font-size:.7rem;cursor:pointer;color:var(--success);font-weight:700">🎰</button>
-         <button onclick='showSeatDetailModal(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})'
+       <div style="display:flex;gap:6px;flex-shrink:0">
+         <button onclick="showSeatDetailModal(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})"
            style="background:var(--bg2);border:none;border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text2)">詳細</button>
-         <button onclick='togglePinSeat(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})'
+         <button onclick="togglePinSeat(${JSON.stringify(p.hall)},${JSON.stringify(p.machine)},${p.seat})"
            style="background:none;border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:.7rem;cursor:pointer;color:var(--text3)">解除</button>
        </div>
      </div>`;
@@ -4547,6 +4197,856 @@ function renderPinnedSeatsCard() {
   document.getElementById('pinned-seats-body').innerHTML = rows;
   card.style.display = 'block';
 }
+
+// ---------------------------------------------------------------------------
+// Opportunity hunting page
+// ---------------------------------------------------------------------------
+let opportunityState = { profiles: [], candidates: [], recent_results: [], summary: null };
+let opportunityQuickResult = null;
+let opportunityCrawlerRunning = false;
+
+function opportunityCrawlerDate(value) {
+  if (!value) return '未実行';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('ja-JP');
+}
+
+function renderOpportunityCrawler(status, candidates) {
+  const counts = status?.candidate_counts || {};
+  const pending = (Number(counts.pending) || 0) + (Number(counts.conflict) || 0);
+  const lastRun = status?.last_run;
+  document.getElementById('opp-crawler-status').textContent = opportunityCrawlerRunning
+    ? '確認中…'
+    : `${pending}件 未確認・最終 ${opportunityCrawlerDate(lastRun?.finished_at || lastRun?.started_at)}`;
+  document.getElementById('opp-crawler-supabase').textContent = status?.supabase_configured
+    ? 'Supabase同期：設定済み'
+    : 'Supabase同期：未設定（この端末には保存されます）';
+  const list = document.getElementById('opp-crawler-candidates');
+  const reviewable = (candidates || []).filter(item => item.status === 'pending' || item.status === 'conflict');
+  if (!reviewable.length) {
+    list.innerHTML = '<p class="hint center">未確認の更新候補はありません</p>';
+    return;
+  }
+  list.innerHTML = reviewable.map(item => {
+    const extracted = item.extracted || {};
+    const points = extracted.curve_points || [];
+    const preview = points.slice(0, 4).map(point => `${Number(point.value).toLocaleString()}G: ${opportunityMoney(point.ev_yen, true)}`).join(' / ');
+    const conflicts = (item.conflicts || []).map(conflict => esc(conflict.message || conflict)).join('・');
+    return `<article class="opp-crawler-item">
+      <div class="opp-crawler-item-head"><strong>${esc(item.machine_name || item.catalog_key)}</strong><span class="opp-judgment ${item.status === 'conflict' ? 'opp-judgment-caution' : ''}">${item.status === 'conflict' ? '要注意' : '更新候補'}</span></div>
+      <p>${esc(extracted.condition_label || '')}${preview ? `・${esc(preview)}` : ''}</p>
+      ${conflicts ? `<p class="opp-crawler-conflict">差異：${conflicts}</p>` : ''}
+      <div class="opp-crawler-item-actions">
+        <a class="btn btn-secondary btn-sm" href="${esc(item.source_url)}" target="_blank" rel="noopener noreferrer">出典を開く</a>
+        <button class="btn btn-primary btn-sm" type="button" data-opp-crawler-approve="${item.id}">この数値を承認</button>
+        <button class="btn btn-secondary btn-sm" type="button" data-opp-crawler-reject="${item.id}">不採用</button>
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function loadOpportunityCrawler() {
+  try {
+    const [status, candidates] = await Promise.all([
+      api.getOpportunityCrawlerStatus(),
+      api.getOpportunityCrawlerCandidates(),
+    ]);
+    renderOpportunityCrawler(status, candidates);
+  } catch (error) {
+    document.getElementById('opp-crawler-status').textContent = '確認失敗';
+    document.getElementById('opp-crawler-candidates').innerHTML = `<p class="hint center">${esc(error.message)}</p>`;
+  }
+}
+
+function currentMonthValue() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function nullableNumber(id) {
+  const raw = document.getElementById(id)?.value;
+  return raw === '' || raw == null ? null : Number(raw);
+}
+
+function opportunityMoney(value, signed = false) {
+  if (value == null) return '--';
+  const sign = signed && value > 0 ? '+' : '';
+  return `${sign}${Number(value).toLocaleString()}円`;
+}
+
+function minutesUntilClosing(timeValue) {
+  const match = /^(\d{2}):(\d{2})$/.exec(timeValue || '');
+  if (!match) return 0;
+  const now = new Date();
+  const close = new Date(now);
+  close.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  return Math.max(0, Math.ceil((close.getTime() - now.getTime()) / 60000));
+}
+
+function syncQuickConditions(profile) {
+  if (!profile) return;
+  if (['equivalent', '56', 'other'].includes(profile.exchange_type)) {
+    document.getElementById('opp-quick-exchange').value = profile.exchange_type;
+  }
+  if (['cash', 'medals'].includes(profile.funding_mode)) {
+    document.getElementById('opp-quick-funding').value = profile.funding_mode;
+  }
+  if (profile.reset_status === 'reset_confirmed') {
+    document.getElementById('opp-quick-reset').value = 'reset_confirmed';
+  } else if (profile.reset_status === 'normal') {
+    document.getElementById('opp-quick-reset').value = 'normal';
+  }
+}
+
+function renderOpportunityExtraFields(profile) {
+  const container = document.getElementById('opp-quick-extra-fields');
+  if (!container) return;
+  const fields = Array.isArray(profile?.input_fields) ? profile.input_fields : [];
+  container.innerHTML = fields.map(field => {
+    const required = field.required ? ' required' : '';
+    const help = field.help ? `<small class="hint">${esc(field.help)}</small>` : '';
+    if (field.type === 'select') {
+      return `<div><label class="form-label">${esc(field.label)}</label><select class="form-select" data-opp-profile-input="${esc(field.id)}"${required}>${(field.options || []).map(option => `<option value="${esc(option.value)}">${esc(option.label)}</option>`).join('')}</select>${help}</div>`;
+    }
+    return `<div><label class="form-label">${esc(field.label)}</label><input class="form-input" data-opp-profile-input="${esc(field.id)}" type="number" inputmode="numeric" min="${Number(field.min ?? 0)}"${field.max == null ? '' : ` max="${Number(field.max)}"`} placeholder="${esc(field.placeholder || '')}"${required}>${help}</div>`;
+  }).join('');
+}
+
+function collectOpportunityExtraInputs() {
+  return Object.fromEntries([...document.querySelectorAll('[data-opp-profile-input]')].map(input => [
+    input.dataset.oppProfileInput,
+    input.value === 'true' ? true : input.value,
+  ]));
+}
+
+function updateOpportunityQuickProfileSelect(syncConditions = true) {
+  const machine = document.getElementById('opp-quick-machine').value;
+  const select = document.getElementById('opp-quick-profile');
+  const previous = Number(select.value);
+  const profiles = opportunityState.profiles.filter(profile => profile.machine_name === machine);
+  select.innerHTML = profiles.length
+    ? profiles.map(profile => `<option value="${profile.id}">${esc(profile.condition_label || profileTitle(profile))}</option>`).join('')
+    : '<option value="">登録済みルールなし</option>';
+  select.disabled = profiles.length === 0;
+  if (profiles.some(profile => profile.id === previous)) select.value = String(previous);
+  const profile = profiles.find(item => item.id === Number(select.value)) || profiles[0];
+  if (syncConditions) syncQuickConditions(profile);
+  renderOpportunityExtraFields(profile);
+  document.getElementById('opp-quick-current-label').textContent = profile
+    ? `${profile.metric_name}（${profile.unit_label}）`
+    : '現在値';
+  document.getElementById('opp-quick-result').innerHTML = '';
+  opportunityQuickResult = null;
+}
+
+function autoSelectOpportunityQuickProfile() {
+  const machine = document.getElementById('opp-quick-machine').value;
+  const exchange = document.getElementById('opp-quick-exchange').value;
+  const funding = document.getElementById('opp-quick-funding').value;
+  const reset = document.getElementById('opp-quick-reset').value;
+  const select = document.getElementById('opp-quick-profile');
+  const matches = opportunityState.profiles.filter(profile =>
+    profile.machine_name === machine &&
+    profile.exchange_type === exchange &&
+    ['any', funding].includes(profile.funding_mode) &&
+    ['any', reset].includes(profile.reset_status)
+  );
+  if (matches.length && !matches.some(profile => profile.id === Number(select.value))) {
+    select.value = String(matches[0].id);
+  }
+  const profile = opportunityState.profiles.find(item => item.id === Number(select.value));
+  renderOpportunityExtraFields(profile);
+  document.getElementById('opp-quick-current-label').textContent = profile
+    ? `${profile.metric_name}（${profile.unit_label}）`
+    : '現在値';
+  document.getElementById('opp-quick-result').innerHTML = matches.length
+    ? ''
+    : '<div class="opp-quick-inline-warning">この条件に一致する検証済みルールはありません</div>';
+  opportunityQuickResult = null;
+}
+
+function populateOpportunityQuickMachines() {
+  const select = document.getElementById('opp-quick-machine');
+  const machineNames = [...new Set(opportunityState.profiles.map(profile => profile.machine_name))].sort();
+  const saved = localStorage.getItem('pachi_quick_machine');
+  const current = select.value;
+  select.innerHTML = machineNames.length
+    ? machineNames.map(machine => `<option value="${esc(machine)}">${esc(machine)}</option>`).join('')
+    : '<option value="">ルール登録済み機種なし</option>';
+  select.value = machineNames.includes(current) ? current : (machineNames.includes(saved) ? saved : (machineNames[0] || ''));
+  updateOpportunityQuickProfileSelect(true);
+}
+
+function opportunityGuideJudgment(profile, point) {
+  const expected = point.ev_yen == null ? NaN : Number(point.ev_yen);
+  const worstCaseRaw = point.worst_case_yen == null ? profile.worst_case_investment_yen : point.worst_case_yen;
+  const worstCase = worstCaseRaw == null ? NaN : Number(worstCaseRaw);
+  const verifiedDate = profile.verified_on ? new Date(`${profile.verified_on}T00:00:00`) : null;
+  const ageDays = verifiedDate && !Number.isNaN(verifiedDate.getTime())
+    ? Math.floor((Date.now() - verifiedDate.getTime()) / 86400000)
+    : null;
+  if (!['official', 'verified'].includes(profile.confidence) || ageDays == null || ageDays > 180) {
+    return { code: 'verify', label: '要確認', reason: '情報の信頼度・確認日を再確認' };
+  }
+  if (!Number.isFinite(expected)) return { code: 'verify', label: '要確認', reason: '期待値が未登録' };
+  if (!Number.isFinite(worstCase)) return { code: 'verify', label: '要確認', reason: '必要資金が未登録' };
+  if (Number(point.value) < Number(profile.start_threshold) || expected < 0) {
+    return { code: 'wait', label: '見送り', reason: '狙い目ライン未満' };
+  }
+  const summary = opportunityState.summary || {};
+  if (!summary.configured) return { code: 'verify', label: '資金設定', reason: '先に月間資金を設定' };
+  if (worstCase > Number(summary.risk_capacity_yen || 0)) {
+    return { code: 'funds', label: '資金不足', reason: '必要資金が現在の許容枠を超過' };
+  }
+  if (expected < 1000) return { code: 'caution', label: '条件付き', reason: '期待値1,000円未満' };
+  return { code: 'target', label: '打つ候補', reason: '10秒判定で最終確認' };
+}
+
+function opportunityGuideRows(profiles, mode = 'targets') {
+  const rows = [];
+  profiles.forEach(profile => {
+    const curves = Array.isArray(profile.curve_points)
+      ? [...profile.curve_points].sort((a, b) => Number(a.value) - Number(b.value))
+      : [];
+    let points;
+    if (mode === 'all' && curves.length) {
+      points = curves;
+    } else {
+      const exact = curves.find(point => Number(point.value) === Number(profile.start_threshold));
+      const next = curves.find(point => Number(point.value) >= Number(profile.start_threshold));
+      points = [exact || next || {
+        value: profile.start_threshold,
+        ev_yen: profile.expected_value_yen,
+        worst_case_yen: profile.worst_case_investment_yen,
+      }];
+    }
+    points.forEach(point => rows.push({
+      profile,
+      point,
+      judgment: opportunityGuideJudgment(profile, point),
+    }));
+  });
+  const priority = { target: 0, caution: 1, verify: 2, funds: 3, wait: 4 };
+  return rows.sort((a, b) => {
+    if (mode === 'targets') {
+      return (priority[a.judgment.code] - priority[b.judgment.code]) ||
+        (Number(b.point.ev_yen || -Infinity) - Number(a.point.ev_yen || -Infinity));
+    }
+    return a.profile.machine_name.localeCompare(b.profile.machine_name, 'ja') ||
+      a.profile.id - b.profile.id || Number(a.point.value) - Number(b.point.value);
+  });
+}
+
+function renderOpportunityGuide() {
+  const body = document.getElementById('opp-guide-body');
+  if (!body) return;
+  const mode = document.getElementById('opp-guide-mode').value;
+  const search = document.getElementById('opp-guide-search').value.trim().toLowerCase();
+  const allRows = opportunityGuideRows(opportunityState.profiles || [], mode);
+  const rows = search
+    ? allRows.filter(({ profile }) => `${profile.machine_name} ${profile.condition_label || ''}`.toLowerCase().includes(search))
+    : allRows;
+  const targetCount = allRows.filter(row => row.judgment.code === 'target').length;
+  const finiteExpected = allRows
+    .map(row => row.point.ev_yen == null ? NaN : Number(row.point.ev_yen))
+    .filter(Number.isFinite);
+  const machineCount = new Set((opportunityState.profiles || []).map(profile => profile.machine_name)).size;
+  document.getElementById('opp-guide-count').textContent = `${rows.length}件`;
+  document.getElementById('opp-guide-ready-count').textContent = `${targetCount}条件`;
+  document.getElementById('opp-guide-max-ev').textContent = finiteExpected.length ? opportunityMoney(Math.max(...finiteExpected), true) : '--';
+  document.getElementById('opp-guide-machine-count').textContent = `${machineCount}機種`;
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="6" class="hint center">一致する期待値データがありません</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(({ profile, point, judgment }) => {
+    const expected = point.ev_yen == null ? NaN : Number(point.ev_yen);
+    const worstCase = point.worst_case_yen == null ? profile.worst_case_investment_yen : point.worst_case_yen;
+    const expectedText = Number.isFinite(expected) ? opportunityMoney(expected, true) : '--';
+    const currentText = `${Number(point.value).toLocaleString()}${esc(profile.unit_label || '')}`;
+    return `<tr class="opp-guide-row opp-guide-row-${judgment.code}">
+      <td data-label="判定"><span class="opp-guide-signal opp-guide-signal-${judgment.code}">${esc(judgment.label)}</span></td>
+      <td data-label="機種・条件"><strong class="opp-guide-machine">${esc(profile.machine_name)}</strong><small>${esc(profile.condition_label || '条件未設定')}</small></td>
+      <td data-label="現在値"><strong class="opp-guide-current">${currentText}</strong><small>開始 ${Number(profile.start_threshold).toLocaleString()}${esc(profile.unit_label || '')}</small></td>
+      <td data-label="期待値"><strong class="${expected >= 0 ? 'opp-money-up' : 'opp-money-down'}">${expectedText}</strong><small>${esc(judgment.reason)}</small></td>
+      <td data-label="必要資金"><strong>${opportunityMoney(worstCase)}</strong></td>
+      <td data-label="操作"><button class="btn btn-secondary btn-sm" type="button" data-opp-guide-profile="${profile.id}" data-opp-guide-value="${Number(point.value)}">10秒判定</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderOpportunityQuickResult(result) {
+  const el = document.getElementById('opp-quick-result');
+  const labels = {
+    target: '着席候補', wait: 'まだ浅い', verify: '要確認', unknown: '判定不能',
+    insufficient_funds: '資金不足', condition_mismatch: '条件不一致', closing_risk: '閉店リスク',
+  };
+  const expected = result.expected_value_yen == null ? '--' : opportunityMoney(result.expected_value_yen, true);
+  const warnings = (result.warnings || []).map(warning => `<li>${esc(warning)}</li>`).join('');
+  const saveButton = result.actionable
+    ? '<button class="btn btn-secondary btn-full" type="button" data-opp-quick-save>候補台として保存</button>'
+    : '';
+  const adjustments = [
+    result.section_adjustment?.active
+      ? (result.section_adjustment.rule && !result.section_adjustment.border_reduction
+        ? `機種別条件：${esc(result.section_adjustment.reason || '専用条件一致')}`
+        : `有利区間差枚：切断目安まで約${Number(result.section_adjustment.remaining_to_cut_coins).toLocaleString()}枚／ボーダー-${Number(result.section_adjustment.border_reduction)}${esc(result.unit_label)}`)
+      : '',
+    result.replay_adjustment?.active
+      ? `再プレイ残り${Number(result.replay_adjustment.remaining_replay_medals || 0).toLocaleString()}枚／現金ギャップ-${opportunityMoney(result.cash_gap_yen)}`
+      : '',
+  ].filter(Boolean);
+  el.innerHTML = `
+    <div class="opp-quick-result-head">
+      <div><small>${esc(result.machine_name)}・${esc(result.condition_label)}</small><strong>${esc(labels[result.judgment] || result.judgment)}</strong></div>
+      <span class="opp-quick-signal opp-quick-signal-${esc(result.judgment)}">${result.actionable ? '候補' : '停止'}</span>
+    </div>
+    <p class="opp-quick-reason">${esc(result.reason)}</p>
+    <div class="opp-quick-metrics">
+      <div><small>現在</small><strong>${Number(result.current_value).toLocaleString()}${esc(result.unit_label)}</strong></div>
+      <div><small>補正後開始</small><strong>${Number(result.adjusted_start_threshold ?? result.start_threshold).toLocaleString()}${esc(result.unit_label)}</strong></div>
+      <div><small>期待値</small><strong>${expected}</strong></div>
+      <div><small>必要資金</small><strong>${opportunityMoney(result.worst_case_investment_yen)}</strong></div>
+      <div><small>閉店まで</small><strong>${result.minutes_until_close}分</strong></div>
+      <div><small>許容資金</small><strong>${opportunityMoney(result.risk_capacity_yen)}</strong></div>
+      <div><small>平均 / 閉店安全側</small><strong>${result.estimated_play_minutes || '--'}分 / ${result.safe_play_minutes || '--'}分</strong></div>
+      <div><small>期待時給</small><strong>${opportunityMoney(result.ev_per_hour_yen, true)}</strong></div>
+    </div>
+    ${adjustments.length ? `<div class="opp-adjustment-summary">${adjustments.map(item => `<span>${item}</span>`).join('')}</div>` : ''}
+    ${warnings ? `<ul class="opp-quick-warnings">${warnings}</ul>` : ''}
+    <div class="opp-quick-stop"><b>やめどき</b>${esc(result.stop_rule || '未登録')}</div>
+    ${result.discrepancy_note ? `<div class="opp-discrepancy">数値差の扱い：${esc(result.discrepancy_note)}</div>` : ''}
+    ${saveButton}`;
+}
+
+function profileTitle(profile) {
+  return `${profile.metric_name} ${Number(profile.start_threshold).toLocaleString()}${profile.unit_label}〜`;
+}
+
+function safeExternalUrl(raw) {
+  try {
+    const url = new URL(raw);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function updateOpportunityProfileSelect() {
+  const machine = document.getElementById('opp-machine').value.trim();
+  const select = document.getElementById('opp-profile');
+  const profiles = opportunityState.profiles.filter(profile => profile.machine_name === machine);
+  select.innerHTML = profiles.length
+    ? `<option value="">ルールを選択</option>${profiles.map(profile =>
+        `<option value="${profile.id}">${esc(profile.condition_label || '条件未設定')}・${esc(profileTitle(profile))}</option>`
+      ).join('')}`
+    : '<option value="">登録済みルールなし</option>';
+  select.disabled = profiles.length === 0;
+  document.getElementById('opp-rule-machine').value = machine;
+  updateOpportunityCurrentLabel();
+}
+
+function updateOpportunityCurrentLabel() {
+  const select = document.getElementById('opp-profile');
+  const profile = opportunityState.profiles.find(item => item.id === Number(select.value));
+  document.getElementById('opp-current-label').textContent = profile
+    ? `${profile.metric_name}（${profile.unit_label}）`
+    : '現在値';
+}
+
+function renderOpportunitySummary(summary) {
+  const status = document.getElementById('opp-budget-status');
+  status.textContent = summary.configured ? '設定済み' : '未設定';
+  status.className = summary.configured ? 'optional-note' : 'required-note';
+  document.getElementById('opp-current-bankroll').textContent = summary.configured ? opportunityMoney(summary.current_bankroll) : '--';
+  document.getElementById('opp-remaining-loss').textContent = summary.configured ? opportunityMoney(summary.remaining_loss_yen) : '--';
+  const net = document.getElementById('opp-net-profit');
+  net.textContent = opportunityMoney(summary.net_profit_yen, true);
+  net.className = summary.net_profit_yen >= 0 ? 'opp-money-up' : 'opp-money-down';
+  document.getElementById('opp-plays').textContent = `${summary.plays}回`;
+  if (summary.configured) {
+    document.getElementById('opp-bankroll').value = summary.starting_bankroll;
+    document.getElementById('opp-loss-limit').value = summary.loss_limit_yen;
+  }
+}
+
+function renderOpportunityProfiles(profiles) {
+  const el = document.getElementById('opp-profile-list');
+  if (!profiles.length) {
+    el.innerHTML = '<p class="hint center">狙い目ルールはまだありません</p>';
+    return;
+  }
+  const labels = { official: '公式', verified: '確認済み', reference: '参考', unverified: '未確認' };
+  el.innerHTML = `<div style="font-size:.65rem;color:var(--text3);margin-bottom:5px">登録済みルール（${profiles.length}条件）</div>` + profiles.map(profile => {
+    const curves = Array.isArray(profile.curve_points) ? profile.curve_points : [];
+    const sources = (Array.isArray(profile.source_urls) ? profile.source_urls : [profile.source_url])
+      .map(safeExternalUrl).filter(Boolean);
+    const curveRows = curves.map(point => `
+      <div class="opp-curve-row">
+        <span>${Number(point.value).toLocaleString()}${esc(profile.unit_label)}</span>
+        <strong class="${point.ev_yen >= 0 ? 'opp-money-up' : 'opp-money-down'}">${opportunityMoney(point.ev_yen, true)}</strong>
+        <span>${point.worst_case_yen == null ? '--' : opportunityMoney(point.worst_case_yen)}</span>
+      </div>`).join('');
+    const sourceLinks = sources.map((url, index) =>
+      `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">出典${index + 1}</a>`
+    ).join('');
+    return `<div class="opp-profile-row">
+      <div class="opp-profile-body">
+        <div class="opp-profile-head">
+          <div>
+            <div class="opp-profile-name">${esc(profile.machine_name)}</div>
+            <div class="opp-condition">${esc(profile.condition_label || '条件未設定')}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" type="button" data-opp-delete-profile="${profile.id}">無効化</button>
+        </div>
+        <div class="opp-profile-meta">${esc(profileTitle(profile))}・${esc(labels[profile.confidence] || profile.confidence)}・確認 ${esc(profile.verified_on || '未設定')}・必要資金目安 ${opportunityMoney(profile.worst_case_investment_yen)}</div>
+        ${curves.length ? `<details class="opp-curve"><summary>期待値表を見る（${curves.length}点）</summary><div class="opp-curve-head"><span>現在値</span><span>期待値</span><span>必要資金目安</span></div>${curveRows}</details>` : ''}
+        ${profile.discrepancy_note ? `<div class="opp-discrepancy">数値差の扱い：${esc(profile.discrepancy_note)}</div>` : ''}
+        ${sourceLinks ? `<div class="opp-source-links">${sourceLinks}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function opportunityJudgmentLabel(judgment) {
+  return {
+    target: '狙い候補', wait: '待ち', verify: '要検証', unknown: '判定不能',
+    insufficient_funds: '資金不足',
+  }[judgment] || judgment;
+}
+
+function renderOpportunityCandidates(candidates) {
+  const el = document.getElementById('opp-candidate-list');
+  document.getElementById('opp-open-count').textContent = `${candidates.length}台`;
+  if (!candidates.length) {
+    el.innerHTML = '<p class="hint center">候補台はまだありません</p>';
+    return;
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  el.innerHTML = candidates.map(candidate => {
+    const expected = candidate.expected_value_yen == null ? '未算出' : opportunityMoney(candidate.expected_value_yen);
+    const location = [candidate.hall_name, candidate.seat_number ? `${candidate.seat_number}番台` : ''].filter(Boolean).join('・') || '店舗・台番未登録';
+    const current = `${Number(candidate.current_value).toLocaleString()}${esc(candidate.unit_label || '')}`;
+    const source = candidate.source_name ? `・根拠 ${esc(candidate.source_name)}` : '';
+    return `<div class="opp-candidate" data-candidate-id="${candidate.id}">
+      <div class="opp-candidate-top">
+        <span class="opp-rank">${candidate.rank}</span>
+        <div class="opp-candidate-main">
+          <div class="opp-candidate-name">${esc(candidate.machine_name)}</div>
+          <div class="opp-candidate-meta">${esc(candidate.condition_label || '条件未設定')}・${esc(location)}${source}</div>
+        </div>
+        <span class="opp-judgment opp-judgment-${esc(candidate.judgment)}">${esc(opportunityJudgmentLabel(candidate.judgment))}</span>
+      </div>
+      <div class="opp-candidate-data">
+        <span>現在 <strong>${current}</strong></span>
+        <span>開始 <strong>${candidate.start_threshold == null ? '--' : Number(candidate.start_threshold).toLocaleString() + esc(candidate.unit_label || '')}</strong></span>
+        <span>期待値 <strong>${expected}</strong></span>
+        <span>時間効率 <strong>${candidate.ev_per_hour_yen == null ? '--' : opportunityMoney(candidate.ev_per_hour_yen) + '/h'}</strong></span>
+        <span>必要資金目安 <strong>${opportunityMoney(candidate.worst_case_investment_yen)}</strong></span>
+      </div>
+      <div class="opp-reason">${esc(candidate.reason)}${candidate.stop_rule ? `・やめどき：${esc(candidate.stop_rule)}` : ''}</div>
+      <div class="opp-actions">
+        <button class="btn btn-secondary btn-sm" type="button" data-opp-result="${candidate.id}">実戦結果を入力</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-opp-skip="${candidate.id}">見送り</button>
+      </div>
+      <form class="opp-result-form" data-opp-result-form="${candidate.id}">
+        <div class="form-row-2col">
+          <div><label class="form-label">投資（円）</label><input name="investment_yen" class="form-input" type="number" min="0" step="1000" required></div>
+          <div><label class="form-label">回収（円）</label><input name="returns_yen" class="form-input" type="number" min="0" step="1000" required></div>
+        </div>
+        <div class="form-row-2col">
+          <div><label class="form-label">実戦日</label><input name="played_on" class="form-input" type="date" value="${today}" required></div>
+          <div><label class="form-label">時間（分）</label><input name="played_minutes" class="form-input" type="number" min="0" max="1440"></div>
+        </div>
+        <div class="form-row"><label class="form-label">メモ</label><input name="notes" class="form-input" placeholder="当選契機・終了状況など"></div>
+        <button class="btn btn-primary btn-full" type="submit">結果を保存</button>
+      </form>
+    </div>`;
+  }).join('');
+}
+
+function renderOpportunityResults(results) {
+  const el = document.getElementById('opp-result-list');
+  if (!results.length) {
+    el.innerHTML = '<p class="hint center">実戦結果はまだありません</p>';
+    return;
+  }
+  el.innerHTML = results.map(result => {
+    const netClass = result.net_profit_yen >= 0 ? 'opp-money-up' : 'opp-money-down';
+    return `<div class="opp-result-row">
+      <div class="opp-result-body">
+        <div class="opp-result-name">${esc(result.machine_name)}${result.seat_number ? `・${result.seat_number}番台` : ''}</div>
+        <div class="opp-result-meta">${esc(result.played_on)}・投資 ${opportunityMoney(result.investment_yen)}・回収 ${opportunityMoney(result.returns_yen)}・${result.played_minutes || 0}分</div>
+      </div>
+      <strong class="${netClass}">${opportunityMoney(result.net_profit_yen, true)}</strong>
+    </div>`;
+  }).join('');
+}
+
+function desktopLocalDateTimeValue(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+}
+
+async function loadDesktopHyenaStoreRanking() {
+  const list = document.getElementById('opp-store-ranking-list');
+  const at = document.getElementById('opp-store-ranking-at');
+  const prefecture = document.getElementById('opp-store-ranking-prefecture').value;
+  if (!at.value) at.value = desktopLocalDateTimeValue();
+  list.innerHTML = '<p class="hint center">候補店を計算中...</p>';
+  try {
+    const data = await api.getHyenaStoreRanking(at.value, prefecture);
+    const rows = data.halls || [];
+    list.innerHTML = rows.length ? rows.map(row => {
+      const machines = row.machines || {};
+      const occupancy = row.occupancy || {};
+      const reasons = (row.reasons || []).slice(0, 2).map(esc).join('・');
+      const warning = (row.warnings || [])[0];
+      return `<button class="opp-store-ranking-row verdict-${esc(row.verdict)}" type="button" data-opp-store-hall="${esc(row.hall_name)}">
+        <span class="opp-store-rank">${row.rank}</span>
+        <span class="opp-store-name"><strong>${esc(row.hall_name)}</strong><small>${reasons}</small>${warning ? `<em>${esc(warning)}</em>` : ''}</span>
+        <span class="opp-store-data">対応 ${Number(machines.supported_machine_count || 0)}機種<br>混雑 ${esc(occupancy.predicted_label || '未記録')}・信頼度 ${esc(occupancy.confidence_label || '不足')}</span>
+        <span class="opp-store-score"><b>${Number(row.score || 0)}</b><small>/100</small><i>${esc(row.verdict_label)}</i></span>
+      </button>`;
+    }).join('') : '<p class="hint center">対象店舗がありません。店舗設定とデータ収集を確認してください。</p>';
+    document.getElementById('opp-store-ranking-notice').textContent = data.notice || '到着後は必ず個別台を判定してください。';
+    const select = document.getElementById('opp-occupancy-hall');
+    const selected = select.value;
+    select.innerHTML = '<option value="">店舗を選択</option>' + rows.map(row => `<option value="${esc(row.hall_name)}">${esc(row.hall_name)}</option>`).join('');
+    if ([...select.options].some(option => option.value === selected)) select.value = selected;
+  } catch (error) {
+    list.innerHTML = `<p class="hint center">候補店を計算できません：${esc(error.message)}</p>`;
+  }
+}
+
+async function recordDesktopOccupancy(level) {
+  const hall = document.getElementById('opp-occupancy-hall').value;
+  if (!hall) { showToast('先に店舗を選んでください', 'error'); return; }
+  const rotation = document.getElementById('opp-occupancy-rotation').value;
+  const status = document.getElementById('opp-occupancy-status');
+  try {
+    await api.recordOccupancy({
+      hall_name: hall,
+      level,
+      avg_rotation_games_per_hour: rotation === '' ? null : Number(rotation),
+    });
+    status.textContent = `${hall}を「${{ high: '高', mid: '中', low: '低' }[level]}」で記録済み`;
+    showToast('混雑状況を記録しました');
+    await loadDesktopHyenaStoreRanking();
+  } catch (error) {
+    status.textContent = `記録失敗：${error.message}`;
+  }
+}
+
+async function loadOpportunityPage() {
+  const monthEl = document.getElementById('opp-month');
+  if (!monthEl.value) monthEl.value = currentMonthValue();
+  const list = document.getElementById('opp-candidate-list');
+  if (!opportunityState.summary) list.innerHTML = loadingHtml(3);
+  try {
+    opportunityState = await api.getOpportunityDashboard(monthEl.value);
+    document.getElementById('opp-machine-datalist').innerHTML = state.machines.map(machine => `<option value="${esc(machine)}">`).join('');
+    renderOpportunitySummary(opportunityState.summary);
+    populateOpportunityQuickMachines();
+    renderOpportunityGuide();
+    renderOpportunityProfiles(opportunityState.profiles);
+    renderOpportunityCandidates(opportunityState.candidates);
+    renderOpportunityResults(opportunityState.recent_results || []);
+    updateOpportunityProfileSelect();
+    loadOpportunityCrawler();
+    loadDesktopHyenaStoreRanking();
+
+    const alert = document.getElementById('opp-alert');
+    if (!opportunityState.summary.configured) {
+      alert.textContent = '先に運用資金と月間損失上限を設定してください。資金未設定では狙い候補を出しません。';
+      alert.style.display = 'block';
+    } else if (!opportunityState.profiles.length) {
+      alert.textContent = '狙い目ルールが未登録です。出典と確認日を含むルールを登録してください。';
+      alert.style.display = 'block';
+    } else {
+      alert.style.display = 'none';
+    }
+  } catch (error) {
+    list.innerHTML = `<p class="hint center">読み込み失敗: ${esc(error.message)}</p>`;
+  }
+}
+
+document.getElementById('opp-month').addEventListener('change', loadOpportunityPage);
+document.getElementById('opp-store-ranking-refresh').addEventListener('click', loadDesktopHyenaStoreRanking);
+document.getElementById('opp-store-ranking-at').addEventListener('change', loadDesktopHyenaStoreRanking);
+document.getElementById('opp-store-ranking-prefecture').value = localStorage.getItem('pachi-hyena-prefecture') || '';
+document.getElementById('opp-store-ranking-prefecture').addEventListener('change', event => {
+  localStorage.setItem('pachi-hyena-prefecture', event.target.value);
+  loadDesktopHyenaStoreRanking();
+});
+document.querySelectorAll('[data-desktop-occupancy]').forEach(button => {
+  button.addEventListener('click', () => recordDesktopOccupancy(button.dataset.desktopOccupancy));
+});
+document.getElementById('opp-store-ranking-list').addEventListener('click', event => {
+  const button = event.target.closest('[data-opp-store-hall]');
+  if (!button) return;
+  document.getElementById('opp-occupancy-hall').value = button.dataset.oppStoreHall;
+  document.getElementById('opp-occupancy-hall').focus();
+});
+document.getElementById('opp-crawler-run').addEventListener('click', async event => {
+  if (opportunityCrawlerRunning) return;
+  opportunityCrawlerRunning = true;
+  event.currentTarget.disabled = true;
+  document.getElementById('opp-crawler-status').textContent = '確認中…';
+  try {
+    await api.runOpportunityCrawler();
+    showToast('公開ソースの確認を開始しました。少し待ってから更新候補を確認してください');
+    setTimeout(loadOpportunityCrawler, 4000);
+  } catch (error) { showToast(error.message, 'error'); }
+  finally {
+    opportunityCrawlerRunning = false;
+    event.currentTarget.disabled = false;
+  }
+});
+document.getElementById('opp-guide-search').addEventListener('input', renderOpportunityGuide);
+document.getElementById('opp-guide-mode').addEventListener('change', renderOpportunityGuide);
+document.getElementById('opp-quick-machine').addEventListener('change', event => {
+  localStorage.setItem('pachi_quick_machine', event.target.value);
+  updateOpportunityQuickProfileSelect(true);
+});
+document.getElementById('opp-quick-profile').addEventListener('change', () => updateOpportunityQuickProfileSelect(true));
+document.querySelector('.opp-quick-templates').addEventListener('click', event => {
+  const button = event.target.closest('[data-opp-template]');
+  if (!button) return;
+  const profile = opportunityState.profiles.find(item => item.id === Number(document.getElementById('opp-quick-profile').value));
+  if (button.dataset.oppTemplate === 'zero') document.getElementById('opp-quick-current').value = 0;
+  if (button.dataset.oppTemplate === 'heaven') {
+    document.getElementById('opp-quick-current').value = Number(profile?.heaven_exit_games ?? 32);
+    showToast('天国抜け32Gは機種の画面と照合してください');
+  }
+  if (button.dataset.oppTemplate === 'ceiling') {
+    if (profile?.ceiling_threshold == null) return showToast('天井値が未登録です', 'error');
+    document.getElementById('opp-quick-current').value = Number(profile.ceiling_threshold);
+  }
+});
+document.getElementById('opp-quick-ocr').addEventListener('change', async event => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  try {
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.4');
+    const result = await recognizeNumberFromFile(file);
+    document.getElementById('opp-quick-current').value = result.value;
+    showToast(`OCR候補 ${result.value}G。表示と照合してください`);
+  } catch (error) { showToast(error.message, 'error'); }
+  finally { event.target.value = ''; }
+});
+['opp-quick-exchange', 'opp-quick-funding', 'opp-quick-reset'].forEach(id => {
+  document.getElementById(id).addEventListener('change', autoSelectOpportunityQuickProfile);
+});
+const savedQuickClose = localStorage.getItem('pachi_quick_close');
+if (savedQuickClose) document.getElementById('opp-quick-close').value = savedQuickClose;
+document.getElementById('opp-quick-close').addEventListener('change', event => {
+  localStorage.setItem('pachi_quick_close', event.target.value);
+});
+document.getElementById('opp-machine').addEventListener('change', updateOpportunityProfileSelect);
+document.getElementById('opp-machine').addEventListener('input', () => {
+  if (state.machines.includes(document.getElementById('opp-machine').value.trim())) updateOpportunityProfileSelect();
+});
+document.getElementById('opp-profile').addEventListener('change', updateOpportunityCurrentLabel);
+
+document.getElementById('opp-budget-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api.updateOpportunityBudget({
+      month: document.getElementById('opp-month').value,
+      starting_bankroll: Number(document.getElementById('opp-bankroll').value),
+      loss_limit_yen: Number(document.getElementById('opp-loss-limit').value),
+    });
+    showToast('月間資金を保存しました');
+    await loadOpportunityPage();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('opp-quick-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const submit = event.submitter;
+  if (submit) submit.disabled = true;
+  try {
+    const request = {
+      month: document.getElementById('opp-month').value || currentMonthValue(),
+      machine_name: document.getElementById('opp-quick-machine').value,
+      profile_id: Number(document.getElementById('opp-quick-profile').value),
+      current_value: Number(document.getElementById('opp-quick-current').value),
+      exchange_type: document.getElementById('opp-quick-exchange').value,
+      funding_mode: document.getElementById('opp-quick-funding').value,
+      reset_status: document.getElementById('opp-quick-reset').value,
+      minutes_until_close: minutesUntilClosing(document.getElementById('opp-quick-close').value),
+      section_difference_coins: nullableNumber('opp-section-diff'),
+      replay_limit_medals: Number(document.getElementById('opp-replay-limit').value || 0),
+      replay_used_medals: Number(document.getElementById('opp-replay-used').value || 0),
+      exchange_rate: Number(document.getElementById('opp-exchange-rate').value || 5.6),
+      extra_inputs: collectOpportunityExtraInputs(),
+    };
+    const response = await api.quickAssessOpportunity(request);
+    opportunityQuickResult = { ...response, ...request };
+    renderOpportunityQuickResult(opportunityQuickResult);
+  } catch (error) {
+    showToast(error.message, 'error');
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+});
+
+document.getElementById('opp-profile-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api.createOpportunityProfile({
+      machine_name: document.getElementById('opp-rule-machine').value.trim(),
+      condition_label: document.getElementById('opp-condition').value.trim(),
+      exchange_type: document.getElementById('opp-rule-exchange').value,
+      funding_mode: document.getElementById('opp-rule-funding').value,
+      reset_status: document.getElementById('opp-rule-reset').value,
+      metric_name: document.getElementById('opp-metric').value.trim(),
+      unit_label: document.getElementById('opp-unit').value.trim(),
+      start_threshold: Number(document.getElementById('opp-start').value),
+      ceiling_threshold: nullableNumber('opp-ceiling'),
+      expected_value_yen: nullableNumber('opp-expected'),
+      estimated_play_minutes: nullableNumber('opp-estimated-minutes'),
+      worst_case_investment_yen: nullableNumber('opp-worst'),
+      stop_rule: document.getElementById('opp-stop-rule').value.trim(),
+      source_name: document.getElementById('opp-source-name').value.trim(),
+      source_url: document.getElementById('opp-source-url').value.trim(),
+      verified_on: document.getElementById('opp-verified-on').value || null,
+      confidence: document.getElementById('opp-confidence').value,
+      notes: '',
+    });
+    showToast('狙い目ルールを保存しました');
+    event.target.reset();
+    document.getElementById('opp-metric').value = '現在ゲーム数';
+    document.getElementById('opp-unit').value = 'G';
+    document.getElementById('opp-condition').value = '通常・等価';
+    document.getElementById('opp-confidence').value = 'verified';
+    document.getElementById('opp-rule-exchange').value = 'equivalent';
+    document.getElementById('opp-rule-funding').value = 'any';
+    document.getElementById('opp-rule-reset').value = 'normal';
+    await loadOpportunityPage();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('opp-candidate-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api.createOpportunityCandidate({
+      machine_name: document.getElementById('opp-machine').value.trim(),
+      hall_name: document.getElementById('opp-hall').value.trim(),
+      seat_number: nullableNumber('opp-seat'),
+      current_value: Number(document.getElementById('opp-current-value').value),
+      profile_id: Number(document.getElementById('opp-profile').value),
+      notes: '',
+    });
+    document.getElementById('opp-current-value').value = '';
+    document.getElementById('opp-seat').value = '';
+    showToast('候補台を追加しました');
+    await loadOpportunityPage();
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('page-opportunity').addEventListener('click', async event => {
+  const crawlerApprove = event.target.closest('[data-opp-crawler-approve]');
+  if (crawlerApprove) {
+    if (!window.confirm('出典の数値を期待値表へ反映しますか？')) return;
+    try {
+      await api.approveOpportunityCrawlerCandidate(Number(crawlerApprove.dataset.oppCrawlerApprove));
+      showToast('確認済みの期待値データを反映しました');
+      await loadOpportunityPage();
+    } catch (error) { showToast(error.message, 'error'); }
+    return;
+  }
+  const crawlerReject = event.target.closest('[data-opp-crawler-reject]');
+  if (crawlerReject) {
+    try {
+      await api.rejectOpportunityCrawlerCandidate(Number(crawlerReject.dataset.oppCrawlerReject));
+      showToast('更新候補を不採用にしました');
+      await loadOpportunityCrawler();
+    } catch (error) { showToast(error.message, 'error'); }
+    return;
+  }
+  const guideButton = event.target.closest('[data-opp-guide-profile]');
+  if (guideButton) {
+    const profile = opportunityState.profiles.find(item => item.id === Number(guideButton.dataset.oppGuideProfile));
+    if (profile) {
+      document.getElementById('opp-quick-machine').value = profile.machine_name;
+      localStorage.setItem('pachi_quick_machine', profile.machine_name);
+      updateOpportunityQuickProfileSelect(false);
+      document.getElementById('opp-quick-profile').value = String(profile.id);
+      syncQuickConditions(profile);
+      document.getElementById('opp-quick-current').value = guideButton.dataset.oppGuideValue;
+      document.getElementById('opp-quick-result').innerHTML = '';
+      opportunityQuickResult = null;
+      document.querySelector('.opp-quick-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => document.getElementById('opp-quick-current').focus(), 350);
+    }
+    return;
+  }
+  const quickSaveButton = event.target.closest('[data-opp-quick-save]');
+  if (quickSaveButton && opportunityQuickResult?.actionable) {
+    try {
+      await api.createOpportunityCandidate({
+        machine_name: opportunityQuickResult.machine_name,
+        current_value: opportunityQuickResult.current_value,
+        profile_id: opportunityQuickResult.profile_id,
+        notes: `10秒判定・閉店まで${opportunityQuickResult.minutes_until_close}分`,
+        section_difference_coins: opportunityQuickResult.section_difference_coins,
+        replay_limit_medals: opportunityQuickResult.replay_limit_medals,
+        replay_used_medals: opportunityQuickResult.replay_used_medals,
+        exchange_rate: opportunityQuickResult.exchange_rate,
+        exchange_type: opportunityQuickResult.exchange_type,
+        funding_mode: opportunityQuickResult.funding_mode,
+        extra_inputs: opportunityQuickResult.extra_inputs || {},
+      });
+      showToast('候補台として保存しました');
+      opportunityQuickResult = null;
+      document.getElementById('opp-quick-result').innerHTML = '';
+      await loadOpportunityPage();
+    } catch (error) { showToast(error.message, 'error'); }
+    return;
+  }
+  const resultButton = event.target.closest('[data-opp-result]');
+  if (resultButton) {
+    document.querySelector(`[data-opp-result-form="${resultButton.dataset.oppResult}"]`)?.classList.toggle('open');
+    return;
+  }
+  const skipButton = event.target.closest('[data-opp-skip]');
+  if (skipButton) {
+    try {
+      await api.updateOpportunityCandidate(Number(skipButton.dataset.oppSkip), { status: 'skipped' });
+      showToast('候補台を見送りにしました');
+      await loadOpportunityPage();
+    } catch (error) { showToast(error.message, 'error'); }
+    return;
+  }
+  const deleteButton = event.target.closest('[data-opp-delete-profile]');
+  if (deleteButton) {
+    try {
+      await api.deleteOpportunityProfile(Number(deleteButton.dataset.oppDeleteProfile));
+      showToast('ルールを無効化しました');
+      await loadOpportunityPage();
+    } catch (error) { showToast(error.message, 'error'); }
+  }
+});
+
+document.getElementById('page-opportunity').addEventListener('submit', async event => {
+  const form = event.target.closest('[data-opp-result-form]');
+  if (!form) return;
+  event.preventDefault();
+  const formData = new FormData(form);
+  try {
+    await api.createOpportunityResult(Number(form.dataset.oppResultForm), {
+      played_on: formData.get('played_on'),
+      investment_yen: Number(formData.get('investment_yen')),
+      returns_yen: Number(formData.get('returns_yen')),
+      played_minutes: Number(formData.get('played_minutes') || 0),
+      notes: String(formData.get('notes') || ''),
+    });
+    showToast('実戦結果を保存しました');
+    await loadOpportunityPage();
+  } catch (error) { showToast(error.message, 'error'); }
+});
 
 function esc(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -4613,11 +5113,10 @@ document.addEventListener('keydown', (e) => {
 // Init
 // ---------------------------------------------------------------------------
 async function init() {
-  await checkConnection();
+  await Promise.all([checkConnection(), loadDesktopVersion()]);
   await loadMachineSelect();
   await populateSessionFilters();
   _renderRecentHallsBar();
-  loadTodayPnlBanner();
   loadTodayHotCard();
   loadWeeklyHighlight();
 
@@ -4640,13 +5139,13 @@ async function init() {
   if (!document.getElementById('est-dom').value) {
     document.getElementById('est-dom').value = String(today.getDate());
   }
+  updateEstimateReadiness();
 
   // 前回のドラフトを復元
   try {
     const raw = localStorage.getItem('pachi_draft');
     if (raw) {
       const draft = JSON.parse(raw);
-      if (draft.hall && estHall) estHall.value = draft.hall;
       if (draft.machine && state.machines.includes(draft.machine)) {
         estMachine.value = draft.machine;
         estMachine.dispatchEvent(new Event('change'));
@@ -4659,7 +5158,6 @@ async function init() {
   if (monthFilterEl && !monthFilterEl.value) {
     const now = new Date();
     monthFilterEl.value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-    monthFilterEl.dataset.periodOverride = 'thismonth';
   }
 
   // API死活監視（30秒ごと）
@@ -4894,8 +5392,6 @@ async function loadTodayDowMachines(hall) {
           <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
           <div style="font-size:.62rem;color:var(--text3)">${r.last_date || ''}</div>
         </div>
-        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM}'),decodeURIComponent('${encH}'))"
-          style="font-size:.65rem;padding:4px 7px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:5px;cursor:pointer;flex-shrink:0;white-space:nowrap">🎰</button>
       </div>`;
     }).join('');
   } catch(e) {
@@ -4960,13 +5456,9 @@ async function loadMachineSettingTendency(hall) {
         onclick="loadMachineSeatRankingInline(decodeURIComponent('${encHallT}'),decodeURIComponent('${encMachT}'),this)">
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div style="font-size:.85rem;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.machine_name)}</div>
-          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;margin-left:8px">
-            <div style="text-align:right">
-              <span style="font-size:1rem;font-weight:900;color:${col}">設定${estS.toFixed(1)}</span>
-              <span style="font-size:.65rem;color:var(--text3);margin-left:4px">高設定${highPct}%</span>
-            </div>
-            <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMachT}'),decodeURIComponent('${encHallT}'))"
-              style="font-size:.62rem;padding:3px 6px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;white-space:nowrap">🎰</button>
+          <div style="text-align:right;flex-shrink:0;margin-left:8px">
+            <span style="font-size:1rem;font-weight:900;color:${col}">設定${estS.toFixed(1)}</span>
+            <span style="font-size:.65rem;color:var(--text3);margin-left:4px">高設定${highPct}%</span>
           </div>
         </div>
         <div style="display:flex;gap:2px;margin:4px 0">${distBar}</div>
@@ -5060,7 +5552,7 @@ async function loadTodayBriefing(hall) {
     const dowColor = d.dow_rank === 1 ? 'var(--success)' : d.dow_rank <= 2 ? 'var(--warning)' : 'var(--text2)';
     const dowRow = d.dow_avg_diff !== null
       ? `<div style="font-size:.78rem;margin-bottom:6px">
-           <span style="color:var(--text3)">${esc(d.weekday)}曜日の傾向:</span>
+           <span style="color:var(--text3)">${d.weekday}曜日の傾向:</span>
            <strong style="color:${dowColor};margin-left:6px">${sign(d.dow_avg_diff)}枚平均 / ${d.dow_total}曜日中${d.dow_rank}位</strong>
          </div>` : '';
 
@@ -5069,48 +5561,35 @@ async function loadTodayBriefing(hall) {
       return `<span style="cursor:pointer;text-decoration:underline dotted;text-underline-offset:2px"
         onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${seat})">${content}</span>`;
     };
-    const surgeRows = d.bb_surge_seats?.map(s => {
-      const sMEnc = encodeURIComponent(s.machine), sHEnc = encodeURIComponent(hall);
-      return `<div style="display:flex;align-items:center;gap:5px;font-size:.75rem;padding:3px 0">
-         <span style="color:var(--text1);flex:1">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
+    const surgeRows = d.bb_surge_seats?.map(s =>
+      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0">
+         <span style="color:var(--text1)">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
          <span style="color:var(--success);font-weight:700">BB急上昇 +${s.surge_z}σ</span>
-         <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${sMEnc}'),decodeURIComponent('${sHEnc}'))"
-           style="font-size:.6rem;padding:2px 5px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
-       </div>`;
-    }).join('') || '<span style="font-size:.72rem;color:var(--text3)">なし</span>';
+       </div>`
+    ).join('') || '<span style="font-size:.72rem;color:var(--text3)">なし</span>';
 
-    const topSeatRows = d.top_seats?.map((s, i) => {
-      const mEnc = encodeURIComponent(s.machine);
-      const hEnc = encodeURIComponent(hall);
-      return `<div style="display:flex;align-items:center;gap:5px;font-size:.75rem;padding:3px 0;border-bottom:1px solid var(--border)">
-         <span style="flex:1"><strong style="color:var(--text3);margin-right:4px">${i+1}.</strong>${_seatBtn(s.machine, s.seat, `${esc(s.machine)} ${s.seat}番台`)}</span>
+    const topSeatRows = d.top_seats?.map((s, i) =>
+      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0;border-bottom:1px solid var(--border)">
+         <span><strong style="color:var(--text3);margin-right:4px">${i+1}.</strong>${_seatBtn(s.machine, s.seat, `${esc(s.machine)} ${s.seat}番台`)}</span>
          <span style="color:${s.avg_diff>=0?'var(--success)':'var(--danger)'};font-weight:700">${sign(s.avg_diff)}枚</span>
-         <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${mEnc}'),decodeURIComponent('${hEnc}'))"
-           style="font-size:.6rem;padding:2px 6px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
-       </div>`;
-    }).join('') || '';
+       </div>`
+    ).join('') || '';
 
     const streakRows = d.streak_seats?.length
-      ? d.streak_seats.map(s => {
-          const stMEnc = encodeURIComponent(s.machine), stHEnc = encodeURIComponent(hall);
-          return `<div style="display:flex;align-items:center;gap:5px;font-size:.75rem;padding:3px 0">
-             <span style="color:var(--text1);flex:1">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
-             <span style="color:var(--success);font-weight:700;white-space:nowrap">🔥 ${s.streak}連勝 / ${sign(s.avg_diff)}枚</span>
-             <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${stMEnc}'),decodeURIComponent('${stHEnc}'))"
-               style="font-size:.6rem;padding:2px 5px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
-           </div>`;
-        }).join('')
+      ? d.streak_seats.map(s =>
+          `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:3px 0">
+             <span style="color:var(--text1)">${_seatBtn(s.machine, s.seat, `${esc(s.machine)} <strong>${s.seat}番台</strong>`)}</span>
+             <span style="color:var(--success);font-weight:700">🔥 ${s.streak}連勝 / 平均${sign(s.avg_diff)}枚</span>
+           </div>`
+        ).join('')
       : '';
 
-    const hrRows = d.high_rate_machines?.map(m => {
-      const hrMEnc = encodeURIComponent(m.machine), hrHEnc = encodeURIComponent(hall);
-      return `<div style="display:flex;align-items:center;gap:5px;font-size:.75rem;padding:2px 0">
-         <span style="flex:1">${esc(m.machine)}</span>
+    const hrRows = d.high_rate_machines?.map(m =>
+      `<div style="display:flex;justify-content:space-between;font-size:.75rem;padding:2px 0">
+         <span>${esc(m.machine)}</span>
          <span style="color:${m.high_rate>=25?'var(--success)':m.high_rate>=15?'var(--warning)':'var(--text3)'}">高設定率${m.high_rate}%</span>
-         <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${hrMEnc}'),decodeURIComponent('${hrHEnc}'))"
-           style="font-size:.6rem;padding:2px 5px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
-       </div>`;
-    }).join('') || '';
+       </div>`
+    ).join('') || '';
 
     body.innerHTML = `${eventBanner}${dowRow}
       <div style="margin-bottom:8px">
@@ -5158,7 +5637,7 @@ function _renderHallGradeBanner(d) {
   const label = gradeLabels[grade];
   const reasons = [];
   if (d.is_event_candidate) reasons.push('イベント候補');
-  if (d.dow_rank === 1) reasons.push(`${esc(d.weekday)}曜は特日傾向`);
+  if (d.dow_rank === 1) reasons.push(`${d.weekday}曜は特日傾向`);
   if (surgeCount > 0) reasons.push(`BB急上昇${surgeCount}台`);
   if (streakCount > 0) reasons.push(`連続好調${streakCount}台`);
   const reasonStr = reasons.length ? reasons.slice(0, 3).join(' · ') : '通常日';
@@ -5211,7 +5690,7 @@ async function loadEventDayPattern(hall) {
     const todayBanner = todayHits.length > 0
       ? `<div style="background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:.8rem">
            <span style="color:var(--success);font-weight:600">本日 (${now.getMonth()+1}/${now.getDate()} ${todayDow}曜日) はイベント日候補です</span><br>
-           <span style="color:var(--text2);font-size:.72rem">該当パターン: ${todayHits.map(p => esc(p.type)).join('・')}</span>
+           <span style="color:var(--text2);font-size:.72rem">該当パターン: ${todayHits.map(p => p.type).join('・')}</span>
          </div>`
       : '';
 
@@ -5219,7 +5698,7 @@ async function loadEventDayPattern(hall) {
       const isToday = todayHits.includes(p);
       const zColor = p.z >= 1.5 ? 'var(--success)' : p.z >= 0.8 ? 'var(--warning)' : 'var(--text2)';
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.78rem">
-        <span style="color:${isToday?'var(--success)':'var(--text1)'};font-weight:${isToday?'600':'400'}">${esc(p.type)}${isToday?' ◀今日':''}</span>
+        <span style="color:${isToday?'var(--success)':'var(--text1)'};font-weight:${isToday?'600':'400'}">${p.type}${isToday?' ◀今日':''}</span>
         <span style="display:flex;gap:8px;align-items:center">
           <span style="color:var(--text3);font-size:.7rem">${p.count}日分</span>
           <span style="color:var(--text3);font-size:.7rem">BB${p.bb_mean.toFixed(3)}%</span>
@@ -5260,7 +5739,7 @@ async function loadEventDayPattern(hall) {
         nextEventHtml = `<div style="background:rgba(124,127,245,.08);border:1px solid rgba(124,127,245,.2);border-radius:8px;padding:7px 12px;margin-bottom:8px;display:flex;align-items:center;gap:8px">
           <div style="font-size:1.4rem;font-weight:900;color:var(--primary-h);line-height:1">+${next.delta}</div>
           <div>
-            <div style="font-size:.75rem;font-weight:600;color:var(--text1)">次候補: ${mm}/${dd}(${dow3}) · ${esc(next.hits[0].type)}</div>
+            <div style="font-size:.75rem;font-weight:600;color:var(--text1)">次候補: ${mm}/${dd}(${dow3}) · ${next.hits[0].type}</div>
             <div style="display:flex;align-items:center;gap:4px">${afterStr}</div>
           </div>
         </div>`;
@@ -5287,8 +5766,8 @@ async function loadBBSurgeSeats(hall) {
     const html = `<p style="font-size:.72rem;color:var(--text3);margin-bottom:8px">直近3日のBB確率が過去60日平均より急上昇（設定変更シグナル）</p>
       ${rows.slice(0, 8).map(r => {
         const z = r.surge_z;
-        const surgeCol = z > 1.5 ? 'var(--warning)' : z > 1.0 ? 'var(--success)' : 'var(--primary-h)';
-        const glowStr = z > 1.5 ? `0 0 12px rgba(251,191,36,.4)` : z > 1.0 ? '0 0 12px rgba(16,185,129,.3)' : 'none';
+        const surgeCol = z > 2.0 ? '#fbbf24' : z > 1.5 ? 'var(--warning)' : z > 1.0 ? 'var(--success)' : 'var(--primary-h)';
+        const glowStr = z > 1.5 ? `0 0 12px ${z > 2.0 ? 'rgba(251,191,36,.4)' : 'rgba(16,185,129,.3)'}` : 'none';
         const barPct = Math.min(Math.round(z / maxZ * 100), 100);
         const encHall = encodeURIComponent(hall);
         const encM = encodeURIComponent(r.machine_name);
@@ -5312,8 +5791,6 @@ async function loadBBSurgeSeats(hall) {
                 style="background:none;border:none;cursor:pointer;font-size:.85rem;padding:2px;color:${isPinnedSeat(hall,r.machine_name,r.seat_number)?'var(--warning)':'var(--text3)'}">
                 ${isPinnedSeat(hall, r.machine_name, r.seat_number) ? '★' : '☆'}
               </button>
-              <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM}'),decodeURIComponent('${encHall}'))"
-                style="font-size:.6rem;padding:2px 5px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer">🎰</button>
               <div style="font-size:1.1rem;font-weight:900;color:${surgeCol};text-shadow:${glowStr}">+${z.toFixed(1)}σ</div>
             </div>
           </div>
@@ -5340,7 +5817,7 @@ async function loadTodayTargets(hall) {
       return;
     }
     card.style.display = 'block';
-    title.innerHTML = `今日(${esc(data.today_weekday)}曜日)の狙い台 <button onclick="event.stopPropagation();_copyTodayTargets()" title="テキストコピー" style="background:none;border:none;cursor:pointer;font-size:.7rem;color:var(--text3);padding:0 4px;vertical-align:middle">📋</button>`;
+    title.innerHTML = `今日(${data.today_weekday}曜日)の狙い台 <button onclick="event.stopPropagation();_copyTodayTargets()" title="テキストコピー" style="background:none;border:none;cursor:pointer;font-size:.7rem;color:var(--text3);padding:0 4px;vertical-align:middle">📋</button>`;
     let html = '';
     if (data.seats.length) {
       html += `<div style="font-size:.68rem;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.08em">複合スコア順（曜日傾向・BB確率・安定性・トレンド統合）</div>`;
@@ -5353,7 +5830,7 @@ async function loadTodayTargets(hall) {
         const stabW = Math.round(stab * 100);
         const stabCol = stab >= 0.7 ? 'var(--success)' : stab >= 0.4 ? 'var(--warning)' : 'var(--danger)';
         const dowBadge = s.avg_same_dow !== undefined && s.avg_same_dow !== s.avg_diff
-          ? `<span style="font-size:.68rem;color:var(--primary-h);background:rgba(124,127,245,.12);padding:1px 6px;border-radius:4px">${esc(data.today_weekday)}曜 ${sign(s.avg_same_dow)}枚</span>`
+          ? `<span style="font-size:.68rem;color:var(--primary-h);background:rgba(124,127,245,.12);padding:1px 6px;border-radius:4px">${data.today_weekday}曜 ${sign(s.avg_same_dow)}枚</span>`
           : '';
         const trendBadge = s.avg_7d !== null && s.avg_7d !== undefined
           ? `<span style="font-size:.68rem;color:${s.avg_7d >= s.avg_diff ? 'var(--success)' : 'var(--text3)'};background:var(--bg3);padding:1px 6px;border-radius:4px">直近7日 ${sign(s.avg_7d)}枚</span>`
@@ -5384,8 +5861,6 @@ async function loadTodayTargets(hall) {
               <div class="anim-bar" style="width:${stabW}%;height:100%;background:${stabCol};border-radius:2px"></div>
             </div>
             <span style="font-size:.62rem;color:var(--text3)">${stabW}%</span>
-            <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encMach2}'),decodeURIComponent('${encHall2}'))"
-              style="margin-left:4px;font-size:.65rem;padding:3px 8px;background:rgba(16,185,129,.15);color:var(--success);border:1px solid rgba(16,185,129,.3);border-radius:4px;cursor:pointer;font-weight:700;white-space:nowrap">🎰 推測</button>
           </div>
         </div>`;
       });
@@ -5394,7 +5869,7 @@ async function loadTodayTargets(hall) {
       html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">`;
       if (data.best_tail) {
         html += `<div style="background:rgba(124,127,245,.1);border:1px solid rgba(124,127,245,.25);border-radius:8px;padding:7px 13px;font-size:.8rem">
-          好調末尾: <strong style="color:var(--primary-h)">${esc(data.best_tail.replace('末尾', '末尾 '))}</strong></div>`;
+          好調末尾: <strong style="color:var(--primary-h)">${data.best_tail.replace('末尾', '末尾 ')}</strong></div>`;
       }
       if (data.best_machine) {
         html += `<div style="background:rgba(16,185,129,.08);border:1px solid rgba(16,185,129,.25);border-radius:8px;padding:7px 13px;font-size:.8rem">
@@ -5561,7 +6036,6 @@ async function loadMachineSeatRanking(hall, machineName) {
     if (!rows || rows.length === 0) { card.style.display = 'none'; return; }
 
     const sign = v => v >= 0 ? `+${v}` : `${v}`;
-    const encH_sr = encodeURIComponent(hall), encM_sr = encodeURIComponent(machineName);
     const items = rows.slice(0, 10).map((r, i) => {
       const col = r.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
       const stabW = Math.round((r.stability || 0) * 100);
@@ -5572,7 +6046,7 @@ async function loadMachineSeatRanking(hall, machineName) {
         ? `<span style="font-size:.63rem;padding:1px 5px;border-radius:3px;background:${r.bb_z>=0.5?'rgba(16,185,129,.15)':r.bb_z<=-0.5?'rgba(244,63,94,.1)':'var(--bg3)'};color:${r.bb_z>=0.5?'var(--success)':r.bb_z<=-0.5?'var(--danger)':'var(--text3)'}">BB ${r.bb_z>=0?'+':''}${r.bb_z}σ</span>` : '';
       return `<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
         <span style="font-size:.7rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0">${i+1}</span>
-        <div style="flex:1;cursor:pointer" onclick="showSeatDetailModal(decodeURIComponent('${encH_sr}'),decodeURIComponent('${encM_sr}'),${r.seat_number})">
+        <div style="flex:1">
           <div style="font-size:.88rem;font-weight:700;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${r.seat_number}番台 ${dowTxt} ${bbBadge}</div>
           <div style="display:flex;align-items:center;gap:5px;margin-top:3px">
             <div style="flex:1;height:3px;background:var(--bg3);border-radius:2px">
@@ -5581,12 +6055,10 @@ async function loadMachineSeatRanking(hall, machineName) {
             <span style="font-size:.6rem;color:var(--text3)">安定${stabW}%</span>
           </div>
         </div>
-        <div style="text-align:right;flex-shrink:0">
+        <div style="text-align:right">
           <div style="font-weight:900;color:${col};font-size:.95rem">${sign(r.avg_diff)}枚</div>
           <div style="font-size:.62rem;color:var(--text3)">${r.days}日 勝${r.win_rate}%</div>
         </div>
-        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM_sr}'),decodeURIComponent('${encH_sr}'))"
-          style="font-size:.6rem;padding:2px 6px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0">🎰</button>
       </div>`;
     }).join('');
 
@@ -5627,14 +6099,12 @@ async function loadMachineSeatRankingInline(hall, machineName, rowEl) {
       const encM = encodeURIComponent(machineName);
       const bbBadge2 = r.bb_z != null
         ? `<span style="font-size:.6rem;color:${r.bb_z>=0.5?'var(--success)':r.bb_z<=-0.5?'var(--danger)':'var(--text3)'}">${r.bb_z>=0?'+':''}${r.bb_z}σ</span>` : '';
-      return `<div style="display:flex;align-items:center;gap:5px;
-               padding:5px 8px;border-radius:6px;background:var(--bg2);margin-bottom:3px">
-        <span style="font-size:.78rem;font-weight:700;cursor:pointer;flex:1"
-          onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${r.seat_number})">#${i+1} ${r.seat_number}番台 ${bbBadge2}</span>
-        <span style="font-size:.78rem;font-weight:900;color:${col};flex-shrink:0">${sign(r.avg_diff)}枚</span>
-        <span style="font-size:.63rem;color:var(--text3);flex-shrink:0">${r.days}日 勝${r.win_rate}%</span>
-        <button onclick="event.stopPropagation();_startSessionReplay(decodeURIComponent('${encM}'),decodeURIComponent('${encH}'))"
-          style="font-size:.55rem;padding:2px 5px;background:rgba(16,185,129,.13);color:var(--success);border:1px solid rgba(16,185,129,.25);border-radius:4px;cursor:pointer;flex-shrink:0;line-height:1.4">🎰</button>
+      return `<div onclick="showSeatDetailModal(decodeURIComponent('${encH}'),decodeURIComponent('${encM}'),${r.seat_number})"
+        style="display:flex;justify-content:space-between;align-items:center;
+               padding:5px 8px;border-radius:6px;background:var(--bg2);margin-bottom:3px;cursor:pointer">
+        <span style="font-size:.78rem;font-weight:700">#${i+1} ${r.seat_number}番台 ${bbBadge2}</span>
+        <span style="font-size:.78rem;font-weight:900;color:${col}">${sign(r.avg_diff)}枚</span>
+        <span style="font-size:.63rem;color:var(--text3)">${r.days}日 勝${r.win_rate}%</span>
       </div>`;
     }).join('');
     slot.innerHTML = items;
@@ -5644,96 +6114,123 @@ async function loadMachineSeatRankingInline(hall, machineName, rowEl) {
 }
 
 init().then(() => {
-  // 最後に見たタブを復元（デフォルトは estimate）
-  const lastTab = localStorage.getItem('pachi_last_tab');
-  if (lastTab && lastTab !== 'estimate') switchTab(lastTab);
+  // 起動時は必ず目的選択ホームから始める。
+  switchTab('home', { record: false, resetHistory: true });
 });
 
 // ---------------------------------------------------------------------------
 // マップページ
 // ---------------------------------------------------------------------------
 let _hallMap = null;
-let _mapLoaded = false;
+let _targetHeatLayer = null;
+let _desktopHeatData = null;
+
+function desktopTomorrowValue() {
+  const value = new Date();
+  value.setDate(value.getDate() + 1);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
+
+function desktopSignedCoins(value) {
+  const number = Math.round(Number(value || 0));
+  return `${number >= 0 ? '+' : ''}${number.toLocaleString('ja-JP')}枚`;
+}
+
+function desktopTrendRows(rows, labelKey) {
+  if (!rows?.length) return '<p class="desktop-heat-empty">まだ長期データがありません。</p>';
+  const maxAbs = Math.max(1, ...rows.map(row => Math.abs(Number(row.avg_diff || 0))));
+  return `<div class="desktop-mini-trend">${rows.map(row => {
+    const value = Number(row.avg_diff || 0);
+    const width = Math.max(3, Math.round(Math.abs(value) / maxAbs * 100));
+    return `<div><span>${esc(row[labelKey])}</span><i><b class="${value >= 0 ? 'desktop-trend-up' : 'desktop-trend-down'}" style="width:${width}%"></b></i><em class="${value >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(value)}</em></div>`;
+  }).join('')}</div>`;
+}
+
+function renderDesktopHeatDetail(hall) {
+  const detail = document.getElementById('desktop-heat-detail');
+  if (!detail) return;
+  if (!hall) {
+    detail.innerHTML = '<div class="desktop-heat-empty">地図の店舗を選ぶと、長期傾向を表示します。</div>';
+    return;
+  }
+  detail.innerHTML = `
+    <div class="desktop-heat-detail-head">
+      <div><span>${esc(_desktopHeatData.visit_date)}の分析</span><h2>${esc(hall.hall_name)}</h2></div>
+      <div class="desktop-heat-score" style="--heat-color:${esc(hall.color)}"><b>${hall.score}</b><small>点</small><em>${esc(hall.heat_level)}</em></div>
+    </div>
+    <div class="desktop-heat-stats">
+      <div><small>指定日推定</small><strong class="${hall.projected_diff >= 0 ? 'money-up' : 'money-down'}">${hall.projected_diff == null ? '--' : desktopSignedCoins(hall.projected_diff)}</strong></div>
+      <div><small>プラス日率</small><strong>${hall.positive_rate == null ? '--' : `${hall.positive_rate}%`}</strong></div>
+      <div><small>信頼度</small><strong>${esc(hall.confidence)}</strong></div>
+      <div><small>長期実績</small><strong>${hall.long_term?.sample_days || 0}日</strong></div>
+    </div>
+    <div class="desktop-heat-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
+    <section class="desktop-trend-block"><h3>月ごとの長期推移</h3>${desktopTrendRows(hall.monthly_trend, 'month')}</section>
+    <section class="desktop-trend-block"><h3>曜日ごとの長期傾向</h3>${desktopTrendRows(hall.weekday_profile, 'weekday')}</section>
+    <section class="desktop-heat-machines"><h3>この日の狙い機種</h3>${(hall.target_machines || []).slice(0, 3).map(machine => `<div><strong>${esc(machine.machine_name)}</strong><span class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(machine.avg_diff)}</span><small>${machine.sample_days}日・${machine.score}点</small></div>`).join('') || '<p class="desktop-heat-empty">機種候補は材料不足です。</p>'}</section>`;
+}
 
 async function loadMapPage() {
   const hint = document.getElementById('map-hint');
+  const dateInput = document.getElementById('desktop-heat-date');
+  const longDaysInput = document.getElementById('desktop-heat-long-days');
+  const region = syncTargetRegion(document.getElementById('desktop-heat-region').value);
+  const form = document.getElementById('desktop-heat-form');
+  const button = document.getElementById('desktop-heat-button');
+  if (!dateInput.value) dateInput.value = desktopTomorrowValue();
+  if (!form.dataset.bound) {
+    form.dataset.bound = '1';
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      loadMapPage();
+    });
+  }
 
-  // Leaflet マップ初期化（1回だけ）
   if (!_hallMap) {
-    _hallMap = L.map('hall-map', { zoomControl: true }).setView([34.76, 135.63], 12);
+    _hallMap = L.map('hall-map', { zoomControl: true }).setView([34.724, 135.631], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 18,
     }).addTo(_hallMap);
   }
 
-  hint.textContent = 'データ読み込み中...';
-
+  hint.textContent = '指定日の店舗熱量と長期傾向を計算中...';
+  button.disabled = true;
   try {
-    const halls = await fetch('/api/map/halls?days=30').then(r => r.json());
-
-    // 既存マーカーをクリア
-    _hallMap.eachLayer(layer => {
-      if (layer instanceof L.CircleMarker) _hallMap.removeLayer(layer);
-    });
+    const url = `/api/map/target_heat?visit_date=${encodeURIComponent(dateInput.value)}&days=120&long_days=${encodeURIComponent(longDaysInput.value)}&region=${encodeURIComponent(region)}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`API ${response.status}`);
+    _desktopHeatData = await response.json();
+    const halls = _desktopHeatData.halls || [];
+    if (_targetHeatLayer) _targetHeatLayer.remove();
+    _targetHeatLayer = L.layerGroup().addTo(_hallMap);
 
     if (!halls.length) {
-      hint.textContent = 'データのある店舗がありません。店傾向タブから「取得」してください。';
+      hint.textContent = '表示できる店舗データがありません。データ収集後に再度確認してください。';
+      renderDesktopHeatDetail(null);
       return;
     }
 
-    hint.textContent = `${halls.length}店舗表示中 / マーカーをタップで詳細`;
-
-    halls.forEach(h => {
-      const radius = 10 + Math.round(h.score * 14); // 強いほど大きく
-      const marker = L.circleMarker([h.lat, h.lng], {
-        radius,
-        color: h.color,
-        fillColor: h.color,
-        fillOpacity: 0.82,
-        weight: 2,
-        opacity: 1,
-      }).addTo(_hallMap);
-
-      const sign = h.avg_diff >= 0 ? '+' : '';
-      const hallEnc = encodeURIComponent(h.hall_name);
-      marker.bindPopup(`
-        <div style="min-width:170px;font-size:13px;line-height:1.7">
-          <strong style="font-size:14px">${esc(h.hall_name)}</strong><br>
-          <span style="color:${h.color};font-weight:bold">平均差枚 ${sign}${h.avg_diff.toLocaleString()}</span><br>
-          <span style="color:#666;font-size:11px">勝率 ${h.win_rate}% / ${h.days_cnt}日分データ</span>
-          <div style="display:flex;gap:5px;margin-top:6px">
-            <button onclick="switchToHall(decodeURIComponent('${hallEnc}'))"
-              style="flex:1;padding:5px;background:#6366f1;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">
-              📊 店傾向
-            </button>
-            <button onclick="startEstimateForHall(decodeURIComponent('${hallEnc}'))"
-              style="flex:1;padding:5px;background:#10b981;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px">
-              🎰 推測
-            </button>
-          </div>
-        </div>
-      `);
+    hint.textContent = `${_desktopHeatData.region_label}・${_desktopHeatData.visit_date}（${_desktopHeatData.weekday}）・${halls.length}店舗を表示中。丸が大きいほど当日の分析点が高いです。`;
+    halls.forEach(hall => {
+      const radius = hall.score ? 12 + hall.score * .22 : 9;
+      const marker = L.circleMarker([hall.lat, hall.lng], {
+        radius, color: hall.color, fillColor: hall.color, fillOpacity: .74, weight: 3, opacity: 1,
+      }).addTo(_targetHeatLayer);
+      marker.bindTooltip(esc(`${hall.rank ? `${hall.rank}位 ` : ''}${hall.hall_name} ${hall.score}点`), { direction: 'top' });
+      marker.on('click', () => renderDesktopHeatDetail(hall));
     });
 
-    // 全マーカーが見えるようにズーム調整（初回のみ）
-    if (!_mapLoaded) {
-      _mapLoaded = true;
-      const coords = halls.map(h => [h.lat, h.lng]);
-      if (coords.length === 1) {
-        _hallMap.setView(coords[0], 14);
-      } else {
-        _hallMap.fitBounds(coords, { padding: [30, 30] });
-      }
-    }
-    // マップサイズ再計算（タブ切り替え後に必要）
+    const coords = halls.map(hall => [hall.lat, hall.lng]);
+    if (coords.length === 1) _hallMap.setView(coords[0], 14);
+    else _hallMap.fitBounds(coords, { padding: [30, 30], maxZoom: 14 });
+    renderDesktopHeatDetail(halls[0]);
     setTimeout(() => _hallMap.invalidateSize(), 100);
-
   } catch(e) {
-    hint.textContent = 'マップデータ取得失敗: ' + e.message;
+    hint.textContent = 'マップデータ取得失敗：' + e.message;
+  } finally {
+    button.disabled = false;
   }
-
-  // ホール比較カード
   loadHallCompare();
 }
 
@@ -5775,7 +6272,7 @@ async function loadTodayPickCard() {
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:.7rem;color:${zCol};font-weight:700">${h.z_score != null ? h.z_score.toFixed(1) + 'σ' : ''}</div>
-          <div style="font-size:.58rem;color:var(--text3)">${esc(h.label || '')}</div>
+          <div style="font-size:.58rem;color:var(--text3)">${h.label || ''}</div>
         </div>
         <button onclick="event.stopPropagation();switchToHall(decodeURIComponent('${encodeURIComponent(h.hall_name)}'))" class="btn btn-ghost" style="font-size:.62rem;padding:2px 7px;flex-shrink:0">→</button>
       </div>`;
@@ -5797,158 +6294,6 @@ function _toggleFavHall(hall) {
   localStorage.setItem('pachi_fav_halls', JSON.stringify(favs));
   loadHallCompare();
 }
-
-// ============================================================
-// 今日おすすめタブ
-// ============================================================
-let _todayRecLoaded = false;
-let _todayRecDate = '';
-
-async function loadTodayRecommendation() {
-  const loading = document.getElementById('today-rec-loading');
-  const body = document.getElementById('today-rec-body');
-  if (!loading || !body) return;
-
-  const todayStr = new Date().toISOString().slice(0, 10);
-  // 初回だけロード（同日はキャッシュ。日付が変わったら再ロード）
-  if (_todayRecLoaded && body.innerHTML && _todayRecDate === todayStr) {
-    loading.style.display = 'none';
-    body.style.display = 'block';
-    return;
-  }
-
-  loading.style.display = 'block';
-  loading.textContent = 'データを分析中...';
-  body.style.display = 'none';
-
-  try {
-    const [data, hallSummary] = await Promise.all([
-      apiFetch('/api/hall/today_recommendation?days=30'),
-      apiFetch('/api/sessions/hall_summary').catch(() => []),
-    ]);
-    const halls = data.halls || [];
-    // build a map: hall_name → personal stats
-    const myStats = {};
-    (hallSummary || []).forEach(s => { myStats[s.hall_name] = s; });
-
-    loading.style.display = 'none';
-    body.style.display = 'block';
-
-    if (!halls.length) {
-      body.innerHTML = `<div class="card" style="text-align:center;padding:32px;color:var(--text3)">
-        データがありません。スクレイプを実行してください。
-      </div>`;
-      return;
-    }
-
-    const dow = data.dow || '';
-    const tail = data.tail ?? '';
-    const dateStr = data.date || '';
-
-    // ヘッダー
-    let html = `<div style="margin-bottom:10px;padding:10px 12px;background:linear-gradient(135deg,rgba(251,191,36,.12),rgba(34,211,238,.06));border:1px solid rgba(251,191,36,.25);border-radius:10px">
-      <div style="font-size:.65rem;font-weight:800;color:var(--warning);letter-spacing:.08em;text-transform:uppercase">今日の分析条件</div>
-      <div style="font-size:.8rem;color:var(--text2);margin-top:4px">
-        ${esc(dateStr)} （${esc(dow)}曜日） &nbsp;|&nbsp; 末尾<strong>${esc(String(tail))}</strong>の日 &nbsp;|&nbsp; ${halls.length}店舗を比較
-      </div>
-    </div>`;
-
-    // 本命・対抗 ハイライト
-    const top = halls[0];
-    if (top && top.score > 1) {
-      const badgeColor = top.badge === '今日の本命' ? '#f59e0b' : '#6366f1';
-      const topEnc = encodeURIComponent(top.hall_name);
-      html += `<div style="margin-bottom:10px;padding:14px;background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(99,102,241,.08));border:1.5px solid ${badgeColor}40;border-radius:12px">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <span style="background:${badgeColor};color:#fff;font-size:.62rem;font-weight:800;padding:2px 8px;border-radius:99px">${esc(top.badge || '1位')}</span>
-          <span style="font-size:.95rem;font-weight:800;flex:1;cursor:pointer" onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${topEnc}')),150)">${esc(top.hall_name)}</span>
-          <span style="font-size:.72rem;color:var(--text3)">スコア ${top.score}</span>
-        </div>
-        <div style="font-size:.78rem;color:var(--text2);line-height:1.8">
-          平均差枚 <strong style="color:${top.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)'}">${top.avg_diff >= 0 ? '+' : ''}${top.avg_diff}枚</strong>
-          &nbsp;/&nbsp; 勝率 <strong>${top.win_rate}%</strong>
-          &nbsp;/&nbsp; ${top.data_days}日分データ
-        </div>
-        ${(() => { const m = myStats[top.hall_name]; if (!m || !m.total) return ''; const mc = m.total_pnl >= 0 ? 'var(--success)' : 'var(--danger)'; const ms = m.total_pnl >= 0 ? '+' : ''; return `<div style="margin-top:5px;font-size:.72rem;padding:4px 8px;background:rgba(255,255,255,.05);border-radius:6px;display:inline-flex;align-items:center;gap:6px"><span style="color:var(--text3)">あなたの実績</span><span style="color:var(--text2);font-weight:700">${m.wins}勝${m.losses}敗</span><span style="color:${mc};font-weight:700">${ms}${(m.total_pnl/10000).toFixed(1)}万</span><span style="color:var(--text3)">(${m.total}回)</span></div>`; })()}
-        ${top.reasons.length ? `<div style="margin-top:6px;font-size:.74rem;color:var(--warning)">${top.reasons.map(r => '⚡ ' + esc(r)).join('&nbsp;&nbsp;')}</div>` : ''}
-        <div style="display:flex;gap:8px;margin-top:10px">
-          <button onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${topEnc}')),150)" style="flex:1;background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:8px;color:var(--text2);font-size:.72rem;padding:6px 0;cursor:pointer">🏪 詳細を見る</button>
-          <button onclick="startEstimateForHall(decodeURIComponent('${topEnc}'))" style="flex:1;background:rgba(99,102,241,.18);border:1px solid rgba(99,102,241,.35);border-radius:8px;color:var(--primary-h);font-size:.72rem;font-weight:700;padding:6px 0;cursor:pointer">🎰 この店で推測開始</button>
-        </div>
-      </div>`;
-    }
-
-    // 全店舗リスト
-    html += `<div class="card" style="padding:0;overflow:hidden">
-      <div style="padding:10px 14px 8px;border-bottom:1px solid var(--border)">
-        <span class="card-title" style="margin:0">店舗スコアランキング</span>
-        <span style="font-size:.68rem;color:var(--text3);margin-left:8px">高いほど今日おすすめ</span>
-      </div>`;
-
-    const maxScore = Math.max(...halls.map(h => h.score || 0), 1);
-    halls.forEach((h, i) => {
-      const rankColors = ['#f59e0b', '#94a3b8', '#cd7f32'];
-      const rankColor = rankColors[i] || 'var(--text3)';
-      const diffColor = h.avg_diff >= 0 ? 'var(--success)' : 'var(--danger)';
-      const diffSign = h.avg_diff >= 0 ? '+' : '';
-      const isStale = h.stale;
-      const scorePct = Math.round((h.score || 0) / maxScore * 100);
-
-      const tags = [];
-      if (h.surge_seats >= 2) tags.push(`<span style="background:rgba(239,68,68,.15);color:#f87171;font-size:.6rem;padding:1px 5px;border-radius:4px">BB急上昇${h.surge_seats}台</span>`);
-      else if (h.surge_seats === 1) tags.push(`<span style="background:rgba(239,68,68,.1);color:#fca5a5;font-size:.6rem;padding:1px 5px;border-radius:4px">BB急上昇1台</span>`);
-      if (h.streak_seats >= 2) tags.push(`<span style="background:rgba(34,197,94,.12);color:#4ade80;font-size:.6rem;padding:1px 5px;border-radius:4px">連続好調${h.streak_seats}台</span>`);
-      if (isStale) tags.push(`<span style="background:rgba(148,163,184,.12);color:var(--text3);font-size:.6rem;padding:1px 5px;border-radius:4px">データ古い</span>`);
-      if (h.reasons.some(r => r.includes('末尾'))) tags.push(`<span style="background:rgba(251,191,36,.15);color:var(--warning);font-size:.6rem;padding:1px 5px;border-radius:4px">末尾${tail}強</span>`);
-      if (h.reasons.some(r => r.includes('曜日'))) tags.push(`<span style="background:rgba(139,92,246,.15);color:#a78bfa;font-size:.6rem;padding:1px 5px;border-radius:4px">${esc(dow)}曜強</span>`);
-
-      // 個人実績バッジ
-      const my = myStats[h.hall_name];
-      let myBadge = '';
-      if (my && my.total >= 1) {
-        const myCol = my.total_pnl >= 0 ? 'var(--success)' : 'var(--danger)';
-        const mySign = my.total_pnl >= 0 ? '+' : '';
-        myBadge = `<div style="font-size:.6rem;color:var(--text3);margin-top:2px">
-          実績: <span style="color:var(--text2);font-weight:700">${my.wins}勝${my.losses}敗</span>
-          <span style="color:${myCol};font-weight:700;margin-left:3px">${mySign}${(my.total_pnl/10000).toFixed(1)}万</span>
-          <span style="color:var(--text3);margin-left:3px">(${my.total}回)</span>
-        </div>`;
-      }
-
-      const hEnc = encodeURIComponent(h.hall_name);
-      html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);${isStale ? 'opacity:.6' : ''}">
-        <div style="width:22px;height:22px;border-radius:50%;background:${rankColor}20;color:${rankColor};font-size:.7rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i + 1}</div>
-        <div style="flex:1;min-width:0;cursor:pointer" onclick="switchHallTab('detail');setTimeout(()=>switchToHall(decodeURIComponent('${hEnc}')),150)">
-          <div style="font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(h.hall_name)}</div>
-          <div style="height:3px;background:var(--bg3);border-radius:2px;margin:4px 0 3px;overflow:hidden">
-            <div class="anim-bar" style="width:${scorePct}%;height:100%;background:${rankColors[i]||'var(--primary-h)'};border-radius:2px"></div>
-          </div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">${tags.join('')}</div>
-          ${myBadge}
-        </div>
-        <div style="text-align:right;flex-shrink:0">
-          <div style="font-size:.82rem;font-weight:700;color:${diffColor}">${diffSign}${h.avg_diff}枚</div>
-          <div style="font-size:.65rem;color:var(--text3)">勝率${h.win_rate}%</div>
-        </div>
-        <button onclick="startEstimateForHall(decodeURIComponent('${hEnc}'))" style="background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.3);border-radius:7px;color:var(--primary-h);font-size:.65rem;font-weight:700;padding:4px 7px;cursor:pointer;flex-shrink:0;white-space:nowrap">🎰 推測</button>
-      </div>`;
-    });
-
-    html += `</div>
-    <div style="font-size:.65rem;color:var(--text3);margin-top:8px;padding:0 4px">
-      ※ スコア = 平均差枚・勝率・曜日傾向・末尾傾向・BB急上昇・連続好調を加重合計。データが古い店は-1点。
-    </div>`;
-
-    body.innerHTML = html;
-    _todayRecLoaded = true;
-    _todayRecDate = todayStr;
-  } catch (e) {
-    loading.textContent = 'エラー: ' + e.message;
-    loading.style.display = 'block';
-    body.style.display = 'none';
-  }
-}
-
 
 async function loadHallCompare() {
   const card = document.getElementById('hall-compare-card');
@@ -6018,7 +6363,7 @@ async function loadHallCompare() {
         + (r.bb_trend_7d != null && r.bb_trend_7d > 2 ? 2 : 0)
         + (r.surge_seat_count > 0 ? 1 : 0);
       const todayBadge = todayScore >= 6
-        ? `<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.2));border:1px solid rgba(251,191,36,.4);color:var(--warning);font-size:.58rem;padding:1px 6px;border-radius:4px;font-weight:700;margin-left:4px">★今日</span>`
+        ? `<span style="background:linear-gradient(90deg,rgba(251,191,36,.25),rgba(16,185,129,.2));border:1px solid rgba(251,191,36,.4);color:#fbbf24;font-size:.58rem;padding:1px 6px;border-radius:4px;font-weight:700;margin-left:4px">★今日</span>`
         : '';
       const srcBadge = r.data_source === 'minrepo'
         ? `<span style="font-size:.52rem;color:var(--text3);margin-left:3px">みんレポ</span>`
@@ -6028,7 +6373,7 @@ async function loadHallCompare() {
       const rankStyle = i === 0 ? 'background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:10px;padding:7px 8px;margin-bottom:4px' :
                         i <= 2 ? 'border-bottom:1px solid var(--border);padding:7px 0' :
                                  'border-bottom:1px solid var(--border);padding:7px 0';
-      const rankNumStyle = i === 0 ? 'font-size:.78rem;font-weight:900;color:var(--warning);width:18px;text-align:center;flex-shrink:0' :
+      const rankNumStyle = i === 0 ? 'font-size:.78rem;font-weight:900;color:#fbbf24;width:18px;text-align:center;flex-shrink:0' :
                            'font-size:.68rem;color:var(--text3);width:18px;text-align:center;flex-shrink:0';
       const isPinned = _isFavHall(r.hall_name);
       const copyText = `${i+1}位 ${r.hall_name} ${r.avg_diff >= 0 ? '+' : ''}${r.avg_diff}枚 (${r.days_data}日 勝率${r.win_rate}%)`;
@@ -6043,13 +6388,7 @@ async function loadHallCompare() {
           <div style="height:3px;background:var(--bg3);border-radius:2px;margin-top:3px">
             <div class="anim-bar" style="width:${pct}%;height:100%;background:${col};border-radius:2px"></div>
           </div>
-          <div style="display:flex;align-items:center;gap:4px;margin-top:3px">
-            <div style="flex:1;height:2px;background:var(--bg3);border-radius:1px;overflow:hidden">
-              <div class="anim-bar" style="width:${r.win_rate}%;height:100%;background:${r.win_rate >= 55 ? 'var(--success)' : r.win_rate >= 45 ? 'var(--warning)' : 'var(--danger)'};border-radius:1px;opacity:.7"></div>
-            </div>
-            <div style="font-size:.58rem;color:var(--text3);white-space:nowrap">勝率${r.win_rate}%</div>
-          </div>
-          <div style="font-size:.58rem;color:var(--text3);margin-top:2px">${r.days_data}日 ${r.machine_count}機種 ${r.record_count}件 <span style="color:${zCol}">${bbLine}</span></div>
+          <div style="font-size:.58rem;color:var(--text3);margin-top:2px">${r.days_data}日 ${r.machine_count}機種 ${r.record_count}件 勝率${r.win_rate}% <span style="color:${zCol}">${bbLine}</span></div>
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-weight:900;color:${col};font-size:.92rem">${sign(r.avg_diff)}枚</div>
@@ -6065,13 +6404,13 @@ async function loadHallCompare() {
     const surgeHalls = rows.filter(r => r.surge_seat_count > 0);
     const risingHalls = rows.filter(r => r.bb_trend_7d != null && r.bb_trend_7d > 2);
     if (eventCandidates.length > 0)
-      insightLines.push(`📅 今日イベント候補: ${eventCandidates.slice(0,2).map(r=>esc(r.hall_name)).join(' / ')}`);
+      insightLines.push(`📅 今日イベント候補: ${eventCandidates.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
     if (surgeHalls.length > 0)
-      insightLines.push(`🔺 BB急上昇台あり: ${surgeHalls.slice(0,2).map(r=>esc(r.hall_name)).join(' / ')}`);
+      insightLines.push(`🔺 BB急上昇台あり: ${surgeHalls.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
     if (risingHalls.length > 0)
-      insightLines.push(`↑ BB上昇トレンド: ${risingHalls.slice(0,2).map(r=>esc(r.hall_name)).join(' / ')}`);
+      insightLines.push(`↑ BB上昇トレンド: ${risingHalls.slice(0,2).map(r=>r.hall_name).join(' / ')}`);
     if (topHall && topHall.avg_diff > 0)
-      insightLines.push(`🏆 直近${_compareDays}日トップ: ${esc(topHall.hall_name)} (${topHall.avg_diff >= 0 ? '+' : ''}${topHall.avg_diff}枚)`);
+      insightLines.push(`🏆 直近${_compareDays}日トップ: ${topHall.hall_name} (${topHall.avg_diff >= 0 ? '+' : ''}${topHall.avg_diff}枚)`);
     if (insightLines.length > 0) {
       body.innerHTML += `<div style="margin-top:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
         <div style="font-size:.6rem;color:var(--text3);margin-bottom:4px;font-weight:600">今日のポイント</div>
@@ -6127,46 +6466,6 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// 推測結果をテキストでコピー
-window.copyEstimateResult = function() {
-  const machine = document.getElementById('est-machine')?.value || '不明';
-  const hall = document.getElementById('est-hall')?.value || '';
-  const games = document.getElementById('est-games')?.value || '0';
-  const expected = document.getElementById('res-expected')?.textContent || '--';
-  const highProb = document.getElementById('res-high-prob')?.textContent || '--%';
-  const ev = document.getElementById('res-ev')?.textContent || '--%';
-  const ci = document.getElementById('res-credible-interval')?.textContent || '';
-  const advice = document.getElementById('res-advice-text')?.textContent || '';
-  const profit1k = document.getElementById('res-profit-1k')?.textContent || '';
-
-  const lines = [
-    `【設定推測結果】`,
-    `機種: ${machine}${hall ? ' @ ' + hall : ''}`,
-    `G数: ${games}G`,
-    `期待設定: ${expected} / 高設定率: ${highProb} / 期待値: ${ev}`,
-    ci ? `信用区間: ${ci}` : '',
-    profit1k ? `1000G収支目安: ${profit1k}` : '',
-    advice ? `判断: ${advice}` : '',
-  ].filter(Boolean).join('\n');
-
-  navigator.clipboard.writeText(lines)
-    .then(() => showToast('結果をコピーしました'))
-    .catch(() => showToast('コピー失敗', 'error'));
-};
-
-// 推測結果をWebShare APIでシェア（非対応なら clipboard fallback）
-window.shareEstimateResult = function() {
-  const machine = document.getElementById('est-machine')?.value || '不明';
-  const expected = document.getElementById('res-expected')?.textContent || '--';
-  const highProb = document.getElementById('res-high-prob')?.textContent || '--%';
-  const text = `【${machine}】期待設定${expected} / 高設定率${highProb} — PACHI TOOL`;
-  if (navigator.share) {
-    navigator.share({ title: 'PACHI TOOL 推測結果', text }).catch(() => {});
-  } else {
-    navigator.clipboard.writeText(text).then(() => showToast('テキストをコピーしました'));
-  }
-};
-
 // 比較ランキングをテキストでコピー
 window.copyCompareRanking = function() {
   const body = document.getElementById('hall-compare-body');
@@ -6207,10 +6506,12 @@ async function loadAiPage() {
     const badge = document.getElementById('ai-status-badge');
     if (st.available) {
       badge.textContent = '利用可能';
-      badge.style.cssText = 'font-size:.68rem;padding:3px 10px;border-radius:99px;background:rgba(16,185,129,.18);color:var(--success);border:1px solid rgba(16,185,129,.3)';
+      badge.style.background = '#276749';
+      badge.style.color = '#9ae6b4';
     } else {
       badge.textContent = 'APIキー未設定';
-      badge.style.cssText = 'font-size:.68rem;padding:3px 10px;border-radius:99px;background:rgba(251,191,36,.15);color:var(--warning);border:1px solid rgba(251,191,36,.3)';
+      badge.style.background = '#744210';
+      badge.style.color = '#fbd38d';
     }
   } catch {}
 
@@ -6234,12 +6535,6 @@ async function loadAiPage() {
     else aiHallSel.value = '全店舗';
   }
   _updateAiScopeUI();
-
-  // ウェルカムメッセージ（初回のみ）
-  const chatMessages = document.getElementById('ai-chat-messages');
-  if (chatMessages && chatMessages.children.length === 0) {
-    appendChatMessage('ai', 'こんにちは！ホールデータや実戦記録について何でも質問してください。下のクイックボタンもご利用いただけます。');
-  }
 }
 
 function getAiHall() {
@@ -6292,22 +6587,17 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const data = await fetch(`/api/ai/report?hall_name=${encodeURIComponent(getAiHall())}`).then(r => r.json());
       const txt = data.report || '';
-      out.innerHTML = _renderMarkdown(txt);
-      // コピーボタンを追加
-      const copyDiv = document.createElement('div');
-      copyDiv.style.cssText = 'margin-top:10px;text-align:right';
-      const copyBtn2 = document.createElement('button');
-      copyBtn2.className = 'btn btn-ghost btn-sm';
-      copyBtn2.style.cssText = 'font-size:.65rem;opacity:.75';
-      copyBtn2.textContent = '📋 コピー';
-      copyBtn2.onclick = () => navigator.clipboard.writeText(txt).then(() => showToast('コピーしました', 'success'));
-      copyDiv.appendChild(copyBtn2);
-      out.appendChild(copyDiv);
+      out.innerHTML = txt
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/^###?\s+(.+)$/gm, '<strong style="color:var(--text1);display:block;margin:10px 0 4px">$1</strong>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n\n/g, '<br><br>')
+        .replace(/^[-•]\s+(.+)$/gm, '• $1<br>');
     } catch (e) {
       out.textContent = 'エラーが発生しました: ' + e.message;
     } finally {
       btn.disabled = false;
-      btn.textContent = '再生成';
+      btn.textContent = '生成';
     }
   });
 
@@ -6319,14 +6609,14 @@ document.addEventListener('DOMContentLoaded', () => {
     input.value = '';
     appendChatMessage('user', msg);
 
-    const thinkingEl = appendChatMessage('ai', '', true);
+    const thinkingEl = appendChatMessage('ai', '...');
     try {
       const data = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, hall_name: getAiHall(), history: aiChatHistory }),
       }).then(r => r.json());
-      thinkingEl.innerHTML = _renderMarkdown(data.reply || '');
+      thinkingEl.textContent = data.reply;
       aiChatHistory.push({ role: 'user', content: msg });
       aiChatHistory.push({ role: 'assistant', content: data.reply });
       if (aiChatHistory.length > 12) aiChatHistory = aiChatHistory.slice(-12);
@@ -6339,14 +6629,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('ai-chat-input')?.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
   });
-  document.getElementById('ai-chat-clear')?.addEventListener('click', () => {
-    aiChatHistory = [];
-    const c = document.getElementById('ai-chat-messages');
-    if (c) {
-      c.innerHTML = '';
-      appendChatMessage('ai', 'チャット履歴をクリアしました。新しい質問をどうぞ！');
-    }
-  });
 
   // クイックボタン
   document.querySelectorAll('.ai-quick-btn').forEach(btn => {
@@ -6357,68 +6639,12 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-function _renderMarkdown(text) {
-  const esc2 = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const inlineFmt = s => s
-    .replace(/`([^`\n]+)`/g, '<code style="background:var(--bg2);padding:1px 5px;border-radius:3px;font-size:.85em;font-family:monospace">$1</code>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-
-  // Process line by line to handle tables and block elements
-  const lines = (text || '').split('\n');
-  const out = [];
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-    // Markdown table: start of a row with pipes
-    if (/^\|.+\|$/.test(line.trim()) && i + 1 < lines.length && /^\|[-: |]+\|$/.test(lines[i + 1].trim())) {
-      const tableLines = [];
-      while (i < lines.length && /^\|.+\|$/.test(lines[i].trim())) {
-        tableLines.push(lines[i]);
-        i++;
-      }
-      const headerCells = tableLines[0].split('|').filter((c, idx, a) => idx > 0 && idx < a.length - 1);
-      const bodyRows = tableLines.slice(2);
-      const renderCells = (row, tag) =>
-        row.split('|').filter((c, idx, a) => idx > 0 && idx < a.length - 1)
-          .map(c => `<${tag} style="padding:5px 8px;border:1px solid var(--border);white-space:nowrap">${inlineFmt(esc2(c.trim()))}</${tag}>`).join('');
-      const thead = `<thead><tr>${renderCells(tableLines[0], 'th')}</tr></thead>`;
-      const tbody = bodyRows.length
-        ? `<tbody>${bodyRows.map(r => `<tr>${renderCells(r, 'td')}</tr>`).join('')}</tbody>`
-        : '';
-      out.push(`<div style="overflow-x:auto;margin:6px 0"><table style="border-collapse:collapse;font-size:.8rem;color:var(--text2)">${thead}${tbody}</table></div>`);
-      continue;
-    }
-    const el = esc2(line);
-    if (/^#{1,3}\s+/.test(line)) {
-      out.push(`<strong style="display:block;margin-top:8px;color:var(--primary-h);font-size:.92rem">${inlineFmt(el.replace(/^#+\s+/, ''))}</strong>`);
-    } else if (/^---+$/.test(line.trim())) {
-      out.push('<hr style="border:none;border-top:1px solid var(--border);margin:6px 0">');
-    } else if (/^(\d+)\.\s+/.test(line)) {
-      out.push(`<div style="padding-left:14px;margin:1px 0">${inlineFmt(el)}</div>`);
-    } else if (/^[-・•]\s+/.test(line)) {
-      out.push(`<div style="padding-left:10px;margin:1px 0">&bull; ${inlineFmt(el.replace(/^[-・•]\s+/, ''))}</div>`);
-    } else if (line === '') {
-      out.push('<br>');
-    } else {
-      out.push(inlineFmt(el));
-    }
-    i++;
-  }
-  return out.join('<br>').replace(/<br><br><br>/g, '<br><br>');
-}
-
-function appendChatMessage(role, text, isTyping = false) {
+function appendChatMessage(role, text) {
   const container = document.getElementById('ai-chat-messages');
   const el = document.createElement('div');
   el.className = `chat-bubble ${role === 'user' ? 'user' : 'assistant'}`;
-  if (isTyping) {
-    el.innerHTML = '<span class="chat-typing"><span></span><span></span><span></span></span>';
-  } else if (role === 'user') {
-    el.textContent = text;
-  } else {
-    el.innerHTML = _renderMarkdown(text);
-  }
+  el.style.whiteSpace = 'pre-wrap';
+  el.textContent = text;
   container.appendChild(el);
   container.scrollTop = container.scrollHeight;
   return el;
@@ -6438,20 +6664,11 @@ document.getElementById('hall-ai-btn').addEventListener('click', async () => {
   btn.textContent = '生成中...';
   out.style.display = 'block';
   out.textContent = '分析中...';
-  const copyBtn = document.getElementById('hall-ai-copy');
   try {
     const r = await apiFetch(`/api/ai/report?hall_name=${encodeURIComponent(hall)}`);
-    const raw = r.report || 'データが不足しています。スクレイプ後に再試行してください。';
-    out.innerHTML = _renderMarkdown(raw);
-    if (copyBtn) {
-      copyBtn.style.display = 'block';
-      copyBtn.onclick = () => {
-        navigator.clipboard.writeText(raw).then(() => showToast('コピーしました', 'success'));
-      };
-    }
+    out.textContent = r.report || 'データが不足しています。スクレイプ後に再試行してください。';
   } catch(e) {
     out.textContent = 'AI分析失敗: ' + e.message;
-    if (copyBtn) copyBtn.style.display = 'none';
   } finally {
     btn.disabled = false;
     btn.textContent = '生成';
@@ -6464,6 +6681,7 @@ document.getElementById('hall-ai-btn').addEventListener('click', async () => {
 
 async function loadScrapeManager() {
   loadCacheStats();
+  loadArchiveCollector();
   // DBデータ統計サマリー
   try {
     const st = await apiFetch('/api/stats').catch(() => null);
@@ -6575,11 +6793,8 @@ async function loadScrapeManager() {
           </div>`;
         }).join('');
         const shown = allLogs.slice(0, 15);
-        const moreHtml = allLogs.length > 15 ? renderLogs(allLogs.slice(15)) : '';
-        const moreBtn = moreHtml
-          ? `<button class="btn btn-ghost" style="font-size:.62rem;padding:3px 10px;margin-top:4px;width:100%"
-               onclick="this.nextElementSibling.style.display='block';this.remove()">もっと見る (${allLogs.length - 15}件)</button>
-             <div style="display:none">${moreHtml}</div>`
+        const moreBtn = allLogs.length > 15
+          ? `<button onclick="this.previousSibling.innerHTML += ${JSON.stringify(renderLogs(allLogs.slice(15)))};this.remove()" class="btn btn-ghost" style="font-size:.62rem;padding:3px 10px;margin-top:4px;width:100%">もっと見る (${allLogs.length - 15}件)</button>`
           : '';
         logEl.innerHTML = `<div>${renderLogs(shown)}</div>${moreBtn}`;
       }
@@ -6593,6 +6808,91 @@ async function loadScrapeManager() {
     console.error('scrape manager load error:', e);
   }
 }
+
+let _archivePollTimer = null;
+
+function _archiveDateOffset(days) {
+  const value = new Date();
+  value.setDate(value.getDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+async function loadArchiveCollector() {
+  const statusEl = document.getElementById('archive-status');
+  if (!statusEl) return;
+  try {
+    const data = await apiFetch('/api/scrape/archive/status');
+    const hallSelect = document.getElementById('archive-hall');
+    const previousHall = hallSelect.value;
+    hallSelect.innerHTML = (data.supported_halls || []).map(item =>
+      `<option value="${esc(item.hall_name)}">${esc(item.hall_name)}</option>`
+    ).join('');
+    if (previousHall && [...hallSelect.options].some(option => option.value === previousHall)) hallSelect.value = previousHall;
+    const fromInput = document.getElementById('archive-date-from');
+    const toInput = document.getElementById('archive-date-to');
+    if (!fromInput.value) fromInput.value = _archiveDateOffset(-365);
+    if (!toInput.value) toInput.value = _archiveDateOffset(-1);
+
+    const job = data.job;
+    if (!job) {
+      statusEl.innerHTML = 'まだ過去データ収集は実行されていません。店舗と期間を選んで開始してください。';
+    } else {
+      const labels = { queued: '開始待ち', collecting: '収集中', paused: '一時停止', completed: '完了', failed: '失敗' };
+      const tone = job.status === 'completed' ? 'var(--success)' : job.status === 'paused' ? 'var(--warning)' : job.status === 'collecting' ? 'var(--primary-h)' : 'var(--text2)';
+      statusEl.innerHTML = `<strong style="color:${tone}">${labels[job.status] || esc(job.status)}</strong>　${esc(job.hall_name)} ${esc(job.date_from)}〜${esc(job.date_to)}<br>` +
+        `処理 ${job.processed}/${job.discovered}ページ（${job.progress_pct}%）・新規 機種${job.machine_rows}件 / 台${job.seat_rows}件・失敗${job.failed_count}件` +
+        (job.error ? `<br><span style="color:var(--warning)">${esc(job.error)}</span>` : '');
+    }
+    const coverage = document.getElementById('archive-coverage');
+    coverage.innerHTML = (data.coverage || []).map(item =>
+      `${esc(item.hall_name)}：${item.days || 0}日${item.oldest ? `（${esc(item.oldest)}〜${esc(item.newest)}）` : ''}`
+    ).join('<br>');
+    const running = job && ['queued', 'collecting'].includes(job.status);
+    document.getElementById('archive-start-btn').disabled = Boolean(running || job?.status === 'paused');
+    document.getElementById('archive-pause-btn').disabled = !running;
+    document.getElementById('archive-resume-btn').disabled = job?.status !== 'paused';
+    clearTimeout(_archivePollTimer);
+    if (running) _archivePollTimer = setTimeout(loadArchiveCollector, 3000);
+  } catch (error) {
+    statusEl.innerHTML = `<span style="color:var(--danger)">進捗取得に失敗：${esc(error.message)}</span>`;
+  }
+}
+
+document.getElementById('archive-start-btn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('archive-start-btn');
+  const body = {
+    hall_name: document.getElementById('archive-hall').value,
+    date_from: document.getElementById('archive-date-from').value,
+    date_to: document.getElementById('archive-date-to').value,
+    max_pages: Number(document.getElementById('archive-max-pages').value),
+  };
+  if (!body.hall_name || !body.date_from || !body.date_to) return showToast('店舗と期間を指定してください', 'error');
+  btn.disabled = true;
+  try {
+    await apiFetch('/api/scrape/archive/jobs', { method: 'POST', body: JSON.stringify(body) });
+    showToast('過去データ収集を開始しました');
+    await loadArchiveCollector();
+  } catch (error) {
+    showToast(error.message, 'error');
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('archive-pause-btn')?.addEventListener('click', async () => {
+  try {
+    const data = await apiFetch('/api/scrape/archive/pause', { method: 'POST' });
+    showToast(data.message, data.ok ? 'success' : 'error');
+    setTimeout(loadArchiveCollector, 500);
+  } catch (error) { showToast(error.message, 'error'); }
+});
+
+document.getElementById('archive-resume-btn')?.addEventListener('click', async () => {
+  try {
+    const data = await apiFetch('/api/scrape/archive/resume', { method: 'POST' });
+    showToast(data.message, data.ok ? 'success' : 'error');
+    await loadArchiveCollector();
+  } catch (error) { showToast(error.message, 'error'); }
+});
 
 async function loadCacheStats() {
   const el = document.getElementById('cache-stats-text');
@@ -6657,7 +6957,6 @@ let _calHallFilter = '';
 let _calEventMap  = {};  // dateStr → [{event}]
 let _calHeatMap   = {};  // dateStr → {avg_diff, hall_count, halls:[]}
 let _calHotDays   = {};  // dateStr → [{hall_name, z_score, label}]  (自動検出)
-let _calSessionMap = {}; // dateStr → count  (自分のセッション件数)
 let _calDrillDate = null;
 let _calDrillHall = null;
 
@@ -6684,19 +6983,13 @@ async function loadCalendar() {
   const ym = _ym();
   const evUrl = `/api/events/calendar?month=${ym}` + (hallFilter ? `&hall_name=${encodeURIComponent(hallFilter)}` : '');
   const hallHotParam = hallFilter ? `&hall_name=${encodeURIComponent(hallFilter)}` : '';
-  const lastDay = new Date(_calYear, _calMonth + 1, 0).getDate();
-  const [evData, hmData, hotData, sesData] = await Promise.all([
+  const [evData, hmData, hotData] = await Promise.all([
     fetch(evUrl).then(r => r.json()).catch(() => ({events:{}})),
     fetch(`/api/hall/month_heatmap?month=${ym}`).then(r => r.json()).catch(() => ({days:{}})),
     fetch(`/api/hall/hot_days?months=3${hallHotParam}`).then(r => r.json()).catch(() => ({hot_days:[]})),
-    fetch(`/api/sessions?date_from=${ym}-01&date_to=${ym}-${String(lastDay).padStart(2,'0')}&limit=500`).then(r => r.json()).catch(() => []),
   ]);
   _calEventMap = evData.events || {};
   _calHeatMap  = hmData.days  || {};
-  _calSessionMap = {};
-  for (const s of (Array.isArray(sesData) ? sesData : [])) {
-    if (s.date) _calSessionMap[s.date] = (_calSessionMap[s.date] || 0) + 1;
-  }
   _calHotDays  = {};
   for (const h of (hotData.hot_days || [])) {
     if (h.date.startsWith(ym)) {
@@ -6723,7 +7016,7 @@ function _renderCalMonthStats() {
   el.style.display = 'block';
   el.innerHTML = `<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:.7rem">
     <span style="background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.2);border-radius:5px;padding:2px 8px">
-      🔥 ホット日 <strong style="color:var(--warning)">${hotDayCount}日</strong>
+      🔥 ホット日 <strong style="color:#fbbf24">${hotDayCount}日</strong>
     </span>
     ${heatCount ? `<span style="background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);border-radius:5px;padding:2px 8px">
       📊 出玉+ <strong style="color:var(--success)">${heatCount}日</strong>
@@ -6767,27 +7060,21 @@ function _renderCalGrid() {
       dateStr===_calSelectedDate?'selected':'', evs.length?'has-event':'', heatCls]
       .filter(Boolean).join(' ');
     const dots = [...new Set(evs.map(e => e.event_type))]
-      .map(t => `<span class="cal-dot cal-dot-${esc(t)}" title="${esc(t)}"></span>`).join('');
+      .map(t => `<span class="cal-dot cal-dot-${t}" title="${t}"></span>`).join('');
     // 自動検出ホット日
     const hotEntries = !isOther ? (_calHotDays[dateStr] || []) : [];
     const topHot = hotEntries.sort((a,b) => b.z_score - a.z_score)[0];
     const hotBadge = topHot
-      ? `<span class="cal-hot-badge" title="${esc(topHot.hall_name)} z=${topHot.z_score}">${topHot.label === '超熱' ? '🔥🔥' : topHot.label === '熱' ? '🔥' : '・'}</span>`
+      ? `<span class="cal-hot-badge" title="${topHot.hall_name} z=${topHot.z_score}">${topHot.label === '超熱' ? '🔥🔥' : topHot.label === '熱' ? '🔥' : '・'}</span>`
       : '';
     // ホール数バッジ
     const hallBadge = (!isOther && heat && heat.hall_count > 0)
       ? `<span class="cal-hall-badge">${heat.hall_count}店</span>` : '';
-    // 自分のセッション件数バッジ
-    const sesCnt = !isOther ? (_calSessionMap[dateStr] || 0) : 0;
-    const sesBadge = sesCnt > 0
-      ? `<span style="position:absolute;bottom:2px;right:2px;font-size:.48rem;font-weight:800;background:rgba(124,127,245,.25);color:var(--primary-h);border-radius:3px;padding:0 3px;line-height:1.4" title="${sesCnt}セッション">${sesCnt}件</span>`
-      : '';
     html += `<div class="${cls}" onclick="selectCalDay('${dateStr}')" style="position:relative">
       ${hallBadge}
       <span class="cal-day-num">${day}</span>
       ${hotBadge}
       <div class="cal-dots">${dots}</div>
-      ${sesBadge}
     </div>`;
   }
   grid.innerHTML = html;
@@ -6859,9 +7146,6 @@ function _renderHallBars(halls, dateStr) {
     return;
   }
   const maxAbs = Math.max(...halls.map(h => Math.abs(h.avg_diff)), 1);
-  const hdr = `<div style="display:flex;justify-content:space-between;font-size:.6rem;color:var(--text3);margin-bottom:6px;padding:0 2px">
-    <span>店舗別 平均差枚数（コイン）</span><span>プラス = 出玉有利</span>
-  </div>`;
   const items = halls.map((h, i) => {
     const pct = Math.round(Math.abs(h.avg_diff) / maxAbs * 100);
     const pos = h.avg_diff >= 0;
@@ -6879,7 +7163,7 @@ function _renderHallBars(halls, dateStr) {
       <div class="drill-bar-val" style="color:${col}">${sign}${h.avg_diff}</div>
     </div>`;
   }).join('');
-  el.innerHTML = hdr + items;
+  el.innerHTML = items;
   // イベント委譲でクリック処理
   el.querySelectorAll('.drill-bar-item').forEach(item => {
     item.addEventListener('click', () => calDrillHall(item.dataset.date, item.dataset.hall));
@@ -6969,12 +7253,12 @@ function _renderDayEvents(dateStr) {
     }
     // イベント記録
     html += evs.map(e => {
-      const src = e.source ? `<span style="font-size:.6rem;color:var(--text3)">[${esc(e.source)}]</span>` : '';
+      const src = e.source ? `<span style="font-size:.6rem;color:var(--text3)">[${e.source}]</span>` : '';
       const del = `<button onclick="deleteEvent(${e.id},'${dateStr}')" style="background:none;border:none;cursor:pointer;opacity:.4;margin-left:4px;font-size:.75rem;color:var(--text3);padding:0;line-height:1">✕</button>`;
       return `<div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;padding:5px 8px;background:var(--bg3);border-radius:7px">
         <div style="flex:1">
           <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
-            <span class="ev-badge ev-badge-${esc(e.event_type)}" style="margin:0">${esc(e.event_type)}</span>
+            <span class="ev-badge ev-badge-${e.event_type}" style="margin:0">${e.event_type}</span>
             <span style="font-size:.7rem;color:var(--text2)">${esc(e.event_title || '')}</span>
             ${src}
           </div>
@@ -7105,7 +7389,7 @@ async function loadCalStrength() {
       const strengthCol = d.diff_vs_normal >= 100 ? 'var(--success)' : d.diff_vs_normal >= 0 ? 'var(--warning)' : 'var(--danger)';
       return `<div style="margin-bottom:10px;padding:8px;background:var(--bg3);border-radius:8px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-          <span class="ev-badge ev-badge-${esc(d.event_type)}" style="margin:0">${esc(d.event_type)}</span>
+          <span class="ev-badge ev-badge-${d.event_type}" style="margin:0">${d.event_type}</span>
           <span style="font-size:.68rem;font-weight:700;color:${strengthCol}">${strength}</span>
           <span style="color:var(--text3);font-size:.6rem">${d.event_days}日のデータ</span>
         </div>
@@ -7212,9 +7496,9 @@ function _renderEvProgress(d) {
         ? Object.entries(h.by_source).map(([s, n]) => `${s}:${n}`).join(' ')
         : '';
       return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${esc(h.name)}</div>
-        <div style="font-size:.63rem;color:var(--text3);text-align:right">${esc(sources) || found}</div>
-        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status] ?? esc(h.status)}</div>
+        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${h.name}</div>
+        <div style="font-size:.63rem;color:var(--text3);text-align:right">${sources || found}</div>
+        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
       </div>`;
     }).join('');
   }
@@ -7293,16 +7577,21 @@ function _renderBulkProgress(d) {
 
   const hallsEl = document.getElementById('bp-halls');
   if (d.halls && d.halls.length) {
-    const statusLabel = { done: '完了', running: '実行中', waiting: '待機中', failed: '失敗' };
-    const statusColor = { done: 'var(--success)', running: 'var(--accent)', waiting: 'var(--text3)', failed: 'var(--danger)' };
+    const statusLabel = { done: '完了', partial: '一部取得', running: '実行中', waiting: '待機中', failed: '失敗' };
+    const statusColor = { done: 'var(--success)', partial: 'var(--warning)', running: 'var(--accent)', waiting: 'var(--text3)', failed: 'var(--danger)' };
     hallsEl.innerHTML = d.halls.map(h => {
       const isRunning = h.status === 'running';
       const dot = isRunning ? '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);animation:bpulse 1.2s ease-in-out infinite;vertical-align:middle;margin-right:4px"></span>' : '';
       const records = h.records ? `${h.records}件` : (h.status === 'waiting' ? '—' : '');
+      const sourceLabels = { seat: '台番', machine: '差枚', snapshot: '設置' };
+      const sourceText = Object.entries(h.sources || {}).map(([key, value]) => {
+        const mark = value.status === 'done' ? '○' : value.status === 'failed' ? '×' : '―';
+        return `${sourceLabels[key] || key}${mark}`;
+      }).join(' ');
       return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">
-        <div style="flex:1;font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${esc(h.name)}</div>
+        <div style="flex:1;min-width:0"><div style="font-size:.72rem;color:${statusColor[h.status]||'var(--text2)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${dot}${esc(h.name)}</div><div style="font-size:.57rem;color:var(--text3)">${sourceText}</div></div>
         <div style="font-size:.65rem;color:var(--text3);min-width:30px;text-align:right">${records}</div>
-        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status] ?? esc(h.status)}</div>
+        <div style="font-size:.65rem;padding:2px 7px;border-radius:99px;background:${h.status==='done'?'rgba(0,180,100,.15)':h.status==='partial'?'rgba(245,158,11,.14)':h.status==='failed'?'rgba(220,50,50,.12)':h.status==='running'?'rgba(70,130,220,.12)':'var(--bg3)'};color:${statusColor[h.status]||'var(--text3)'}">${statusLabel[h.status]||h.status}</div>
       </div>`;
     }).join('');
   }
@@ -7375,10 +7664,18 @@ async function loadScrapeHalls() {
       const dateCol = diffDays === null ? 'var(--text3)' : diffDays === 0 ? 'var(--success)' : diffDays <= 2 ? 'var(--text3)' : 'var(--danger)';
       const dateLabel = diffDays === null ? '未取得' : diffDays === 0 ? '今日' : `${diffDays}日前`;
       const recStr = h.db_record_count ? `${h.db_record_count}件` : '';
+      const coverage = h.coverage || {};
+      const badges = [
+        ['台番', coverage.seat?.records],
+        ['差枚', coverage.machine?.records],
+        ['設置', coverage.snapshot?.records],
+        ['予定', coverage.event?.records],
+      ].map(([label, count]) => `<span style="font-size:.54rem;padding:1px 5px;border-radius:99px;background:${count ? 'rgba(34,197,94,.12)' : 'var(--bg3)'};color:${count ? 'var(--success)' : 'var(--text3)'}">${label}${count ? '○' : '―'}</span>`).join('');
       return `<div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--bg3)">
         <div style="flex:1;min-width:0">
           <div style="font-size:.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(h.hall_name)}</div>
-          <div style="font-size:.58rem;color:${dateCol}">${dateLabel}${recStr ? ` · ${recStr}` : ''}</div>
+          <div style="font-size:.58rem;color:${dateCol}">${esc(h.data_level || '未取得')} · ${dateLabel}${recStr ? ` · ${recStr}` : ''}</div>
+          <div style="display:flex;gap:3px;flex-wrap:wrap;margin-top:3px">${badges}</div>
         </div>
         <button onclick="toggleScrapeHall('${enc}',${!h.enabled})"
           style="font-size:.58rem;padding:1px 6px;border-radius:3px;border:1px solid var(--border);background:transparent;color:${enCol};cursor:pointer;flex-shrink:0">${enLabel}</button>

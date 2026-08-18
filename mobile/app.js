@@ -7,10 +7,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.6.4';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.4';
+} from './core.mjs?v=2.6.5';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.5';
 
-const APP_VERSION = '2.6.4';
+const APP_VERSION = '2.6.5';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -35,9 +35,9 @@ let releaseInfo = {
   channel: '公開版',
   patch_notes: [{
     version: APP_VERSION,
-    released_on: '2026-08-14',
-    title: '狙い台検索の地域分離と誤候補防止',
-    items: ['松本・塩尻／長野県／大阪府／全地域を切替', '現行設置・データ鮮度を照合して古い候補を除外', '差枚欠損が疑われる店舗を自動除外'],
+    released_on: '2026-08-15',
+    title: '別PCでの開発再開とデータ移行に対応',
+    items: ['別PC用の自動セットアップを追加', '店舗分析DBの検証付きバックアップ・復元に対応', '個人の収支・候補台DBはバックアップから除外'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';

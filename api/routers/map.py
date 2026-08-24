@@ -158,7 +158,7 @@ def get_target_heat_map(
     visit_date: str = Query(..., description="YYYY-MM-DD"),
     days: int = Query(120, ge=14, le=365),
     long_days: int = Query(365, ge=30, le=730),
-    region: Literal["all", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
+    region: Literal["all", "shijonawate", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
 ) -> dict:
     """指定日の店舗熱量と、店舗ごとの月次・曜日別長期傾向を返す。"""
     try:

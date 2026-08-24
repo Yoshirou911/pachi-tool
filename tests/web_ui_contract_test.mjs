@@ -14,6 +14,7 @@ assert.match(desktopHtml, /data-home-destination="juggler"/, 'ホームからジ
 assert.match(desktopHtml, /id="page-juggler"/, 'ジャグラー専用画面が必要');
 assert.match(desktopHtml, /id="desktop-juggler-assess-form"/, 'PC・ソフト版に営業中判定が必要');
 assert.match(desktopHtml, /id="desktop-juggler-target-form"/, 'PC・ソフト版に朝一候補が必要');
+assert.match(desktopHtml, /value="shijonawate" selected>四條畷駅周辺/, 'PC・ソフト版も四條畷駅周辺を重点地域にする');
 assert.match(desktopHtml, /id="page-target-search"/, '分析ランキング専用画面が必要');
 assert.match(desktopHtml, /id="page-trend-profile"/, '店舗傾向カルテを独立画面にする');
 assert.match(desktopHtml, /id="page-floor-map"/, '店内座席ヒートマップを独立画面にする');

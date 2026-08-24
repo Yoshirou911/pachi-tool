@@ -11,7 +11,7 @@ const API = window.location.hostname === 'localhost' || window.location.hostname
 // サーバー側で PACHI_ACCESS_TOKEN を設定した場合のみ要求されるアクセスキー。
 // 未設定のサーバー（ローカル/デスクトップ版）に対しては何も送らず、従来どおり動く。
 const TOKEN_KEY = 'pachi_access_token';
-const TARGET_REGION_KEY = 'pachi-target-region';
+const TARGET_REGION_KEY = 'pachi-target-region-v2';
 function getStoredToken() {
   try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
 }
@@ -19,10 +19,10 @@ function setStoredToken(token) {
   try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
 }
 function getTargetRegion() {
-  try { return localStorage.getItem(TARGET_REGION_KEY) || 'matsumoto_shiojiri'; } catch { return 'matsumoto_shiojiri'; }
+  try { return localStorage.getItem(TARGET_REGION_KEY) || 'shijonawate'; } catch { return 'shijonawate'; }
 }
 function syncTargetRegion(region) {
-  const value = region || 'matsumoto_shiojiri';
+  const value = region || 'shijonawate';
   try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
   ['desktop-target-region', 'desktop-heat-region', 'desktop-juggler-region'].forEach(id => {
     const element = document.getElementById(id);
@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.8.0';
+    document.getElementById('desktop-version-label').textContent = 'v2.8.1';
   }
 }
 
@@ -432,7 +432,7 @@ function renderDesktopJugglerTargets(data) {
   }
   document.getElementById('desktop-juggler-target-results').innerHTML = coverageHtml + candidates.map(item => `
     <article class="desktop-juggler-target-card">
-      <div class="desktop-juggler-target-head"><div><span class="page-eyebrow">#${item.rank} ${esc(item.action)}</span><h3>${esc(item.hall_name)}・${esc(item.seat_number)}番台</h3></div><span>${item.score}点</span></div>
+      <div class="desktop-juggler-target-head"><div><span class="page-eyebrow">#${item.rank} ${esc(item.action)}</span><h3>${esc(item.hall_name)}・${item.seat_number == null ? '機種候補' : `${esc(item.seat_number)}番台`}</h3></div><span>${item.score}点</span></div>
       <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
       <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
     </article>`).join('');
@@ -4941,7 +4941,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.8.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.8.1');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

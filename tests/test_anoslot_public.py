@@ -35,12 +35,13 @@ def test_parse_public_daily_machine_rows():
     rows = anoslot_public.parse_store_page(
         _flight_html(payload), "テスト店", "https://anoslot.moe/stores/1"
     )
-    assert len(rows) == 1
+    assert len(rows) == 2
     assert rows[0]["machine_name"] == "Lスマスロ北斗の拳"
     assert rows[0]["unit_count"] == 8
     assert rows[0]["avg_diff_coins"] == 500
     assert rows[0]["avg_games"] == 6123
     assert rows[0]["win_rate_pct"] == 62.5
+    assert rows[1]["machine_name"] == "マイジャグラーV"
 
 
 def test_save_rows_only_fills_missing_analysis_value(tmp_path):

@@ -44,7 +44,7 @@ def get_juggler_targets(
     visit_date: str = Query(..., description="朝一候補を探す日 YYYY-MM-DD"),
     days: int = Query(180, ge=30, le=730),
     limit: int = Query(20, ge=1, le=100),
-    region: Literal["all", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
+    region: Literal["all", "shijonawate", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
 ) -> dict:
     try:
         target_date = date.fromisoformat(visit_date)
@@ -66,24 +66,38 @@ def get_juggler_targets(
 
     start_date = target_date - timedelta(days=days)
     try:
-        table_exists = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='hall_day_seat'"
-        ).fetchone()
-        if not table_exists:
-            return empty
-        columns = {row[1] for row in conn.execute("PRAGMA table_info(hall_day_seat)")}
-        bb_sql = "bb_prob" if "bb_prob" in columns else "NULL AS bb_prob"
-        rb_sql = "rb_prob" if "rb_prob" in columns else "NULL AS rb_prob"
-        rows = conn.execute(
-            f"""SELECT hall_name,report_date,machine_name,seat_number,diff_coins,games,
-                       {bb_sql},{rb_sql},source_url
-                  FROM hall_day_seat
-                 WHERE report_date >= ? AND report_date < ?
-                   AND machine_name LIKE '%ジャグラー%'
-                   AND seat_number > 0 AND games > 0
-                 ORDER BY report_date""",
-            (start_date.isoformat(), target_date.isoformat()),
-        ).fetchall()
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        rows = []
+        if "hall_day_seat" in tables:
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(hall_day_seat)")}
+            bb_sql = "bb_prob" if "bb_prob" in columns else "NULL AS bb_prob"
+            rb_sql = "rb_prob" if "rb_prob" in columns else "NULL AS rb_prob"
+            rows = conn.execute(
+                f"""SELECT hall_name,report_date,machine_name,seat_number,diff_coins,games,
+                           {bb_sql},{rb_sql},source_url
+                      FROM hall_day_seat
+                     WHERE report_date >= ? AND report_date < ?
+                       AND machine_name LIKE '%ジャグラー%'
+                       AND seat_number > 0 AND games > 0
+                     ORDER BY report_date""",
+                (start_date.isoformat(), target_date.isoformat()),
+            ).fetchall()
+
+        machine_rows = []
+        if "hall_day_machine" in tables:
+            machine_rows = conn.execute(
+                """SELECT hall_name,report_date,machine_name,unit_count,avg_diff_coins,
+                          avg_games,win_rate_pct,source_url
+                     FROM hall_day_machine
+                    WHERE report_date >= ? AND report_date < ?
+                      AND machine_name LIKE '%ジャグラー%'
+                      AND avg_games > 0
+                    ORDER BY report_date""",
+                (start_date.isoformat(), target_date.isoformat()),
+            ).fetchall()
 
         prefectures: dict[str, str | None] = {}
         try:
@@ -102,7 +116,11 @@ def get_juggler_targets(
         row for row in rows
         if region_matches(row["hall_name"], prefectures.get(row["hall_name"]), region)
     ]
-    if not rows:
+    machine_rows = [
+        row for row in machine_rows
+        if region_matches(row["hall_name"], prefectures.get(row["hall_name"]), region)
+    ]
+    if not rows and not machine_rows:
         return empty
 
     by_seat: dict[tuple[str, str, int], list] = {}
@@ -175,6 +193,7 @@ def get_juggler_targets(
             "hall_name": hall_name,
             "machine_name": machine_name,
             "seat_number": seat_number,
+            "scope": "seat",
             "profile_id": profile_id,
             "score": score,
             "action": action,
@@ -189,6 +208,72 @@ def get_juggler_targets(
             ),
         })
 
+    # 台番号データがない店舗でも、公開されている機種別日次集計から
+    # 店舗×機種の朝一候補を出す。台番号候補より根拠が粗いことを明示する。
+    seat_machine_keys = {(item["hall_name"], item["machine_name"]) for item in candidates}
+    by_machine: dict[tuple[str, str], list] = {}
+    for row in machine_rows:
+        by_machine.setdefault((row["hall_name"], row["machine_name"]), []).append(row)
+    for (hall_name, machine_name), history in by_machine.items():
+        if (hall_name, machine_name) in seat_machine_keys:
+            continue
+        weighted_hits = 0.0
+        weight_total = 0.0
+        weighted_diff = 0.0
+        usable_days = 0
+        source_urls = set()
+        for row in history:
+            games = int(row["avg_games"] or 0)
+            if games < 1500 or row["avg_diff_coins"] is None:
+                continue
+            report_day = date.fromisoformat(row["report_date"])
+            age = max(0, (target_date - report_day).days)
+            weight = math.exp(-age / 120) * 0.7
+            if report_day.weekday() == target_date.weekday():
+                weight *= 1.5
+            if report_day.day % 10 == target_date.day % 10:
+                weight *= 1.3
+            avg_diff = float(row["avg_diff_coins"])
+            win_rate = float(row["win_rate_pct"] or 0)
+            signal = avg_diff > 0 and win_rate >= 50
+            usable_days += 1
+            weight_total += weight
+            weighted_hits += weight if signal else 0
+            weighted_diff += avg_diff * weight
+            if row["source_url"]:
+                source_urls.add(row["source_url"])
+        if not weight_total:
+            continue
+        strong_rate = round(weighted_hits / weight_total * 100)
+        avg_diff = round(weighted_diff / weight_total)
+        latest_date = max(row["report_date"] for row in history)
+        stale_days = max(0, (target_date - date.fromisoformat(latest_date)).days)
+        if usable_days >= 20 and strong_rate >= 55 and avg_diff > 0 and stale_days <= 45:
+            action = "朝一候補"
+        elif usable_days >= 5 and stale_days <= 90:
+            action = "要確認"
+        else:
+            action = "データ不足"
+        score = max(0, min(100, round(
+            strong_rate * 0.5 + min(25, usable_days) + max(0, min(20, avg_diff / 25 + 10))
+        )))
+        candidates.append({
+            "hall_name": hall_name,
+            "machine_name": machine_name,
+            "seat_number": None,
+            "scope": "machine",
+            "profile_id": profile_for_machine(machine_name),
+            "score": score,
+            "action": action,
+            "strong_rate_pct": strong_rate,
+            "avg_diff": avg_diff,
+            "sample_days": usable_days,
+            "latest_date": latest_date,
+            "stale_days": stale_days,
+            "source_urls": sorted(source_urls)[:3],
+            "reason": f"機種別の過去{usable_days}日・プラス差枚かつ勝率50%以上が{strong_rate}%（台番号は未特定）",
+        })
+
     priority = {"朝一候補": 2, "要確認": 1, "データ不足": 0}
     candidates.sort(
         key=lambda item: (priority[item["action"]], item["score"], item["sample_days"]),
@@ -198,7 +283,8 @@ def get_juggler_targets(
     for rank, candidate in enumerate(candidates, 1):
         candidate["rank"] = rank
 
-    distinct_dates = {row["report_date"] for row in rows}
+    all_rows = list(rows) + list(machine_rows)
+    distinct_dates = {row["report_date"] for row in all_rows}
     return {
         "visit_date": visit_date,
         "region": region,
@@ -206,9 +292,9 @@ def get_juggler_targets(
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "candidates": candidates,
         "data_coverage": {
-            "rows": len(rows),
+            "rows": len(all_rows),
             "days": len(distinct_dates),
-            "halls": len({row["hall_name"] for row in rows}),
+            "halls": len({row["hall_name"] for row in all_rows}),
             "latest_date": max(distinct_dates) if distinct_dates else None,
         },
         "notice": (

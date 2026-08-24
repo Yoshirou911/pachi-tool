@@ -22,6 +22,7 @@ except ImportError:
 
 KNOWN_SEEDS = {
     "ニコニコ住道店": "https://min-repo.com/3147225/",
+    "キコーナ大東店": "https://min-repo.com/2543772/",
     "ベガスベガス大東店": "https://min-repo.com/3148366/",
     "スーパーコスモプレミアム大東店": "https://min-repo.com/3203873/",
     "マルハン松本店": "https://min-repo.com/3213382/",

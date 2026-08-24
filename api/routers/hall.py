@@ -541,7 +541,7 @@ def get_target_search(
     visit_date: str = Query(..., description="狙い台を探す日 YYYY-MM-DD"),
     days: int = Query(120, ge=14, le=365),
     limit: int = Query(8, ge=1, le=20),
-    region: Literal["all", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
+    region: Literal["all", "shijonawate", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
 ) -> dict:
     """蓄積済みデータから、指定日に狙う店舗と機種の候補を根拠付きで返す。"""
     try:

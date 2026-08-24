@@ -7,21 +7,21 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.8.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.8.0';
+} from './core.mjs?v=2.8.1';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.8.1';
 
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.8.1';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
-const TARGET_REGION_KEY = 'pachi-target-region';
+const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   ? 'https://pachi-tool.fly.dev'
   : '';
 const apiUrl = path => `${API_ORIGIN}${path}`;
 function storedTargetRegion() {
-  try { return localStorage.getItem(TARGET_REGION_KEY) || 'matsumoto_shiojiri'; } catch { return 'matsumoto_shiojiri'; }
+  try { return localStorage.getItem(TARGET_REGION_KEY) || 'shijonawate'; } catch { return 'shijonawate'; }
 }
 function setTargetRegion(region) {
-  const value = region || 'matsumoto_shiojiri';
+  const value = region || 'shijonawate';
   try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
   ['target-search-region', 'target-map-region', 'juggler-region'].forEach(id => {
     const element = document.getElementById(id);
@@ -1572,7 +1572,7 @@ function renderJugglerTargets(data) {
   }
   byId('juggler-target-results').innerHTML = coverageHtml + candidates.map(item => `
     <article class="juggler-target-card">
-      <div class="juggler-target-head"><div><span class="page-step">#${item.rank} ${esc(item.action)}</span><strong>${esc(item.hall_name)}・${esc(item.seat_number)}番台</strong></div><span>${item.score}点</span></div>
+      <div class="juggler-target-head"><div><span class="page-step">#${item.rank} ${esc(item.action)}</span><strong>${esc(item.hall_name)}・${item.seat_number == null ? '機種候補' : `${esc(item.seat_number)}番台`}</strong></div><span>${item.score}点</span></div>
       <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
       <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
     </article>`).join('');

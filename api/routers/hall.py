@@ -35,6 +35,11 @@ from hall.prior import (
 )
 from hall.machine_scope import is_smartslot_machine, machine_names_match
 from hall.regions import region_label, region_matches
+from hall.target_validation import (
+    date_weighted_estimate,
+    decide_action,
+    walk_forward_backtest,
+)
 from records.models import list_sessions, session_to_dict
 
 router = APIRouter()
@@ -660,57 +665,6 @@ def get_target_search(
         )
     )
 
-    def _date_weighted_estimate(source_rows: list) -> dict:
-        """全体傾向に、指定曜日・日付末尾・直近傾向を縮小推定で重ねる。"""
-        daily: dict[str, list[tuple[float, int]]] = {}
-        for source_row in source_rows:
-            unit_count = max(1, int(source_row["unit_count"] or 1))
-            daily.setdefault(source_row["report_date"], []).append(
-                (float(source_row["avg_diff_coins"]), unit_count)
-            )
-        points = [
-            (
-                date.fromisoformat(day),
-                sum(value * units for value, units in values) / sum(units for _, units in values),
-            )
-            for day, values in daily.items() if values
-        ]
-        points.sort(key=lambda item: item[0])
-        values = [value for _, value in points]
-        weekday_values = [value for day, value in points if day.weekday() == target_date.weekday()]
-        digit_values = [value for day, value in points if day.day % 10 == target_date.day % 10]
-        recent_values = [value for _, value in points[-min(7, len(points)):]]
-
-        base_avg = sum(values) / len(values) if values else 0.0
-        components = [(base_avg, 0.35)]
-        if recent_values:
-            components.append((sum(recent_values) / len(recent_values), 0.20))
-        if weekday_values:
-            components.append((sum(weekday_values) / len(weekday_values), min(0.30, 0.10 * len(weekday_values))))
-        if digit_values:
-            components.append((sum(digit_values) / len(digit_values), min(0.15, 0.075 * len(digit_values))))
-        weight_total = sum(weight for _, weight in components) or 1.0
-        projected = sum(value * weight for value, weight in components) / weight_total
-
-        base_positive = sum(value > 0 for value in values) / len(values) * 100 if values else 0.0
-        if weekday_values:
-            weekday_positive = sum(value > 0 for value in weekday_values) / len(weekday_values) * 100
-            positive_rate = base_positive * 0.6 + weekday_positive * 0.4
-        else:
-            positive_rate = base_positive
-        return {
-            "projected": round(projected),
-            "base_avg": round(base_avg),
-            "positive_rate": round(positive_rate),
-            "sample_days": len(points),
-            "weekday_days": len(weekday_values),
-            "digit_days": len(digit_values),
-            "recent_days": len(recent_values),
-            "weekday_avg": round(sum(weekday_values) / len(weekday_values)) if weekday_values else None,
-            "digit_avg": round(sum(digit_values) / len(digit_values)) if digit_values else None,
-            "latest_date": points[-1][0].isoformat() if points else "",
-        }
-
     for hall_name in all_hall_names:
         hall_rows = by_hall.get(hall_name, [])
         rows_with_games = [row for row in hall_rows if row["avg_games"] is not None and row["avg_games"] > 0]
@@ -728,7 +682,7 @@ def get_target_search(
                 ),
             })
             continue
-        estimate = _date_weighted_estimate(hall_rows)
+        estimate = date_weighted_estimate(hall_rows, target_date)
         if estimate["sample_days"] < 3:
             insufficient.append({
                 "hall_name": hall_name,
@@ -756,6 +710,10 @@ def get_target_search(
             "高" if estimate["sample_days"] >= 60 and estimate["weekday_days"] >= 8 and stale_days <= 14
             else "中" if estimate["sample_days"] >= 30 and estimate["weekday_days"] >= 4 and stale_days <= 30
             else "低"
+        )
+        validation = walk_forward_backtest(hall_rows)
+        action, action_reason = decide_action(
+            avg_diff, stale_days, validation, positive_rate
         )
 
         by_machine: dict[str, list] = {}
@@ -790,7 +748,7 @@ def get_target_search(
                 excluded_stale += 1
                 continue
             diffs = [float(row["avg_diff_coins"]) for row in machine_rows]
-            machine_estimate = _date_weighted_estimate(machine_rows)
+            machine_estimate = date_weighted_estimate(machine_rows, target_date)
             reliability = min(1.0, len(machine_dates) / 20)
             machine_avg = round(
                 machine_estimate["projected"] * reliability
@@ -805,6 +763,19 @@ def get_target_search(
                 + max(0, min(25, machine_positive * 0.25))
                 + min(20, len(machine_dates) / 20 * 20)
             )
+            machine_validation = walk_forward_backtest(machine_rows)
+            machine_action, machine_action_reason = decide_action(
+                machine_avg, machine_stale_days, machine_validation, machine_positive
+            )
+            if action == "見送り":
+                machine_action = "見送り"
+                machine_action_reason = f"店舗判定が見送り（{action_reason}）"
+            elif action == "要確認" and machine_action.startswith("狙う"):
+                machine_action = "要確認"
+                machine_action_reason = "店舗単位の過去検証が安全基準に未達"
+            elif not installation_is_fresh and machine_action.startswith("狙う"):
+                machine_action = "要確認"
+                machine_action_reason = "現在の設置確認が取れていない"
             machine_candidates.append({
                 "machine_name": machine_name,
                 "score": max(0, min(100, machine_score)),
@@ -822,9 +793,18 @@ def get_target_search(
                 ),
                 "weekday_days": machine_estimate["weekday_days"],
                 "digit_days": machine_estimate["digit_days"],
+                "action": machine_action,
+                "action_reason": machine_action_reason,
+                "validation": machine_validation,
             })
         machine_candidates.sort(
-            key=lambda item: (item["score"], item["sample_days"], item["avg_diff"]), reverse=True
+            key=lambda item: (
+                2 if item["action"].startswith("狙う") else 1 if item["action"] == "要確認" else 0,
+                item["score"],
+                item["sample_days"],
+                item["avg_diff"],
+            ),
+            reverse=True,
         )
 
         reasons = [
@@ -843,10 +823,22 @@ def get_target_search(
             )
         if stale_days > 30:
             reasons.append(f"最終データから{stale_days}日経過しているため信頼度を減点")
+        if validation["status"] == "validated":
+            reasons.append(
+                f"先読みなしで過去{validation['test_days']}日を検証："
+                f"狙い時成功率{validation['recommendation_success_pct']}%"
+            )
+        else:
+            reasons.append(
+                f"過去検証{validation['test_days']}日・推奨{validation['recommended_days']}回で材料不足"
+            )
         ranked_halls.append({
             "hall_name": hall_name,
             "score": score,
             "confidence": confidence,
+            "action": action,
+            "action_reason": action_reason,
+            "validation": validation,
             "basis": basis,
             "sample_days": estimate["sample_days"],
             "avg_diff": avg_diff,
@@ -871,7 +863,13 @@ def get_target_search(
         })
 
     ranked_halls.sort(
-        key=lambda item: (item["score"], item["confidence"] == "高", item["sample_days"]), reverse=True
+        key=lambda item: (
+            2 if item["action"].startswith("狙う") else 1 if item["action"] == "要確認" else 0,
+            item["score"],
+            item["confidence"] == "高",
+            item["sample_days"],
+        ),
+        reverse=True,
     )
     ranked_halls = ranked_halls[:limit]
     for index, hall in enumerate(ranked_halls, 1):
@@ -886,7 +884,8 @@ def get_target_search(
         "halls": ranked_halls,
         "insufficient_halls": insufficient,
         "notice": (
-            "候補は公開データによる統計順位です。勝利や高設定を保証しません。"
+            "候補は公開データを先読みなしで過去検証しています。"
+            "80%級・90%級は過去の狙い時成功率で、勝利や高設定を保証しません。"
             if ranked_halls else empty_result["notice"]
         ),
     }

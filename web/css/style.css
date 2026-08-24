@@ -265,6 +265,12 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
 .desktop-target-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; padding: 4px 2px 0; }
 .desktop-target-heading h2 { margin-top: 4px; font-size: 1.05rem; }
 .desktop-target-hall { padding: 17px; border-color: rgba(124,127,245,.21); }
+.desktop-target-action { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 10px; border: 1px solid; border-radius: 9px; }
+.desktop-target-action b { font-size: .7rem; }
+.desktop-target-action span { color: inherit; font-size: .61rem; opacity: .86; }
+.target-action-go { color: var(--success); background: rgba(34,197,94,.07); border-color: rgba(34,197,94,.25); }
+.target-action-check { color: var(--warning); background: rgba(245,158,11,.07); border-color: rgba(245,158,11,.25); }
+.target-action-stop { color: var(--danger); background: rgba(239,68,68,.07); border-color: rgba(239,68,68,.25); }
 .desktop-target-hall-head { display: grid; grid-template-columns: 42px minmax(0,1fr) auto; align-items: center; gap: 11px; }
 .desktop-target-rank { display: grid; place-items: center; width: 42px; height: 42px; color: #080e1d; background: linear-gradient(145deg,#c4b5fd,#7c7ff5); border-radius: 13px; font-size: 1rem; font-weight: 950; }
 .desktop-target-hall-head h3 { overflow: hidden; font-size: .98rem; text-overflow: ellipsis; white-space: nowrap; }
@@ -276,6 +282,8 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
 .desktop-target-metrics span { padding: 10px; background: rgba(255,255,255,.027); border: 1px solid rgba(255,255,255,.035); border-radius: 10px; }
 .desktop-target-metrics small { display: block; margin-bottom: 4px; color: var(--text3); font-size: .57rem; }
 .desktop-target-metrics b { font-size: .78rem; }
+.desktop-target-validation { display: flex; justify-content: space-between; gap: 12px; margin: -3px 0 11px; padding: 9px 10px; color: var(--text3); background: rgba(124,127,245,.055); border-radius: 9px; font-size: .61rem; }
+.desktop-target-validation b { color: var(--primary-h); }
 .target-confidence-high { color: var(--success); }
 .target-confidence-mid { color: var(--warning); }
 .target-confidence-low { color: var(--danger); }

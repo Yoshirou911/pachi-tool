@@ -7,10 +7,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.6.5';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.6.5';
+} from './core.mjs?v=2.7.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.7.0';
 
-const APP_VERSION = '2.6.5';
+const APP_VERSION = '2.7.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -665,18 +665,20 @@ function renderTargetSearch() {
   container.innerHTML = `
     <div class="target-result-heading"><div><span class="page-step">${esc(targetSearchData.region_label || '')}・${esc(targetSearchData.visit_date)} ${esc(targetSearchData.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="count-badge">${halls.length}店</span></div>
     ${halls.map((hall, hallIndex) => `<article class="target-hall-card">
+      <div class="target-action target-action-${hall.action?.startsWith('狙う') ? 'go' : hall.action === '見送り' ? 'stop' : 'check'}"><b>${esc(hall.action || '要確認')}</b><span>${esc(hall.action_reason || '')}</span></div>
       <div class="target-hall-head">
         <span class="target-rank">${hall.rank}</span>
         <div><strong>${esc(hall.hall_name)}</strong><small>${esc(hall.basis)}・最終 ${esc(hall.latest_date)}</small></div>
         <div class="target-score"><b>${hall.score}</b><small>点</small></div>
       </div>
-      <div class="target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${signedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>実績</small><b>${hall.sample_days}日</b></span><span><small>信頼度</small><b class="confidence-${hall.confidence === '高' ? 'high' : hall.confidence === '中' ? 'mid' : 'low'}">${esc(hall.confidence)}</b></span></div>
+      <div class="target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${signedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
+      <div class="target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}</b><span>方向的中 ${hall.validation?.direction_accuracy_pct ?? 0}% ／ 推奨 ${hall.validation?.recommended_days ?? 0}回 ／ 安全側下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}%</span></div>
       <div class="target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="target-machine-list">
         ${(hall.target_machines || []).slice(0, 3).map((machine, machineIndex) => `<div class="target-machine-row">
-          <div><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・最終${esc(machine.latest_date || '--')}・${esc(machine.installation_status || '設置未確認')}・補正平均${signedCoins(machine.avg_diff)}</small></div>
+          <div><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${machine.sample_days}日・${esc(machine.installation_status || '設置未確認')}・補正${signedCoins(machine.avg_diff)}</small></div>
           <span>${machine.score}点</span>
-          <button type="button" data-target-hall-index="${hallIndex}" data-target-machine-index="${machineIndex}">朝一候補に保存</button>
+          <button type="button" data-target-hall-index="${hallIndex}" data-target-machine-index="${machineIndex}" ${machine.action?.startsWith('狙う') ? '' : 'disabled'}>${machine.action?.startsWith('狙う') ? '朝一候補に保存' : '保存不可'}</button>
         </div>`).join('') || '<p class="fine-print">機種別候補はまだ材料不足です。</p>'}
       </div>
     </article>`).join('')}
@@ -708,6 +710,7 @@ function renderTargetMapDetail(hall) {
   }
   detail.innerHTML = `<article class="panel heat-detail-panel">
     <div class="heat-detail-head"><div><span class="page-step">${esc(targetMapData.visit_date)}の分析</span><h2>${esc(hall.hall_name)}</h2></div><div class="heat-score" style="--heat-color:${esc(hall.color)}"><b>${hall.score}</b><small>点</small><span>${esc(hall.heat_level)}</span></div></div>
+    <div class="target-action target-action-${hall.action?.startsWith('狙う') ? 'go' : hall.action === '見送り' ? 'stop' : 'check'}"><b>${esc(hall.action || '要確認')}</b><span>${esc(hall.action_reason || '')}</span></div>
     <div class="target-metrics"><span><small>指定日推定</small><b class="${hall.projected_diff >= 0 ? 'money-up' : 'money-down'}">${hall.projected_diff == null ? '--' : signedCoins(hall.projected_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate == null ? '--' : `${hall.positive_rate}%`}</b></span><span><small>信頼度</small><b>${esc(hall.confidence)}</b></span><span><small>長期実績</small><b>${hall.long_term?.sample_days || 0}日</b></span></div>
     <div class="target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
     <div class="long-trend-block"><h3>月ごとの長期推移</h3>${renderMiniTrend(hall.monthly_trend, 'month')}</div>
@@ -1834,6 +1837,10 @@ byId('target-search-results').addEventListener('click', async event => {
   const hall = targetSearchData.halls?.[Number(button.dataset.targetHallIndex)];
   const machine = hall?.target_machines?.[Number(button.dataset.targetMachineIndex)];
   if (!hall || !machine) return;
+  if (!machine.action?.startsWith('狙う')) {
+    showToast(`保存できません：${machine.action_reason || '検証基準に未達です'}`);
+    return;
+  }
   const duplicate = state.plans.some(plan => plan.visit_date === targetSearchData.visit_date && plan.store_name === hall.hall_name && plan.machine_name === machine.machine_name);
   if (duplicate) {
     showToast('同じ候補はすでに作戦に入っています');
@@ -1849,7 +1856,7 @@ byId('target-search-results').addEventListener('click', async event => {
     previous_games: null,
     strategy: 'setting',
     priority: hall.rank === 1 ? 1 : 2,
-    notes: `分析候補：店舗${hall.score}点（信頼度${hall.confidence}）／機種${machine.score}点／平均${signedCoins(machine.avg_diff)}／${machine.sample_days}日`,
+    notes: `検証済み候補：${machine.action}／店舗${hall.score}点／機種${machine.score}点／狙い時成功${machine.validation?.recommendation_success_pct ?? '--'}%／平均${signedCoins(machine.avg_diff)}／${machine.sample_days}日`,
     status: 'planned',
   });
   await writeLocalState();

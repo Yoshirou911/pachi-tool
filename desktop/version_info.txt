@@ -15,11 +15,11 @@ VSVersionInfo(
         u'041104B0',
         [StringStruct(u'CompanyName', u'PACHI TOOL'),
          StringStruct(u'FileDescription', u'PACHI TOOL スマスロ攻略ツール'),
-         StringStruct(u'FileVersion', u'2.6.5'),
+         StringStruct(u'FileVersion', u'2.7.0'),
          StringStruct(u'InternalName', u'PACHI TOOL'),
          StringStruct(u'OriginalFilename', u'PACHI TOOL.exe'),
          StringStruct(u'ProductName', u'PACHI TOOL'),
-         StringStruct(u'ProductVersion', u'2.6.5')])
+         StringStruct(u'ProductVersion', u'2.7.0')])
     ]),
     VarFileInfo([VarStruct(u'Translation', [1041, 1200])])
   ]

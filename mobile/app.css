@@ -512,6 +512,12 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .target-result-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 6px 2px 2px; }
 .target-result-heading h2 { margin: 4px 0 0; font-size: .95rem; }
 .target-hall-card { padding: 14px; border: 1px solid rgba(167, 139, 250, .2); border-radius: 18px; background: linear-gradient(150deg, rgba(24, 34, 57, .92), rgba(8, 18, 32, .96)); }
+.target-action { display: flex; align-items: center; gap: 8px; margin: -3px -3px 11px; padding: 8px 10px; border: 1px solid; border-radius: 11px; }
+.target-action b { flex: 0 0 auto; font-size: .68rem; }
+.target-action span { overflow: hidden; font-size: .54rem; text-overflow: ellipsis; white-space: nowrap; }
+.target-action-go { color: #54e7b1; background: rgba(48, 211, 152, .08); border-color: rgba(48, 211, 152, .28); }
+.target-action-check { color: #ffd76a; background: rgba(255, 199, 76, .08); border-color: rgba(255, 199, 76, .25); }
+.target-action-stop { color: #ff8da0; background: rgba(255, 89, 117, .08); border-color: rgba(255, 89, 117, .25); }
 .target-hall-head { display: grid; grid-template-columns: 35px 1fr auto; align-items: center; gap: 9px; }
 .target-rank { display: grid; place-items: center; width: 35px; height: 35px; color: #0b1422; background: linear-gradient(145deg, #d3c7ff, #89adff); border-radius: 11px; font-size: .9rem; font-weight: 950; }
 .target-hall-head > div:nth-child(2) { min-width: 0; }
@@ -524,6 +530,9 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .target-metrics span { min-width: 0; padding: 8px 5px; border-radius: 10px; background: rgba(255,255,255,.027); text-align: center; }
 .target-metrics small { display: block; margin-bottom: 3px; color: var(--muted-2); font-size: .49rem; }
 .target-metrics b { display: block; overflow: hidden; font-size: .64rem; text-overflow: ellipsis; white-space: nowrap; }
+.target-validation { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 9px; padding: 8px 9px; color: var(--muted); background: rgba(137, 173, 255, .055); border-radius: 10px; }
+.target-validation b { color: #c9bcff; font-size: .62rem; }
+.target-validation span { font-size: .5rem; text-align: right; }
 .confidence-high { color: var(--green); }
 .confidence-mid { color: var(--yellow); }
 .confidence-low { color: var(--red); }
@@ -536,6 +545,7 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .target-machine-row small { display: block; margin-top: 3px; color: var(--muted-2); font-size: .51rem; }
 .target-machine-row > span { color: #c9bcff; font-size: .61rem; font-weight: 900; }
 .target-machine-row button { min-height: 34px; padding: 0 9px; color: #0a1220; background: #c2b5ff; border: 0; border-radius: 9px; font-size: .56rem; font-weight: 900; }
+.target-machine-row button:disabled { color: var(--muted-2); background: rgba(255,255,255,.07); }
 .target-empty { display: flex; flex-direction: column; gap: 7px; padding: 22px 15px; color: var(--muted); border: 1px dashed rgba(167,139,250,.25); border-radius: 16px; text-align: center; }
 .target-empty strong { color: var(--text); font-size: .75rem; }
 .target-empty span { font-size: .61rem; line-height: 1.6; }

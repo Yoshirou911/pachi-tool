@@ -32,6 +32,7 @@ from api.routers import (
     estimate,
     events,
     hall,
+    juggler,
     layout,
     machines,
     map as map_router,
@@ -178,6 +179,7 @@ app.include_router(opportunity.router)
 app.include_router(estimate.router)
 app.include_router(sessions.router)
 app.include_router(hall.router)
+app.include_router(juggler.router)
 app.include_router(scrape.router)
 app.include_router(events.router)
 app.include_router(map_router.router)

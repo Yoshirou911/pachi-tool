@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#6366f1">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icons/icon-192.png">
-<title>PACHI TOOL — スマスロ設定推測 &amp; データ分析</title>
+<title>PACHI TOOL — スロット攻略 &amp; データ分析</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap">
@@ -30,7 +30,7 @@
           <button id="nav-back" class="history-btn" type="button" aria-label="一つ前の画面に戻る" title="戻る（Alt + ←）" disabled>←</button>
           <button id="nav-forward" class="history-btn" type="button" aria-label="一つ先の画面に進む" title="進む（Alt + →）" disabled>→</button>
         </div>
-        <span class="logo">PACHI TOOL <small>SMART SLOT</small></span>
+        <span class="logo">PACHI TOOL <small>SLOT FIELD TOOL</small></span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="header-date" style="font-size:.72rem;color:var(--text3)"></span>
@@ -49,6 +49,10 @@
     <button class="tab-btn active" data-tab="home">
       <span class="tab-icon">⌂</span>
       <span class="tab-copy"><span class="tab-label">ホーム</span><small>目的から機能を選ぶ</small></span>
+    </button>
+    <button class="tab-btn" data-module-nav="juggler" data-tab="juggler" hidden>
+      <span class="tab-icon">G</span>
+      <span class="tab-copy"><span class="tab-label">ジャグラー判定</span><small>BIG・REGと朝一候補</small></span>
     </button>
     <button class="tab-btn" data-module-nav="target" data-tab="target-search" hidden>
       <span class="tab-icon">◇</span>
@@ -124,12 +128,59 @@
             <span class="home-mode-points"><b>店舗比較</b><b>強い日</b><b>機種傾向</b></span>
             <span class="home-mode-action">狙い台を探す <b>→</b></span>
           </button>
+
+          <button class="home-mode-card home-mode-juggler" type="button" data-home-destination="juggler">
+            <span class="home-mode-icon">G</span>
+            <span class="home-mode-tag">ジャグラー設定狙い</span>
+            <strong>BIG・REGから判定する</strong>
+            <p>営業中の設定傾向と、店舗履歴から見つけた朝一候補を別々に確認します。</p>
+            <span class="home-mode-points"><b>営業中判定</b><b>朝一候補</b><b>信頼度表示</b></span>
+            <span class="home-mode-action">ジャグラーを開く <b>→</b></span>
+          </button>
         </div>
 
         <div class="home-mode-note">
-          <strong>2つは別の攻略モードです</strong>
-          <span>ハイエナ候補と狙い台分析を混ぜず、実戦後の収支だけをまとめて確認できます。</span>
+          <strong>3つは別の攻略モードです</strong>
+          <span>ハイエナ・スマスロ狙い台・ジャグラーを混ぜず、それぞれ専用の根拠で判断します。</span>
         </div>
+      </div>
+    </section>
+
+    <!-- ======================== ジャグラー設定狙い ======================== -->
+    <section id="page-juggler" class="page">
+      <div class="page-inner juggler-page">
+        <div class="page-heading">
+          <div><span class="page-eyebrow">JUGGLER MODE</span><h1>営業中判定と朝一候補</h1><p>北電子の公式確率と蓄積履歴を使い、サンプル不足なら無理に結論を出しません。</p></div>
+          <span class="page-number">G</span>
+        </div>
+        <div class="juggler-desktop-grid">
+          <div class="card desktop-juggler-panel">
+            <div class="desktop-juggler-heading"><span>G</span><div><h2>いまの台を判定</h2><p>データランプの総回転・BIG・REGを入力</p></div></div>
+            <form id="desktop-juggler-assess-form">
+              <label class="form-label" for="desktop-juggler-machine">機種</label>
+              <select id="desktop-juggler-machine" class="form-select" required><option value="">読み込み中...</option></select>
+              <div class="desktop-juggler-counts">
+                <label>総回転<input id="desktop-juggler-games" class="form-input" type="number" min="1" max="100000" placeholder="6000" required></label>
+                <label>BIG<input id="desktop-juggler-bb" class="form-input" type="number" min="0" max="1000" placeholder="24" required></label>
+                <label>REG<input id="desktop-juggler-rb" class="form-input" type="number" min="0" max="1000" placeholder="22" required></label>
+              </div>
+              <button id="desktop-juggler-assess-button" class="btn btn-primary btn-full" type="submit">設定傾向を判定</button>
+            </form>
+            <p class="target-search-disclaimer">2000G未満は必ず判定保留。BIG・REGだけで実設定を確定する機能ではありません。</p>
+          </div>
+          <div id="desktop-juggler-assess-result" class="desktop-juggler-result"><div class="juggler-desktop-empty">数値を入れると設定別の相対確率を表示します。</div></div>
+        </div>
+        <div class="card desktop-juggler-panel desktop-juggler-target-panel">
+          <div class="desktop-juggler-heading"><span>◎</span><div><h2>朝一候補を探す</h2><p>店舗・曜日・日付・台番号の履歴から抽出</p></div></div>
+          <form id="desktop-juggler-target-form" class="desktop-juggler-target-form">
+            <label>対象地域<select id="desktop-juggler-region" class="form-select"><option value="matsumoto_shiojiri" selected>松本・塩尻</option><option value="nagano">長野県全体</option><option value="osaka">大阪府</option><option value="all">全地域</option></select></label>
+            <label>行く日<input id="desktop-juggler-date" class="form-input" type="date" required></label>
+            <label>分析期間<select id="desktop-juggler-days" class="form-select"><option value="90">90日</option><option value="180" selected>180日</option><option value="365">1年</option></select></label>
+            <button id="desktop-juggler-target-button" class="btn btn-primary" type="submit">朝一候補を分析</button>
+          </form>
+          <p id="desktop-juggler-status" class="target-search-help">現在のジャグラー履歴量もここに表示します。</p>
+        </div>
+        <div id="desktop-juggler-target-results" class="desktop-juggler-target-results"></div>
       </div>
     </section>
 

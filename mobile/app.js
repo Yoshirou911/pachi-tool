@@ -7,10 +7,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.7.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.7.0';
+} from './core.mjs?v=2.8.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.8.0';
 
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.8.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -23,7 +23,7 @@ function storedTargetRegion() {
 function setTargetRegion(region) {
   const value = region || 'matsumoto_shiojiri';
   try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
-  ['target-search-region', 'target-map-region'].forEach(id => {
+  ['target-search-region', 'target-map-region', 'juggler-region'].forEach(id => {
     const element = document.getElementById(id);
     if (element) element.value = value;
   });
@@ -31,13 +31,13 @@ function setTargetRegion(region) {
 }
 let releaseInfo = {
   version: APP_VERSION,
-  released_on: '2026-08-14',
+  released_on: '2026-08-24',
   channel: '公開版',
   patch_notes: [{
     version: APP_VERSION,
-    released_on: '2026-08-15',
-    title: '別PCでの開発再開とデータ移行に対応',
-    items: ['別PC用の自動セットアップを追加', '店舗分析DBの検証付きバックアップ・復元に対応', '個人の収支・候補台DBはバックアップから除外'],
+    released_on: '2026-08-24',
+    title: 'ジャグラー設定狙いを独立モード化',
+    items: ['公式確率を使う営業中判定を追加', '朝一候補とデータ量を表示', '公開データ収集をジャグラーへ拡張'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -67,6 +67,8 @@ let lastAssessment = null;
 let dbPromise = null;
 let toastTimer = null;
 let targetSearchData = null;
+let jugglerCatalog = [];
+let jugglerTargetData = null;
 let activeModule = 'home';
 let targetMapData = null;
 let targetHeatMap = null;
@@ -1499,6 +1501,107 @@ function renderAll() {
   renderSettings();
 }
 
+async function loadJugglerCatalog() {
+  if (jugglerCatalog.length) return jugglerCatalog;
+  const response = await fetch(apiUrl('/api/juggler/catalog'));
+  if (!response.ok) throw new Error('ジャグラー機種一覧を読み込めません');
+  jugglerCatalog = await response.json();
+  byId('juggler-machine').innerHTML = jugglerCatalog
+    .map(profile => `<option value="${esc(profile.id)}">${esc(profile.name)}</option>`).join('');
+  return jugglerCatalog;
+}
+
+function probabilityLabel(value) {
+  return `${Number(value || 0).toFixed(1)}%`;
+}
+
+function renderJugglerAssessment(result) {
+  const tone = result.action === '続行候補' ? 'continue'
+    : result.action === '見送り候補' ? 'stop'
+      : result.action === '判定保留' ? 'hold' : 'watch';
+  const denominator = value => value ? `1/${Number(value).toLocaleString('ja-JP')}` : '当選なし';
+  const probabilities = Object.entries(result.setting_probabilities_pct || {}).map(([setting, value]) => `
+    <div class="juggler-probability"><span>設定${esc(setting)}</span><i style="--probability:${Math.min(100, Number(value || 0))}%"></i><b>${probabilityLabel(value)}</b></div>
+  `).join('');
+  byId('juggler-assess-result').innerHTML = `
+    <article class="juggler-result-card ${tone}">
+      <div class="juggler-result-head"><div><span class="page-step">LIVE ASSESSMENT</span><h2>${esc(result.machine_name)}</h2></div><span class="juggler-action">${esc(result.action)}</span></div>
+      <div class="juggler-metrics"><span>BIG<b>${denominator(result.bb_denominator)}</b></span><span>REG<b>${denominator(result.rb_denominator)}</b></span><span>合算<b>${denominator(result.combined_denominator)}</b></span></div>
+      <p class="juggler-high">設定4以上の相対確率 ${Number(result.high_setting_probability_pct || 0)}%・信頼度 ${esc(result.confidence)}</p>
+      <p class="juggler-result-reason">${esc(result.reason)}</p>
+      <div class="juggler-probabilities">${probabilities}</div>
+      <a class="juggler-source" href="${esc(result.source_url)}" target="_blank" rel="noopener">北電子の公式スペックを確認 ↗</a>
+      <p class="juggler-result-note">${esc(result.notice)}</p>
+    </article>`;
+}
+
+async function runJugglerAssessment() {
+  const button = byId('juggler-assess-button');
+  button.disabled = true;
+  button.textContent = '計算中…';
+  try {
+    await loadJugglerCatalog();
+    const response = await fetch(apiUrl('/api/juggler/assess'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profile_id: byId('juggler-machine').value,
+        games: Number(byId('juggler-games').value),
+        bb_count: Number(byId('juggler-bb').value),
+        rb_count: Number(byId('juggler-rb').value),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || '判定できません');
+    renderJugglerAssessment(data);
+  } catch (error) {
+    byId('juggler-assess-result').innerHTML = `<p class="juggler-empty">${esc(error.message)}</p>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = '設定傾向を判定';
+  }
+}
+
+function renderJugglerTargets(data) {
+  const coverage = data.data_coverage || {};
+  byId('juggler-target-status').textContent = `${data.region_label || ''}：${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日・${coverage.days || 0}日・${coverage.halls || 0}店舗`;
+  const candidates = data.candidates || [];
+  const coverageHtml = `<div class="juggler-coverage"><b>収集状況</b>　${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日 / ${coverage.days || 0}営業日 / ${coverage.halls || 0}店舗${coverage.latest_date ? `・最新 ${esc(coverage.latest_date)}` : ''}<br>${esc(data.notice || '')}</div>`;
+  if (!candidates.length) {
+    byId('juggler-target-results').innerHTML = `${coverageHtml}<div class="juggler-empty">まだ朝一候補を出せる量のジャグラー履歴がありません。取得機能は対応済みで、収集後に自動で候補が育ちます。</div>`;
+    return;
+  }
+  byId('juggler-target-results').innerHTML = coverageHtml + candidates.map(item => `
+    <article class="juggler-target-card">
+      <div class="juggler-target-head"><div><span class="page-step">#${item.rank} ${esc(item.action)}</span><strong>${esc(item.hall_name)}・${esc(item.seat_number)}番台</strong></div><span>${item.score}点</span></div>
+      <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
+      <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
+    </article>`).join('');
+}
+
+async function runJugglerTargets() {
+  const button = byId('juggler-target-button');
+  button.disabled = true;
+  button.textContent = '分析中…';
+  const params = new URLSearchParams({
+    visit_date: byId('juggler-visit-date').value,
+    days: byId('juggler-days').value,
+    region: byId('juggler-region').value,
+    limit: '20',
+  });
+  try {
+    const response = await fetch(apiUrl(`/api/juggler/targets?${params}`));
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || '朝一候補を分析できません');
+    jugglerTargetData = data;
+    renderJugglerTargets(data);
+  } catch (error) {
+    byId('juggler-target-results').innerHTML = `<p class="juggler-empty">${esc(error.message)}</p>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = '朝一候補を分析';
+  }
+}
+
 function setMobileMenu(open) {
   const overlay = byId('mobile-menu-overlay');
   const trigger = byId('mobile-menu-button');
@@ -1512,6 +1615,7 @@ function setMobileMenu(open) {
 function showScreen(name) {
   if (name === 'home') activeModule = 'home';
   else if (['check', 'scan', 'guide'].includes(name)) activeModule = 'hyena';
+  else if (name === 'juggler') activeModule = 'juggler';
   else if (['planner', 'trend', 'target-map', 'floor-map', 'strategy'].includes(name)) activeModule = 'target';
   const navName = name;
   document.querySelectorAll('.screen').forEach(screen => screen.classList.toggle('active', screen.id === `screen-${name}`));
@@ -1533,7 +1637,7 @@ function showScreen(name) {
     button.classList.toggle('active', button.dataset.screenTarget === name);
   });
   document.body.dataset.module = activeModule;
-  byId('brand-mode-label').textContent = activeModule === 'hyena' ? 'ハイエナ専用' : activeModule === 'target' ? '狙い台捜索専用' : 'スマスロ攻略ホーム';
+  byId('brand-mode-label').textContent = activeModule === 'hyena' ? 'ハイエナ専用' : activeModule === 'target' ? '狙い台捜索専用' : activeModule === 'juggler' ? 'ジャグラー専用' : 'スロット攻略ホーム';
   scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'scan' && !scanSnapshot) setTimeout(loadScanHall, 80);
   if (name === 'scan' && !occupancyPriorityData) setTimeout(loadOccupancyPriorityList, 80);
@@ -1541,6 +1645,10 @@ function showScreen(name) {
   if (name === 'target-map' && !targetMapData) setTimeout(loadTargetHeatMap, 80);
   if (name === 'trend' && !trendData) setTimeout(loadTrendProfile, 80);
   if (name === 'floor-map' && !floorData) setTimeout(loadFloorHeat, 80);
+  if (name === 'juggler') {
+    loadJugglerCatalog().catch(error => { byId('juggler-target-status').textContent = error.message; });
+    if (!jugglerTargetData) setTimeout(runJugglerTargets, 80);
+  }
   if (name === 'settings') {
     setTimeout(loadMobileArchiveCollector, 80);
     setTimeout(loadValueCrawlerStatus, 120);
@@ -1744,6 +1852,17 @@ byId('scan-machine-list').addEventListener('click', event => {
 byId('target-search-form').addEventListener('submit', async event => {
   event.preventDefault();
   await runTargetSearch();
+});
+
+byId('juggler-assess-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  await runJugglerAssessment();
+});
+
+byId('juggler-target-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  setTargetRegion(byId('juggler-region').value);
+  await runJugglerTargets();
 });
 
 byId('target-map-form').addEventListener('submit', async event => {
@@ -2246,6 +2365,8 @@ async function initialize() {
     state = normalizeState(state);
     byId('plan-date').value = tomorrowValue();
     byId('target-visit-date').value = tomorrowValue();
+    byId('juggler-visit-date').value = tomorrowValue();
+    byId('juggler-region').value = storedTargetRegion();
     byId('target-map-date').value = tomorrowValue();
     setTargetRegion(storedTargetRegion());
     byId('trend-date').value = tomorrowValue();

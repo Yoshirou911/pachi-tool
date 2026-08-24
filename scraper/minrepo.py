@@ -25,7 +25,7 @@ import urllib.parse
 import requests
 from bs4 import BeautifulSoup
 
-from hall.machine_scope import is_smartslot_machine
+from hall.machine_scope import is_supported_analysis_machine
 
 # ---------------------------------------------------------------------------
 BASE_URL = "https://min-repo.com"
@@ -360,8 +360,8 @@ def save_report_html(
         return {"valid": False, "machine_rows": 0, "seat_rows": 0}
 
     machine_rows, seat_rows = parse_report_page(html, url)
-    machine_rows = [row for row in machine_rows if is_smartslot_machine(row["machine_name"])]
-    seat_rows = [row for row in seat_rows if is_smartslot_machine(row["machine_name"])]
+    machine_rows = [row for row in machine_rows if is_supported_analysis_machine(row["machine_name"])]
+    seat_rows = [row for row in seat_rows if is_supported_analysis_machine(row["machine_name"])]
 
     if machine_rows and not _has_meaningful_performance(machine_rows):
         for row in machine_rows:

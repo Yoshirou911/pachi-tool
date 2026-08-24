@@ -24,7 +24,7 @@ function getTargetRegion() {
 function syncTargetRegion(region) {
   const value = region || 'matsumoto_shiojiri';
   try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
-  ['desktop-target-region', 'desktop-heat-region'].forEach(id => {
+  ['desktop-target-region', 'desktop-heat-region', 'desktop-juggler-region'].forEach(id => {
     const element = document.getElementById(id);
     if (element) element.value = value;
   });
@@ -87,6 +87,9 @@ const api = {
     return apiFetch(`/api/occupancy/hyena-stores?${params}`);
   },
   recordOccupancy: (body) => apiFetch('/api/occupancy', { method: 'POST', body: JSON.stringify(body) }),
+  getJugglerCatalog: () => apiFetch('/api/juggler/catalog'),
+  assessJuggler: (body) => apiFetch('/api/juggler/assess', { method: 'POST', body: JSON.stringify(body) }),
+  getJugglerTargets: (params) => apiFetch('/api/juggler/targets?' + new URLSearchParams(params)),
 };
 
 const VERSION_SEEN_KEY = 'pachi-version-seen';
@@ -115,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.7.0';
+    document.getElementById('desktop-version-label').textContent = 'v2.8.0';
   }
 }
 
@@ -184,12 +187,15 @@ let navigationEntries = ['home'];
 let navigationIndex = 0;
 let activeModule = 'home';
 let desktopTargetSearchData = null;
+let desktopJugglerCatalog = [];
+let desktopJugglerTargetData = null;
 let desktopTrendProfileData = null;
 let desktopFloorData = null;
 let desktopFloorEditorSeats = [];
 let desktopHallOptions = [];
 const TARGET_MODULE_TABS = new Set(['target-search', 'trend-profile', 'floor-map', 'estimate', 'hall', 'map', 'ai']);
 const HYENA_MODULE_TABS = new Set(['opportunity', 'machines', 'session']);
+const JUGGLER_MODULE_TABS = new Set(['juggler']);
 
 function updateModuleNavigation() {
   document.body.dataset.module = activeModule;
@@ -211,6 +217,10 @@ function updateModuleNavigation() {
     modeTitle.textContent = '狙い台捜索専用';
     modeSubtitle.textContent = 'TARGET MODE';
     help.textContent = '店舗・曜日・機種の分析機能だけを表示しています';
+  } else if (activeModule === 'juggler') {
+    modeTitle.textContent = 'ジャグラー専用';
+    modeSubtitle.textContent = 'JUGGLER MODE';
+    help.textContent = 'BIG・REG判定とジャグラー朝一候補だけを表示しています';
   } else {
     modeTitle.textContent = 'モード選択';
     modeSubtitle.textContent = 'CHOOSE A MODE';
@@ -278,6 +288,7 @@ function switchTab(tabId, options = {}) {
   if (tabId === 'home') activeModule = 'home';
   else if (TARGET_MODULE_TABS.has(tabId)) activeModule = 'target';
   else if (HYENA_MODULE_TABS.has(tabId)) activeModule = 'hyena';
+  else if (JUGGLER_MODULE_TABS.has(tabId)) activeModule = 'juggler';
   updateModuleNavigation();
   if (resetHistory) {
     navigationEntries = [tabId];
@@ -307,6 +318,10 @@ function switchTab(tabId, options = {}) {
   if (tabId === 'machines') loadMachinesPage();
   if (tabId === 'opportunity') loadOpportunityPage();
   if (tabId === 'target-search' && !desktopTargetSearchData) loadDesktopTargetSearch();
+  if (tabId === 'juggler') {
+    loadDesktopJugglerCatalog().catch(error => { document.getElementById('desktop-juggler-status').textContent = error.message; });
+    if (!desktopJugglerTargetData) loadDesktopJugglerTargets();
+  }
   updateNavigationButtons();
 }
 
@@ -357,6 +372,102 @@ function localDateValue(offsetDays = 0) {
   value.setDate(value.getDate() + offsetDays);
   return value.toLocaleDateString('sv');
 }
+
+async function loadDesktopJugglerCatalog() {
+  if (desktopJugglerCatalog.length) return desktopJugglerCatalog;
+  desktopJugglerCatalog = await api.getJugglerCatalog();
+  document.getElementById('desktop-juggler-machine').innerHTML = desktopJugglerCatalog
+    .map(profile => `<option value="${esc(profile.id)}">${esc(profile.name)}</option>`).join('');
+  return desktopJugglerCatalog;
+}
+
+function renderDesktopJugglerAssessment(result) {
+  const tone = result.action === '続行候補' ? 'continue'
+    : result.action === '見送り候補' ? 'stop'
+      : result.action === '判定保留' ? 'hold' : 'watch';
+  const denominator = value => value ? `1/${Number(value).toLocaleString('ja-JP')}` : '当選なし';
+  const bars = Object.entries(result.setting_probabilities_pct || {}).map(([setting, value]) => `
+    <div class="desktop-juggler-probability"><span>設定${esc(setting)}</span><i style="--probability:${Math.min(100, Number(value || 0))}%"></i><b>${Number(value || 0).toFixed(1)}%</b></div>`).join('');
+  document.getElementById('desktop-juggler-assess-result').innerHTML = `
+    <article class="desktop-juggler-result-card ${tone}">
+      <div class="desktop-juggler-result-head"><div><span class="page-eyebrow">LIVE ASSESSMENT</span><h2>${esc(result.machine_name)}</h2></div><span class="desktop-juggler-action">${esc(result.action)}</span></div>
+      <div class="desktop-juggler-metrics"><span>BIG<b>${denominator(result.bb_denominator)}</b></span><span>REG<b>${denominator(result.rb_denominator)}</b></span><span>合算<b>${denominator(result.combined_denominator)}</b></span></div>
+      <p class="desktop-juggler-high">設定4以上の相対確率 ${Number(result.high_setting_probability_pct || 0)}%・信頼度 ${esc(result.confidence)}</p>
+      <p class="desktop-juggler-reason">${esc(result.reason)}</p>
+      <div class="desktop-juggler-probabilities">${bars}</div>
+      <a class="desktop-juggler-source" href="${esc(result.source_url)}" target="_blank" rel="noopener">北電子の公式スペックを確認 ↗</a>
+      <p class="desktop-juggler-note">${esc(result.notice)}</p>
+    </article>`;
+}
+
+async function runDesktopJugglerAssessment() {
+  const button = document.getElementById('desktop-juggler-assess-button');
+  button.disabled = true;
+  button.textContent = '計算中…';
+  try {
+    await loadDesktopJugglerCatalog();
+    const result = await api.assessJuggler({
+      profile_id: document.getElementById('desktop-juggler-machine').value,
+      games: Number(document.getElementById('desktop-juggler-games').value),
+      bb_count: Number(document.getElementById('desktop-juggler-bb').value),
+      rb_count: Number(document.getElementById('desktop-juggler-rb').value),
+    });
+    renderDesktopJugglerAssessment(result);
+  } catch (error) {
+    document.getElementById('desktop-juggler-assess-result').innerHTML = `<div class="juggler-desktop-empty">${esc(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = '設定傾向を判定';
+  }
+}
+
+function renderDesktopJugglerTargets(data) {
+  const coverage = data.data_coverage || {};
+  document.getElementById('desktop-juggler-status').textContent = `${data.region_label || ''}：${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日・${coverage.days || 0}日・${coverage.halls || 0}店舗`;
+  const coverageHtml = `<div class="desktop-juggler-coverage"><b>収集状況</b>　${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日 / ${coverage.days || 0}営業日 / ${coverage.halls || 0}店舗${coverage.latest_date ? `・最新 ${esc(coverage.latest_date)}` : ''}<br>${esc(data.notice || '')}</div>`;
+  const candidates = data.candidates || [];
+  if (!candidates.length) {
+    document.getElementById('desktop-juggler-target-results').innerHTML = `${coverageHtml}<div class="juggler-desktop-empty">まだ朝一候補を出せる量の履歴がありません。取得機能は対応済みで、収集後に自動で候補が育ちます。</div>`;
+    return;
+  }
+  document.getElementById('desktop-juggler-target-results').innerHTML = coverageHtml + candidates.map(item => `
+    <article class="desktop-juggler-target-card">
+      <div class="desktop-juggler-target-head"><div><span class="page-eyebrow">#${item.rank} ${esc(item.action)}</span><h3>${esc(item.hall_name)}・${esc(item.seat_number)}番台</h3></div><span>${item.score}点</span></div>
+      <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
+      <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
+    </article>`).join('');
+}
+
+async function loadDesktopJugglerTargets() {
+  const button = document.getElementById('desktop-juggler-target-button');
+  button.disabled = true;
+  button.textContent = '分析中…';
+  try {
+    const data = await api.getJugglerTargets({
+      visit_date: document.getElementById('desktop-juggler-date').value,
+      days: document.getElementById('desktop-juggler-days').value,
+      region: document.getElementById('desktop-juggler-region').value,
+      limit: '20',
+    });
+    desktopJugglerTargetData = data;
+    renderDesktopJugglerTargets(data);
+  } catch (error) {
+    document.getElementById('desktop-juggler-target-results').innerHTML = `<div class="juggler-desktop-empty">${esc(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = '朝一候補を分析';
+  }
+}
+
+document.getElementById('desktop-juggler-assess-form').addEventListener('submit', event => {
+  event.preventDefault();
+  runDesktopJugglerAssessment();
+});
+document.getElementById('desktop-juggler-target-form').addEventListener('submit', event => {
+  event.preventDefault();
+  syncTargetRegion(document.getElementById('desktop-juggler-region').value);
+  loadDesktopJugglerTargets();
+});
 
 function desktopSignedCoins(value) {
   const number = Number(value || 0);
@@ -4830,7 +4941,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.7.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.8.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);
@@ -5116,6 +5227,8 @@ document.addEventListener('keydown', (e) => {
 // ---------------------------------------------------------------------------
 async function init() {
   await Promise.all([checkConnection(), loadDesktopVersion()]);
+  document.getElementById('desktop-juggler-date').value = localDateValue(1);
+  document.getElementById('desktop-juggler-region').value = getTargetRegion();
   await loadMachineSelect();
   await populateSessionFilters();
   _renderRecentHallsBar();

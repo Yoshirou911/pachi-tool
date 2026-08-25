@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.0.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.0.0';
+} from './core.mjs?v=3.1.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.1.0';
 
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.1.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -37,8 +37,8 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-25',
-    title: '四條畷の自動収集・検証・個人補正を統合',
-    items: ['四條畷店の設置台数とフロアマップを日次収集', '取得失敗を設定画面で見える化', 'ジャグラー過去検証と期待値の個人補正を追加'],
+    title: '四條畷周辺ジャグラーの実BB・RB自動収集を開始',
+    items: ['周辺3店舗の台別G数・BIG・REG・差枚を毎日更新', '直近30営業日を初回取り込み', '公式確率3機種を追加'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';

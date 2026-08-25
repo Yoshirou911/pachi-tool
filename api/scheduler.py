@@ -99,6 +99,7 @@ def _run_nightly_scrape() -> None:
         from api.routers.hall import _run_minrepo_nightly
         run_logged("minrepo_daily", lambda: _run_minrepo_nightly(halls, days=3))
         _run_public_machine_scrape()
+        _run_pekasen_juggler_scrape()
         # ③ P-WORLD（現在の設置スマスロ）。差枚データがない店舗も対象機種を蓄積する。
         _run_snapshot_scrape()
         _run_dmm_snapshot_scrape()
@@ -132,6 +133,20 @@ def _run_public_machine_scrape() -> None:
         logger.warning(f"[公開機種データ] 更新エラー: {e}")
 
 
+def _run_pekasen_juggler_scrape() -> None:
+    """公開BB/RB実績を18時間に1回までの低頻度で補完する。"""
+    try:
+        from scraper.pekasen import is_refresh_due, scrape_all
+        if not is_refresh_due(max_age_hours=18):
+            logger.info("[ジャグラーBB/RB] 18時間以内に更新済みのためスキップ")
+            return
+        results = run_logged("pekasen_juggler_daily", scrape_all)
+        saved = sum(int(item.get("rows", 0)) for item in results if item.get("status") == "ok")
+        logger.info(f"[ジャグラーBB/RB] 更新完了: {saved}台日")
+    except Exception as e:
+        logger.warning(f"[ジャグラーBB/RB] 更新エラー: {e}")
+
+
 def _run_dmm_snapshot_scrape() -> None:
     """四條畷の公開店舗ページから設置台数とフロアマップを保存する。"""
     try:
@@ -162,6 +177,7 @@ def _run_startup_refresh() -> None:
         from api.routers.hall import _run_minrepo_nightly
         run_logged("minrepo_startup", lambda: _run_minrepo_nightly(halls, days=3))
         _run_public_machine_scrape()
+        _run_pekasen_juggler_scrape()
         _run_snapshot_scrape()
         _run_dmm_snapshot_scrape()
     except Exception as e:

@@ -15,7 +15,10 @@ def _connect(path):
 
 def test_catalog_uses_official_profiles():
     profiles = catalog()
-    assert {item["id"] for item in profiles} >= {"my5", "neo_im", "funky2", "gogo3", "mister"}
+    assert {item["id"] for item in profiles} >= {
+        "my5", "neo_im", "funky2", "gogo3", "mister",
+        "happy3", "girls_ss", "ultra_miracle",
+    }
     assert all(item["source_url"].startswith("https://www.kitadenshi.co.jp/") for item in profiles)
 
 
@@ -97,6 +100,7 @@ def test_morning_targets_rank_only_juggler_history(tmp_path, monkeypatch):
     assert len(result["candidates"]) == 1
     assert result["candidates"][0]["machine_name"] == "マイジャグラーV"
     assert result["candidates"][0]["action"] == "要確認"
+    assert result["candidates"][0]["evidence_level"] == "bonus_counts_growing"
     assert result["candidates"][0]["validation"]["status"] == "insufficient"
 
 

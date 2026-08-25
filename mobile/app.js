@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.9.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.9.0';
+} from './core.mjs?v=3.0.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.0.0';
 
-const APP_VERSION = '2.9.0';
+const APP_VERSION = '3.0.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -571,6 +571,9 @@ function renderQuickResult(result, profile, currentValue) {
   if (result.replay_adjustment?.active) {
     adjustmentRows.push(`<div><span>再プレイ・現金ギャップ</span><strong>-${money(result.cash_gap_yen)}</strong><small>再プレイ残り${Number(result.replay_adjustment.remaining_replay_medals || 0).toLocaleString('ja-JP')}枚／補正後期待値${money(result.expected_value_yen, true)}</small></div>`);
   }
+  if (result.personal_calibration?.calibration_active) {
+    adjustmentRows.push(`<div><span>自分の実戦データ補正</span><strong>${result.personal_calibration.calibration_pct}%</strong><small>${result.personal_calibration.count}件を使用／補正前 ${money(result.expected_value_before_personal_calibration_yen, true)} → 安全側 ${money(result.expected_value_yen, true)}</small></div>`);
+  }
   byId('quick-result').innerHTML = `
     <div class="decision-card ${esc(result.judgment)}">
       <div class="decision-head"><div><span class="page-step">判定結果</span><h2>${esc(label)}</h2></div><span class="signal signal-${esc(result.judgment)}">${result.actionable ? '打てる' : '停止'}</span></div>
@@ -665,9 +668,6 @@ function renderTargetSearch() {
       ${insufficient.length ? `<details class="insufficient-halls" open><summary>除外・データ不足 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}`;
     return;
   }
-  if (result.personal_calibration?.calibration_active) {
-    adjustmentRows.push(`<div><span>自分の実戦データ補正</span><strong>${result.personal_calibration.calibration_pct}%</strong><small>${result.personal_calibration.count}件を使用／補正前 ${money(result.expected_value_before_personal_calibration_yen, true)} → 安全側 ${money(result.expected_value_yen, true)}</small></div>`);
-  }
   container.innerHTML = `
     <div class="target-result-heading"><div><span class="page-step">${esc(targetSearchData.region_label || '')}・${esc(targetSearchData.visit_date)} ${esc(targetSearchData.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="count-badge">${halls.length}店</span></div>
     ${halls.map((hall, hallIndex) => `<article class="target-hall-card">
@@ -678,7 +678,7 @@ function renderTargetSearch() {
         <div class="target-score"><b>${hall.score}</b><small>点</small></div>
       </div>
       <div class="target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${signedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
-      <div class="target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}</b><span>方向的中 ${hall.validation?.direction_accuracy_pct ?? 0}% ／ 推奨 ${hall.validation?.recommended_days ?? 0}回 ／ 安全側下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}%</span></div>
+      <div class="target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}・品質${hall.validation?.quality_score ?? 0}点</b><span>方向的中 ${hall.validation?.direction_accuracy_pct ?? 0}% ／ 推奨 ${hall.validation?.recommended_days ?? 0}回 ／ 95%下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}% ／ 直近 ${hall.validation?.recent_recommendation_success_pct ?? '--'}% ／ 根拠一致 ${hall.prediction_diagnostics?.signal_agreement_pct ?? '--'}% ／ ブレ幅 ${Number(hall.prediction_diagnostics?.volatility_coins || 0).toLocaleString('ja-JP')}枚</span></div>
       <div class="target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="target-machine-list">
         ${(hall.target_machines || []).slice(0, 3).map((machine, machineIndex) => `<div class="target-machine-row">
@@ -1521,8 +1521,8 @@ function probabilityLabel(value) {
 }
 
 function renderJugglerAssessment(result) {
-  const tone = result.action === '続行候補' ? 'continue'
-    : result.action === '見送り候補' ? 'stop'
+  const tone = result.action?.startsWith('続行候補') ? 'continue'
+    : result.action?.startsWith('見送り候補') ? 'stop'
       : result.action === '判定保留' ? 'hold' : 'watch';
   const denominator = value => value ? `1/${Number(value).toLocaleString('ja-JP')}` : '当選なし';
   const probabilities = Object.entries(result.setting_probabilities_pct || {}).map(([setting, value]) => `
@@ -1532,7 +1532,7 @@ function renderJugglerAssessment(result) {
     <article class="juggler-result-card ${tone}">
       <div class="juggler-result-head"><div><span class="page-step">LIVE ASSESSMENT</span><h2>${esc(result.machine_name)}</h2></div><span class="juggler-action">${esc(result.action)}</span></div>
       <div class="juggler-metrics"><span>BIG<b>${denominator(result.bb_denominator)}</b></span><span>REG<b>${denominator(result.rb_denominator)}</b></span><span>合算<b>${denominator(result.combined_denominator)}</b></span></div>
-      <p class="juggler-high">設定4以上の相対確率 ${Number(result.high_setting_probability_pct || 0)}%・信頼度 ${esc(result.confidence)}</p>
+      <p class="juggler-high">設定4以上の相対確率 ${Number(result.high_setting_probability_pct || 0)}%・信頼度 ${esc(result.confidence)}・${esc(result.prediction_grade || '参考判定')}・尤度比 ${result.high_low_likelihood_ratio ?? '--'}倍<br><small>${esc(result.grade_scope || '')}</small></p>
       <p class="juggler-result-reason">${esc(result.reason)}</p>
       <div class="juggler-probabilities">${probabilities}</div>
       <a class="juggler-source" href="${esc(result.source_url)}" target="_blank" rel="noopener">北電子の公式スペックを確認 ↗</a>
@@ -1570,7 +1570,7 @@ function renderJugglerTargets(data) {
   const coverage = data.data_coverage || {};
   byId('juggler-target-status').textContent = `${data.region_label || ''}：${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日・${coverage.days || 0}日・${coverage.halls || 0}店舗`;
   const candidates = data.candidates || [];
-  const coverageHtml = `<div class="juggler-coverage"><b>収集状況</b>　${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日 / ${coverage.days || 0}営業日 / ${coverage.halls || 0}店舗${coverage.latest_date ? `・最新 ${esc(coverage.latest_date)}` : ''}<br>${esc(data.notice || '')}</div>`;
+  const coverageHtml = `<div class="juggler-coverage"><b>収集状況</b>　${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日 / ${coverage.days || 0}営業日 / ${coverage.halls || 0}店舗${coverage.latest_date ? `・最新 ${esc(coverage.latest_date)}` : ''}<br>${esc(data.notice || '')}<br>90%級＝先読みなし推奨40回以上・成功90%以上・95%下限80%以上・直近85%以上</div>`;
   if (!candidates.length) {
     byId('juggler-target-results').innerHTML = `${coverageHtml}<div class="juggler-empty">まだ朝一候補を出せる量のジャグラー履歴がありません。取得機能は対応済みで、収集後に自動で候補が育ちます。</div>`;
     return;
@@ -1580,7 +1580,7 @@ function renderJugglerTargets(data) {
       <div class="juggler-target-head"><div><span class="page-step">#${item.rank} ${esc(item.action)}</span><strong>${esc(item.hall_name)}・${item.seat_number == null ? '機種候補' : `${esc(item.seat_number)}番台`}</strong></div><span>${item.score}点</span></div>
       <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
       <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
-      <p class="juggler-validation">過去検証：狙い時 ${item.validation?.recommendation_success_pct ?? '--'}%／${item.validation?.test_days ?? 0}日・${esc(item.validation?.trust_level || 'データ不足')}</p>
+      <p class="juggler-validation">根拠：${esc(item.evidence_label || '未確認')}<br>過去検証：狙い時 ${item.validation?.recommendation_success_pct ?? '--'}%／95%下限 ${item.validation?.recommendation_lower_bound_pct ?? '--'}%／直近 ${item.validation?.recent_recommendation_success_pct ?? '--'}%／品質${item.validation?.quality_score ?? 0}点・${esc(item.validation?.trust_level || 'データ不足')}</p>
     </article>`).join('');
 }
 

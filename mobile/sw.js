@@ -1,12 +1,12 @@
-const VERSION = 'pachi-tool-mobile-v2.9.0';
+const VERSION = 'pachi-tool-mobile-v3.0.0';
 const CORE_ASSETS = [
   './',
   './index.html',
-  './app.css?v=2.9.0',
-  './app.js?v=2.9.0',
-  './core.mjs?v=2.9.0',
-  './ocr.mjs?v=2.9.0',
-  './catalog.json?v=2.9.0',
+  './app.css?v=3.0.0',
+  './app.js?v=3.0.0',
+  './core.mjs?v=3.0.0',
+  './ocr.mjs?v=3.0.0',
+  './catalog.json?v=3.0.0',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',

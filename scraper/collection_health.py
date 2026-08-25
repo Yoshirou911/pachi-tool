@@ -42,6 +42,9 @@ def _count_records(result) -> int:
     if isinstance(result, int):
         return max(0, result)
     if isinstance(result, dict):
+        # P-WORLD収集器のような {店舗名: 件数} 形式。
+        if result and all(isinstance(value, (int, float)) for value in result.values()):
+            return sum(max(0, int(value)) for value in result.values())
         total = 0
         for key, value in result.items():
             if key in {"rows", "records", "machines", "floor_maps", "saved"} and isinstance(value, (int, float)):
@@ -63,7 +66,7 @@ def _status_counts(result) -> tuple[int, int]:
             normalized = raw_status.strip().lower()
             if normalized in {"ok", "success", "done"}:
                 good += 1
-            elif normalized in {"failed", "failure", "error"} or normalized.startswith("error"):
+            elif normalized in {"failed", "failure", "error", "no_public_data"} or normalized.startswith("error"):
                 bad += 1
         for value in result.values():
             child_good, child_bad = _status_counts(value)

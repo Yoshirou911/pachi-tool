@@ -64,6 +64,9 @@ def test_estimate():
     assert data["ev_pct"] > 0
     assert "confidence" in data
     assert "confidence_label" in data
+    assert data["confidence_scope"].endswith("的中率ではありません）")
+    assert data["prediction_grade"] in {"統計モデル90%級", "統計モデル80%級", "判定材料不足"}
+    assert 0 <= data["sample_adequacy_pct"] <= 100
 
 
 def test_estimate_with_hall():

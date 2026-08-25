@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.9.0';
+    document.getElementById('desktop-version-label').textContent = 'v3.0.0';
   }
 }
 
@@ -382,8 +382,8 @@ async function loadDesktopJugglerCatalog() {
 }
 
 function renderDesktopJugglerAssessment(result) {
-  const tone = result.action === '続行候補' ? 'continue'
-    : result.action === '見送り候補' ? 'stop'
+  const tone = result.action?.startsWith('続行候補') ? 'continue'
+    : result.action?.startsWith('見送り候補') ? 'stop'
       : result.action === '判定保留' ? 'hold' : 'watch';
   const denominator = value => value ? `1/${Number(value).toLocaleString('ja-JP')}` : '当選なし';
   const bars = Object.entries(result.setting_probabilities_pct || {}).map(([setting, value]) => `
@@ -392,7 +392,7 @@ function renderDesktopJugglerAssessment(result) {
     <article class="desktop-juggler-result-card ${tone}">
       <div class="desktop-juggler-result-head"><div><span class="page-eyebrow">LIVE ASSESSMENT</span><h2>${esc(result.machine_name)}</h2></div><span class="desktop-juggler-action">${esc(result.action)}</span></div>
       <div class="desktop-juggler-metrics"><span>BIG<b>${denominator(result.bb_denominator)}</b></span><span>REG<b>${denominator(result.rb_denominator)}</b></span><span>合算<b>${denominator(result.combined_denominator)}</b></span></div>
-      <p class="desktop-juggler-high">設定4以上の相対確率 ${Number(result.high_setting_probability_pct || 0)}%・信頼度 ${esc(result.confidence)}</p>
+      <p class="desktop-juggler-high">設定4以上の相対確率 ${Number(result.high_setting_probability_pct || 0)}%・信頼度 ${esc(result.confidence)}・${esc(result.prediction_grade || '参考判定')}・尤度比 ${result.high_low_likelihood_ratio ?? '--'}倍<br><small>${esc(result.grade_scope || '')}</small></p>
       <p class="desktop-juggler-reason">${esc(result.reason)}</p>
       <div class="desktop-juggler-probabilities">${bars}</div>
       <a class="desktop-juggler-source" href="${esc(result.source_url)}" target="_blank" rel="noopener">北電子の公式スペックを確認 ↗</a>
@@ -424,7 +424,7 @@ async function runDesktopJugglerAssessment() {
 function renderDesktopJugglerTargets(data) {
   const coverage = data.data_coverage || {};
   document.getElementById('desktop-juggler-status').textContent = `${data.region_label || ''}：${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日・${coverage.days || 0}日・${coverage.halls || 0}店舗`;
-  const coverageHtml = `<div class="desktop-juggler-coverage"><b>収集状況</b>　${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日 / ${coverage.days || 0}営業日 / ${coverage.halls || 0}店舗${coverage.latest_date ? `・最新 ${esc(coverage.latest_date)}` : ''}<br>${esc(data.notice || '')}</div>`;
+  const coverageHtml = `<div class="desktop-juggler-coverage"><b>収集状況</b>　${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日 / ${coverage.days || 0}営業日 / ${coverage.halls || 0}店舗${coverage.latest_date ? `・最新 ${esc(coverage.latest_date)}` : ''}<br>${esc(data.notice || '')}<br>90%級＝先読みなし推奨40回以上・成功90%以上・95%下限80%以上・直近85%以上</div>`;
   const candidates = data.candidates || [];
   if (!candidates.length) {
     document.getElementById('desktop-juggler-target-results').innerHTML = `${coverageHtml}<div class="juggler-desktop-empty">まだ朝一候補を出せる量の履歴がありません。取得機能は対応済みで、収集後に自動で候補が育ちます。</div>`;
@@ -435,7 +435,7 @@ function renderDesktopJugglerTargets(data) {
       <div class="desktop-juggler-target-head"><div><span class="page-eyebrow">#${item.rank} ${esc(item.action)}</span><h3>${esc(item.hall_name)}・${item.seat_number == null ? '機種候補' : `${esc(item.seat_number)}番台`}</h3></div><span>${item.score}点</span></div>
       <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
       <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
-      <p class="juggler-validation">過去検証：狙い時 ${item.validation?.recommendation_success_pct ?? '--'}%／${item.validation?.test_days ?? 0}日・${esc(item.validation?.trust_level || 'データ不足')}</p>
+      <p class="juggler-validation">根拠：${esc(item.evidence_label || '未確認')}<br>過去検証：狙い時 ${item.validation?.recommendation_success_pct ?? '--'}%／95%下限 ${item.validation?.recommendation_lower_bound_pct ?? '--'}%／直近 ${item.validation?.recent_recommendation_success_pct ?? '--'}%／品質${item.validation?.quality_score ?? 0}点・${esc(item.validation?.trust_level || 'データ不足')}</p>
     </article>`).join('');
 }
 
@@ -490,7 +490,7 @@ function renderDesktopTargetSearch(data) {
       <div class="desktop-target-action target-action-${hall.action?.startsWith('狙う') ? 'go' : hall.action === '見送り' ? 'stop' : 'check'}"><b>${esc(hall.action || '要確認')}</b><span>${esc(hall.action_reason || '')}</span></div>
       <div class="desktop-target-hall-head"><span class="desktop-target-rank">${hall.rank}</span><div><h3>${esc(hall.hall_name)}</h3><p>${esc(hall.basis)}・最終データ ${esc(hall.latest_date)}</p></div><div class="desktop-target-score"><b>${hall.score}</b><small>点</small></div></div>
       <div class="desktop-target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
-      <div class="desktop-target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}</b><span>方向的中 ${hall.validation?.direction_accuracy_pct ?? 0}% ／ 推奨 ${hall.validation?.recommended_days ?? 0}回 ／ 安全側下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}%</span></div>
+      <div class="desktop-target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}・品質${hall.validation?.quality_score ?? 0}点</b><span>方向的中 ${hall.validation?.direction_accuracy_pct ?? 0}% ／ 推奨 ${hall.validation?.recommended_days ?? 0}回 ／ 95%下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}% ／ 直近 ${hall.validation?.recent_recommendation_success_pct ?? '--'}% ／ 根拠一致 ${hall.prediction_diagnostics?.signal_agreement_pct ?? '--'}% ／ ブレ幅 ${Number(hall.prediction_diagnostics?.volatility_coins || 0).toLocaleString('ja-JP')}枚</span></div>
       <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="desktop-target-machines">
         ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${esc(machine.installation_status || '設置未確認')}</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
@@ -1529,7 +1529,7 @@ function renderEstimateResult(r) {
                       r.confidence >= 0.25 ? '#f97316' : 'var(--danger)';
     confBar.style.width = pct + '%';
     confBar.style.background = confColor;
-    confLabel.textContent = `${r.confidence_label}（${pct}%）`;
+    confLabel.textContent = `判定の偏り ${r.confidence_label}（${pct}%）・${r.prediction_grade || '判定材料不足'}・サンプル充足${r.sample_adequacy_pct ?? 0}% ※的中率ではありません`;
     confLabel.style.color = confColor;
   }
 
@@ -4945,7 +4945,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.9.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.0.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

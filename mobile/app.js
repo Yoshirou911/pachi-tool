@@ -1,5 +1,6 @@
 import {
   JUDGMENT_LABELS,
+  applyPersonalCalibration,
   assessQuick,
   buildGuideRows,
   buildPerformanceSeries,
@@ -7,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=2.8.1';
-import { recognizeNumberFromFile } from './ocr.mjs?v=2.8.1';
+} from './core.mjs?v=2.9.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=2.9.0';
 
-const APP_VERSION = '2.8.1';
+const APP_VERSION = '2.9.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -31,13 +32,13 @@ function setTargetRegion(region) {
 }
 let releaseInfo = {
   version: APP_VERSION,
-  released_on: '2026-08-24',
+  released_on: '2026-08-25',
   channel: '公開版',
   patch_notes: [{
     version: APP_VERSION,
-    released_on: '2026-08-24',
-    title: 'ジャグラー設定狙いを独立モード化',
-    items: ['公式確率を使う営業中判定を追加', '朝一候補とデータ量を表示', '公開データ収集をジャグラーへ拡張'],
+    released_on: '2026-08-25',
+    title: '四條畷の自動収集・検証・個人補正を統合',
+    items: ['四條畷店の設置台数とフロアマップを日次収集', '取得失敗を設定画面で見える化', 'ジャグラー過去検証と期待値の個人補正を追加'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -664,6 +665,9 @@ function renderTargetSearch() {
       ${insufficient.length ? `<details class="insufficient-halls" open><summary>除外・データ不足 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}`;
     return;
   }
+  if (result.personal_calibration?.calibration_active) {
+    adjustmentRows.push(`<div><span>自分の実戦データ補正</span><strong>${result.personal_calibration.calibration_pct}%</strong><small>${result.personal_calibration.count}件を使用／補正前 ${money(result.expected_value_before_personal_calibration_yen, true)} → 安全側 ${money(result.expected_value_yen, true)}</small></div>`);
+  }
   container.innerHTML = `
     <div class="target-result-heading"><div><span class="page-step">${esc(targetSearchData.region_label || '')}・${esc(targetSearchData.visit_date)} ${esc(targetSearchData.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="count-badge">${halls.length}店</span></div>
     ${halls.map((hall, hallIndex) => `<article class="target-hall-card">
@@ -1226,7 +1230,8 @@ function renderFloorMap() {
   }
   canvas.style.aspectRatio = `${layout.width} / ${layout.height}`;
   canvas.innerHTML = seats.map(seat => `<button class="floor-seat" type="button" data-floor-seat="${seat.seat_number}" style="left:${seat.x / layout.width * 100}%;top:${seat.y / layout.height * 100}%;width:${seat.width / layout.width * 100}%;height:${seat.height / layout.height * 100}%;--seat-color:${esc(seat.color)}" title="${esc(`${seat.seat_number}番 ${seat.machine_name}`)}"><b>${seat.seat_number}</b><span>${seat.score ?? '--'}</span></button>`).join('');
-  meta.innerHTML = `<span>${esc(layout.floor_name)}・${esc(layout.verification_status)}</span><small>${esc(layout.source_label || '利用者登録マップ')}・台番号実績 ${floorData.data_coverage.seat_count}台</small>${layout.source_url ? `<a href="${esc(safeUrl(layout.source_url))}" target="_blank" rel="noopener">出典を開く</a>` : ''}`;
+  const floorSources = (floorData.floor_map_sources || []).map(item => `<a href="${esc(safeUrl(item.image_url))}" target="_blank" rel="noopener">公式掲載マップ${item.floor_index}</a>`).join(' ');
+  meta.innerHTML = `<span>${esc(layout.floor_name)}・${esc(layout.verification_status)}</span><small>${esc(layout.source_label || '利用者登録マップ')}・台番号実績 ${floorData.data_coverage.seat_count}台</small>${layout.source_url ? `<a href="${esc(safeUrl(layout.source_url))}" target="_blank" rel="noopener">出典を開く</a>` : ''}${floorSources}`;
   canvas.querySelectorAll('[data-floor-seat]').forEach(button => button.addEventListener('click', () => renderFloorSeatDetail(seats.find(seat => seat.seat_number === Number(button.dataset.floorSeat)))));
   renderFloorSeatDetail(seats[0]);
 }
@@ -1575,6 +1580,7 @@ function renderJugglerTargets(data) {
       <div class="juggler-target-head"><div><span class="page-step">#${item.rank} ${esc(item.action)}</span><strong>${esc(item.hall_name)}・${item.seat_number == null ? '機種候補' : `${esc(item.seat_number)}番台`}</strong></div><span>${item.score}点</span></div>
       <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
       <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
+      <p class="juggler-validation">過去検証：狙い時 ${item.validation?.recommendation_success_pct ?? '--'}%／${item.validation?.test_days ?? 0}日・${esc(item.validation?.trust_level || 'データ不足')}</p>
     </article>`).join('');
 }
 
@@ -1650,6 +1656,7 @@ function showScreen(name) {
     if (!jugglerTargetData) setTimeout(runJugglerTargets, 80);
   }
   if (name === 'settings') {
+    setTimeout(loadCollectionHealth, 40);
     setTimeout(loadMobileArchiveCollector, 80);
     setTimeout(loadValueCrawlerStatus, 120);
   }
@@ -1998,7 +2005,7 @@ byId('quick-form').addEventListener('submit', async event => {
   const valueState = effectiveCurrentValue();
   const currentValue = valueState.effective;
   const dynamicInputs = adjustmentInputs();
-  const result = assessQuick({
+  const baseResult = assessQuick({
     profile,
     currentValue,
     riskCapacityYen: calculateSummary(state).risk_capacity_yen,
@@ -2009,6 +2016,7 @@ byId('quick-form').addEventListener('submit', async event => {
     extraInputs: valueState.inputs,
     ...dynamicInputs,
   });
+  const result = applyPersonalCalibration(baseResult, profile, state.results);
   await persistReplayUsageInputs();
   lastAssessment = { result, profile, currentValue, rawCurrentValue: valueState.current, extraInputs: valueState.inputs, dynamicInputs };
   renderQuickResult(result, profile, currentValue);
@@ -2194,6 +2202,28 @@ async function loadValueCrawlerStatus() {
       : 'まだ期待値ソースの確認履歴はありません。';
   } catch (error) {
     target.textContent = `状態を取得できません：${error.message}`;
+  }
+}
+
+async function loadCollectionHealth() {
+  const target = byId('mobile-collection-health');
+  if (!target) return;
+  try {
+    const data = await mobileArchiveRequest('/api/scrape/health');
+    const labels = {
+      public_machine_daily: 'スマスロ・ジャグラー日次', pworld_snapshot: '設置機種',
+      dmm_store_snapshot: '四條畷店・フロアマップ', minrepo_daily: '機種別差枚',
+      minrepo_startup: '起動時補完',
+    };
+    const rows = (data.sources || []).filter(item =>
+      labels[item.source] || String(item.source).includes('キコーナ四條畷店')
+    );
+    const badge = data.overall === 'healthy' ? '正常' : data.overall === 'not_started' ? '未実行' : '一部要確認';
+    target.innerHTML = `<strong>${data.scheduler_running ? '自動収集ON' : '自動収集停止'}・${badge}</strong><br>${rows.length
+      ? rows.map(item => `${item.status === 'success' ? '✓' : item.status === 'partial' ? '△' : '×'} ${esc(labels[item.source] || item.source)}：${esc(String(item.finished_at || '').replace('T', ' '))}・${Number(item.records || 0).toLocaleString('ja-JP')}件${item.error ? `（${esc(item.error)}）` : ''}`).join('<br>')
+      : '実行履歴はまだありません。サーバー起動後の初回収集を待っています。'}`;
+  } catch (error) {
+    target.textContent = `収集状態を取得できません：${error.message}`;
   }
 }
 

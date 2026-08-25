@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.8.1';
+    document.getElementById('desktop-version-label').textContent = 'v2.9.0';
   }
 }
 
@@ -435,6 +435,7 @@ function renderDesktopJugglerTargets(data) {
       <div class="desktop-juggler-target-head"><div><span class="page-eyebrow">#${item.rank} ${esc(item.action)}</span><h3>${esc(item.hall_name)}・${item.seat_number == null ? '機種候補' : `${esc(item.seat_number)}番台`}</h3></div><span>${item.score}点</span></div>
       <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
       <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
+      <p class="juggler-validation">過去検証：狙い時 ${item.validation?.recommendation_success_pct ?? '--'}%／${item.validation?.test_days ?? 0}日・${esc(item.validation?.trust_level || 'データ不足')}</p>
     </article>`).join('');
 }
 
@@ -4608,6 +4609,9 @@ function renderOpportunityQuickResult(result) {
     result.replay_adjustment?.active
       ? `再プレイ残り${Number(result.replay_adjustment.remaining_replay_medals || 0).toLocaleString()}枚／現金ギャップ-${opportunityMoney(result.cash_gap_yen)}`
       : '',
+    result.personal_calibration?.calibration_active
+      ? `自分の実戦データ補正：${Number(result.personal_calibration.count).toLocaleString()}件／補正前${opportunityMoney(result.expected_value_before_personal_calibration_yen, true)} → 安全側${opportunityMoney(result.expected_value_yen, true)}（${Number(result.personal_calibration.calibration_pct)}%）`
+      : '',
   ].filter(Boolean);
   el.innerHTML = `
     <div class="opp-quick-result-head">
@@ -4941,7 +4945,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.8.1');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.9.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);
@@ -6819,9 +6823,10 @@ async function loadScrapeManager() {
   } catch(e) {}
 
   try {
-    const [status, cookieSt] = await Promise.all([
+    const [status, cookieSt, health] = await Promise.all([
       apiFetch('/api/scrape/status').catch(() => null),
       apiFetch('/api/scrape/cookie_status').catch(() => null),
+      apiFetch('/api/scrape/health').catch(() => null),
     ]);
     // ホール一覧
     loadScrapeHalls();
@@ -6878,6 +6883,16 @@ async function loadScrapeManager() {
         ? `<span style="color:var(--success)">● スケジューラー稼働中</span> — ${next}${running}`
         : `<span style="color:var(--danger)">● スケジューラー停止中</span>`;
       schedEl.innerHTML = sched + `<span style="color:var(--text3);margin-left:8px">対象${status.total_halls || 0}店舗</span>`;
+    }
+
+    const healthEl = document.getElementById('scrape-health-info');
+    if (healthEl && health) {
+      const labels = { public_machine_daily: '日次機種', pworld_snapshot: '設置機種', dmm_store_snapshot: '四條畷店/DMM', minrepo_daily: '機種別差枚', minrepo_startup: '起動時補完' };
+      const sources = (health.sources || []).filter(item => labels[item.source] || String(item.source).includes('キコーナ四條畷店'));
+      healthEl.innerHTML = `<strong>取得元別ヘルスチェック</strong><br>${sources.length ? sources.map(item => {
+        const color = item.status === 'success' ? 'var(--success)' : item.status === 'partial' ? 'var(--warning)' : 'var(--danger)';
+        return `<span style="color:${color}">${item.status === 'success' ? '✓' : item.status === 'partial' ? '△' : '×'} ${esc(labels[item.source] || item.source)}</span> ${esc(String(item.finished_at || '').replace('T', ' '))}・${Number(item.records || 0).toLocaleString('ja-JP')}件`;
+      }).join('<br>') : 'まだ実行履歴はありません'}`;
     }
 
     // 実行ログ

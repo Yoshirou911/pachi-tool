@@ -151,6 +151,16 @@ def _init_auxiliary_databases() -> None:
     except ImportError:
         pass
     try:
+        from scraper.dmm_snapshot import init_db as init_dmm_db
+        initializers.append(init_dmm_db)
+    except ImportError:
+        pass
+    try:
+        from scraper.collection_health import init_db as init_collection_health_db
+        initializers.append(init_collection_health_db)
+    except ImportError:
+        pass
+    try:
         from api.routers.layout import init_layout_db
         initializers.append(init_layout_db)
     except ImportError:

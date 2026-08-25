@@ -11,10 +11,23 @@ from pydantic import BaseModel, Field
 
 from api.deps import _get_reports_conn
 from hall.regions import region_label, region_matches
+from hall.target_validation import decide_action, walk_forward_backtest
 from juggler.models import assess_juggler, catalog, profile_for_machine
 
 
 router = APIRouter()
+
+
+def _validated_action(avg_diff: int, strong_rate: int, stale_days: int, validation: dict, usable_days: int) -> str:
+    """朝一候補は、先読みなし検証を通過した履歴だけに限定する。"""
+    validation_action, _ = decide_action(avg_diff, stale_days, validation, strong_rate)
+    if validation_action.startswith("狙う") and usable_days >= 20:
+        return "朝一候補"
+    if validation_action == "見送り":
+        return "見送り"
+    if usable_days >= 5 and stale_days <= 90:
+        return "要確認"
+    return "データ不足"
 
 
 class JugglerAssessmentRequest(BaseModel):
@@ -176,12 +189,13 @@ def get_juggler_targets(
         avg_diff = round(weighted_diff / weight_total)
         latest_date = max(row["report_date"] for row in history)
         stale_days = max(0, (target_date - date.fromisoformat(latest_date)).days)
-        if usable_days >= 20 and strong_rate >= 55 and avg_diff > 0 and stale_days <= 45:
-            action = "朝一候補"
-        elif usable_days >= 5 and stale_days <= 90:
-            action = "要確認"
-        else:
-            action = "データ不足"
+        validation_points = [
+            (date.fromisoformat(row["report_date"]), float(row["diff_coins"] or 0))
+            for row in history
+            if int(row["games"] or 0) >= 1500 and row["diff_coins"] is not None
+        ]
+        validation = walk_forward_backtest(validation_points)
+        action = _validated_action(avg_diff, strong_rate, stale_days, validation, usable_days)
         score = max(
             0,
             min(
@@ -203,8 +217,10 @@ def get_juggler_targets(
             "latest_date": latest_date,
             "stale_days": stale_days,
             "source_urls": sorted(source_urls)[:3],
+            "validation": validation,
             "reason": (
-                f"過去{usable_days}日・指定曜日/日付を重視・高設定寄り{strong_rate}%"
+                f"過去{usable_days}日・指定曜日/日付を重視・高設定寄り{strong_rate}%。"
+                f"先読みなし検証{validation['test_days']}日"
             ),
         })
 
@@ -248,12 +264,8 @@ def get_juggler_targets(
         avg_diff = round(weighted_diff / weight_total)
         latest_date = max(row["report_date"] for row in history)
         stale_days = max(0, (target_date - date.fromisoformat(latest_date)).days)
-        if usable_days >= 20 and strong_rate >= 55 and avg_diff > 0 and stale_days <= 45:
-            action = "朝一候補"
-        elif usable_days >= 5 and stale_days <= 90:
-            action = "要確認"
-        else:
-            action = "データ不足"
+        validation = walk_forward_backtest(history)
+        action = _validated_action(avg_diff, strong_rate, stale_days, validation, usable_days)
         score = max(0, min(100, round(
             strong_rate * 0.5 + min(25, usable_days) + max(0, min(20, avg_diff / 25 + 10))
         )))
@@ -271,10 +283,14 @@ def get_juggler_targets(
             "latest_date": latest_date,
             "stale_days": stale_days,
             "source_urls": sorted(source_urls)[:3],
-            "reason": f"機種別の過去{usable_days}日・プラス差枚かつ勝率50%以上が{strong_rate}%（台番号は未特定）",
+            "validation": validation,
+            "reason": (
+                f"機種別の過去{usable_days}日・プラス差枚かつ勝率50%以上が{strong_rate}%"
+                f"・先読みなし検証{validation['test_days']}日（台番号は未特定）"
+            ),
         })
 
-    priority = {"朝一候補": 2, "要確認": 1, "データ不足": 0}
+    priority = {"朝一候補": 3, "要確認": 2, "見送り": 1, "データ不足": 0}
     candidates.sort(
         key=lambda item: (priority[item["action"]], item["score"], item["sample_days"]),
         reverse=True,

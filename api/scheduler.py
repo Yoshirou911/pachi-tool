@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timedelta
 
 from api.deps import logger
+from scraper.collection_health import run_logged
 
 _SCHEDULER = None
 _SCRAPE_RUNNING = False  # 多重実行防止フラグ
@@ -84,17 +85,23 @@ def _run_nightly_scrape() -> None:
             hname = h["hall_name"] if isinstance(h, dict) else h
             pref = h.get("prefecture", "大阪府") if isinstance(h, dict) else "大阪府"
             try:
-                scrape_hall(hname, prefecture=pref, max_days=5, unlimited=True)
+                run_logged(
+                    f"anaslo:{hname}",
+                    lambda hname=hname, pref=pref: scrape_hall(
+                        hname, prefecture=pref, max_days=5, unlimited=True
+                    ),
+                )
             except Exception as e:
                 logger.warning(f"[アナスロ] {hname} エラー: {e}")
             time.sleep(30)
         logger.info("[アナスロ] 夜間バッチ完了")
         # ② みんレポ（機種別差枚） - 循環import回避のため遅延import
         from api.routers.hall import _run_minrepo_nightly
-        _run_minrepo_nightly(halls, days=3)
+        run_logged("minrepo_daily", lambda: _run_minrepo_nightly(halls, days=3))
         _run_public_machine_scrape()
         # ③ P-WORLD（現在の設置スマスロ）。差枚データがない店舗も対象機種を蓄積する。
         _run_snapshot_scrape()
+        _run_dmm_snapshot_scrape()
     except Exception as e:
         logger.warning(f"[スクレイプ] バッチエラー: {e}")
     finally:
@@ -105,7 +112,7 @@ def _run_snapshot_scrape() -> None:
     """公開店舗ページの設置スマスロ構成を日次保存する。"""
     try:
         from scraper.pworld_snapshot import scrape_all
-        results = scrape_all(_get_active_halls())
+        results = run_logged("pworld_snapshot", lambda: scrape_all(_get_active_halls()))
         logger.info(f"[設置機種] 日次スナップショット完了: {results}")
     except Exception as e:
         logger.warning(f"[設置機種] 日次スナップショットエラー: {e}")
@@ -118,11 +125,21 @@ def _run_public_machine_scrape() -> None:
         if not is_refresh_due(max_age_hours=6):
             logger.info("[公開機種データ] 6時間以内に更新済みのためスキップ")
             return
-        results = scrape_all()
+        results = run_logged("public_machine_daily", scrape_all)
         saved = sum(int(item.get("rows", 0)) for item in results if item.get("status") == "ok")
         logger.info(f"[公開機種データ] 更新完了: {saved}機種日")
     except Exception as e:
         logger.warning(f"[公開機種データ] 更新エラー: {e}")
+
+
+def _run_dmm_snapshot_scrape() -> None:
+    """四條畷の公開店舗ページから設置台数とフロアマップを保存する。"""
+    try:
+        from scraper.dmm_snapshot import scrape_all
+        results = run_logged("dmm_store_snapshot", scrape_all)
+        logger.info(f"[DMM店舗情報] 日次スナップショット完了: {results}")
+    except Exception as e:
+        logger.warning(f"[DMM店舗情報] 日次スナップショットエラー: {e}")
 
 
 def _run_opportunity_source_check() -> None:
@@ -143,9 +160,10 @@ def _run_startup_refresh() -> None:
     try:
         halls = _get_active_halls()
         from api.routers.hall import _run_minrepo_nightly
-        _run_minrepo_nightly(halls, days=3)
+        run_logged("minrepo_startup", lambda: _run_minrepo_nightly(halls, days=3))
         _run_public_machine_scrape()
         _run_snapshot_scrape()
+        _run_dmm_snapshot_scrape()
     except Exception as e:
         logger.warning(f"[起動時更新] エラー: {e}")
     finally:
@@ -196,12 +214,18 @@ def _start_scrape_scheduler() -> None:
             replace_existing=True,
         )
         _SCHEDULER.add_job(
+            _run_dmm_snapshot_scrape,
+            CronTrigger(hour=12, minute=25, timezone="Asia/Tokyo"),
+            id="dmm_store_snapshot",
+            replace_existing=True,
+        )
+        _SCHEDULER.add_job(
             _run_startup_refresh,
             DateTrigger(run_date=datetime.now() + timedelta(seconds=20)),
             id="startup_refresh",
             replace_existing=True,
         )
         _SCHEDULER.start()
-        logger.info("[スクレイプ] 期待値月曜03:20/差枚04:00/イベント12:00/設置機種12:15(JST)")
+        logger.info("[スクレイプ] 期待値月曜03:20/差枚04:00/イベント12:00/設置12:15/DMM12:25(JST)")
     except Exception as e:
         logger.warning(f"[スクレイプ] スケジューラー起動失敗: {e}")

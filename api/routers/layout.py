@@ -662,7 +662,22 @@ def get_seat_heat(
     reference = min(target - timedelta(days=1), date.today())
     start = reference - timedelta(days=days - 1)
     conn = init_layout_db()
+    floor_map_sources: list[dict] = []
     try:
+        if _table_exists(conn, "hall_floor_map_snapshot"):
+            latest_map_date = conn.execute(
+                "SELECT MAX(snapshot_date) FROM hall_floor_map_snapshot WHERE hall_name=?",
+                (hall_name,),
+            ).fetchone()[0]
+            if latest_map_date:
+                floor_map_sources = [
+                    dict(row) for row in conn.execute(
+                        """SELECT floor_index,image_url,page_url,snapshot_date
+                             FROM hall_floor_map_snapshot
+                            WHERE hall_name=? AND snapshot_date=? ORDER BY floor_index""",
+                        (hall_name, latest_map_date),
+                    ).fetchall()
+                ]
         layout_row = conn.execute(
             """SELECT * FROM hall_layout WHERE hall_name=? AND valid_from<=?
                AND (valid_to IS NULL OR valid_to>=?) ORDER BY valid_from DESC LIMIT 1""",
@@ -754,6 +769,7 @@ def get_seat_heat(
     return {
         "hall_name": hall_name, "visit_date": visit_date, "reference_date": reference.isoformat(), "analysis_days": days,
         "layout": {key: value for key, value in layout.items() if key != "seats"}, "seats": output,
+        "floor_map_sources": floor_map_sources,
         "data_coverage": {"history_rows": len(history_rows), "seat_count": len(by_seat), "exact_result_count": len(exact_rows)},
         "status": "分析済み" if output and history_rows else "座席データ待ち" if layout["seats"] else "レイアウト未登録",
         "notice": layout["notes"] or "予測日より前の公開実績だけで計算しています。",

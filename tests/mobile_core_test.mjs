@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  assessQuick, buildGuideRows, buildPerformanceSeries, buildValidationSummary, calculateReplayAdjustment,
+  applyPersonalCalibration, assessQuick, buildGuideRows, buildPerformanceSeries, buildValidationSummary, calculateReplayAdjustment,
   calculateSectionAdjustment, calculateSummary,
 } from '../mobile/core.mjs';
 import { recognizeSevenSegment } from '../mobile/ocr.mjs';
@@ -113,6 +113,20 @@ const validation = buildValidationSummary(Array.from({ length: 10 }, () => ({
 assert.equal(validation[0].count, 10);
 assert.equal(validation[0].sample_level, 'watch');
 assert.equal(validation[0].gap_yen, 2000);
+
+const calibrationResults = Array.from({ length: 30 }, () => ({
+  catalog_key: 'test-v1', machine_name: 'テスト台', expected_value_yen: 1000,
+  investment_yen: 5000, returns_yen: 5750, played_minutes: 60,
+}));
+const calibrated = applyPersonalCalibration(
+  { ...target, expected_value_yen: 2000, estimated_play_minutes: 60, warnings: [] },
+  { ...profile, catalog_key: 'test-v1' },
+  calibrationResults,
+);
+assert.equal(calibrated.personal_calibration.calibration_active, true);
+assert.equal(calibrated.personal_calibration.calibration_pct, 88);
+assert.equal(calibrated.expected_value_yen, 1750);
+assert.match(calibrated.warnings[0], /30件/);
 
 const smartProfile = {
   ...profile,

@@ -80,18 +80,27 @@ def _run_scrape(hall_name: str, days: int):
         _scrape_status[hall_name] = f"error: {e}"
 
 
-def _run_minrepo_nightly(hall_list: list, days: int = 2) -> None:
+def _run_minrepo_nightly(hall_list: list, days: int = 2) -> list[dict]:
     """夜間バッチ：みんレポを全ホール取得（直近days日分、取得済みはスキップ）"""
     logger.info(f"[みんレポ] 夜間バッチ開始: {len(hall_list)}店舗")
+    results: list[dict] = []
     for h in hall_list:
         hname = h["hall_name"] if isinstance(h, dict) else h
         try:
             _run_scrape(hname, days=days)
-            logger.info(f"[みんレポ] {hname} 完了")
+            raw_status = _scrape_status.get(hname, "done")
+            if raw_status.startswith("error"):
+                results.append({"hall_name": hname, "status": "error", "error": raw_status})
+                logger.warning(f"[みんレポ] {hname} {raw_status}")
+            else:
+                results.append({"hall_name": hname, "status": "done"})
+                logger.info(f"[みんレポ] {hname} 完了")
         except Exception as e:
+            results.append({"hall_name": hname, "status": "error", "error": str(e)})
             logger.warning(f"[みんレポ] {hname} エラー: {e}")
         time.sleep(3)
     logger.info("[みんレポ] 夜間バッチ完了")
+    return results
 
 
 def _run_anaslo_scrape(hall_name: str, days: int):

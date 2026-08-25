@@ -52,8 +52,8 @@ assert.match(app, /api\/juggler\/assess/, '公式確率を使うジャグラー�
 assert.match(app, /api\/juggler\/targets/, 'ジャグラー朝一候補APIを利用する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=2\.8\.1/);
-assert.match(html, /app\.js\?v=2\.8\.1/);
+assert.match(html, /app\.css\?v=2\.9\.0/);
+assert.match(html, /app\.js\?v=2\.9\.0/);
 assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
 assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
 assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
@@ -66,7 +66,7 @@ assert.match(app, /データ信頼度/, '判定結果からデータの信頼度
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');
 assert.match(app, /catalog\.json\?v=\$\{APP_VERSION\}/, '機種追加時に古いカタログキャッシュを使わない');
-assert.match(app, /core\.mjs\?v=2\.8\.1/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /core\.mjs\?v=2\.9\.0/, '内部判定ロジックも更新時にキャッシュを破棄する');
 assert.match(app, /recommendation_success_pct/, '狙い台の過去検証成績を表示する');
 assert.match(app, /保存できません：/, '検証基準に満たない候補は作戦保存を止める');
 assert.match(app, /installation_snapshot/, '店舗の設置機種を使って巡回対象を絞る');
@@ -80,9 +80,12 @@ assert.match(html, /id="quick-templates"/, '頻出入力をワンタップで反
 assert.match(html, /id="quick-ocr-file"/, 'カメラOCR入力を利用できる');
 assert.match(html, /id="reset-record-form"/, '店舗別リセット・据え置き癖を記録できる');
 assert.match(html, /id="archive-collector-group"/, '設定から過去データ収集を管理できる');
+assert.match(html, /id="collection-health-group"/, '設定から毎日の収集状態を確認できる');
 assert.match(html, /id="mobile-archive-pause"/, 'iPhoneから収集を一時停止できる');
 assert.match(html, /id="mobile-archive-resume"/, 'iPhoneから収集を再開できる');
 assert.match(app, /api\/scrape\/archive\/status/, '過去データ収集の進捗APIを利用する');
+assert.match(app, /api\/scrape\/health/, '収集元ごとの成功・失敗状態を取得する');
+assert.match(app, /applyPersonalCalibration/, '実戦結果で期待値を安全側へ補正する');
 assert.match(app, /pending_count/, 'オフライン変更を未送信キューとして保持する');
 assert.match(html, /id="result-hit-game"/, '当選ゲーム数を詳細記録できる');
 assert.match(html, /id="brand-home"[^>]*data-screen-target="home"/, '左上ブランドからホームへ戻れる');

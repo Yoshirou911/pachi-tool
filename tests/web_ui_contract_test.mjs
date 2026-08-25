@@ -46,9 +46,12 @@ assert.match(desktopJs, /api\/occupancy\/hyena-stores/, 'PC・ソフト版でも
 assert.match(desktopJs, /data-opp-crawler-approve/, '期待値更新は利用者が承認してから反映する');
 assert.match(desktopJs, /api\/opportunity\/crawler\/run/, '公開ソース確認APIを利用する');
 assert.match(desktopHtml, /id="archive-collector"/, 'PC・ソフト版に過去データ収集管理が必要');
+assert.match(desktopHtml, /id="scrape-health-info"/, 'PC・ソフト版に毎日の収集状態が必要');
 assert.match(desktopHtml, /id="archive-pause-btn"/, '収集を一時停止できる');
 assert.match(desktopHtml, /id="archive-resume-btn"/, '収集を再開できる');
 assert.match(desktopJs, /api\/scrape\/archive\/jobs/, '永続キューの収集APIを利用する');
+assert.match(desktopJs, /api\/scrape\/health/, '収集元ごとの成功・失敗状態を取得する');
+assert.match(desktopJs, /personal_calibration/, 'PC・ソフト版でも実戦結果による期待値補正を表示する');
 
 for (const label of ['ハイエナ', '狙い台捜索', 'ジャグラー設定狙い']) {
   assert.match(desktopHtml, new RegExp(label), `PC・ソフト版に${label}が必要`);

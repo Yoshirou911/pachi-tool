@@ -31,6 +31,7 @@ from opportunity.models import (
     deactivate_profile as deactivate_opportunity_profile,
     get_budget_summary as get_opportunity_budget_summary,
     get_dashboard as get_opportunity_dashboard,
+    get_profile_calibration,
     get_profile as get_opportunity_profile,
     get_reset_tendency,
     load_mobile_sync,
@@ -242,6 +243,20 @@ def opportunity_quick_assess(body: OpportunityQuickAssess) -> dict:
         exchange_rate=body.exchange_rate,
         extra_inputs=body.extra_inputs,
     )
+    calibration = get_profile_calibration(profile["id"])
+    if calibration["active"] and assessment.get("expected_value_yen") is not None:
+        before = int(assessment["expected_value_yen"])
+        adjusted = round(before * calibration["factor"])
+        assessment["expected_value_before_personal_calibration_yen"] = before
+        assessment["expected_value_yen"] = adjusted
+        if assessment.get("estimated_play_minutes"):
+            assessment["ev_per_hour_yen"] = round(
+                adjusted * 60 / int(assessment["estimated_play_minutes"])
+            )
+        assessment.setdefault("warnings", []).append(
+            f"同じ条件{calibration['count']}件の実績から期待値を安全側{calibration['factor_pct']}%に補正"
+        )
+    assessment["personal_calibration"] = calibration
     return {
         **assessment,
         "profile_id": profile["id"],

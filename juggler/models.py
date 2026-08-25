@@ -104,10 +104,19 @@ def assess_juggler(profile_id: str, games: int, bb_count: int, rb_count: int) ->
     probabilities = {setting: weights[setting] / total for setting in weights}
     best_setting = max(probabilities, key=probabilities.get)
     high_probability = sum(probabilities[str(setting)] for setting in (4, 5, 6))
+    low_probability = sum(probabilities[str(setting)] for setting in (1, 2, 3))
+    high_low_ratio = high_probability / max(1e-12, low_probability)
     best_probability = probabilities[best_setting]
 
     sample_factor = min(1.0, games / 6000)
     reference_reliability = round(best_probability * sample_factor * 100)
+    prediction_grade = (
+        "90%級" if games >= 6000 and high_probability >= 0.90 and high_low_ratio >= 6
+        else "80%級" if games >= 5000 and high_probability >= 0.82 and high_low_ratio >= 3
+        else "低設定90%級" if games >= 6000 and high_probability <= 0.10 and high_low_ratio <= 1 / 6
+        else "低設定80%級" if games >= 5000 and high_probability <= 0.18 and high_low_ratio <= 1 / 3
+        else "判定材料不足"
+    )
     if games < 2000:
         confidence = "データ不足"
         action = "判定保留"
@@ -116,14 +125,28 @@ def assess_juggler(profile_id: str, games: int, bb_count: int, rb_count: int) ->
         confidence = "低"
         action = "様子見"
         reason = "4000G未満のため、REGと合算が良くても続行確定にはしません"
-    elif high_probability >= 0.75:
-        confidence = "高" if games >= 6000 else "中"
+    elif prediction_grade in {"90%級", "80%級"}:
+        confidence = "高" if prediction_grade == "90%級" else "中"
+        action = f"続行候補・{prediction_grade}"
+        reason = (
+            f"設定4以上の相対確率{round(high_probability * 100)}%・"
+            f"高設定側の尤度比{high_low_ratio:.1f}倍"
+        )
+    elif prediction_grade in {"低設定90%級", "低設定80%級"}:
+        confidence = "高" if prediction_grade == "低設定90%級" else "中"
+        action = f"見送り候補・{prediction_grade.replace('低設定', '')}"
+        reason = (
+            f"設定4以上の相対確率{round(high_probability * 100)}%・"
+            f"高設定側の尤度比{high_low_ratio:.2f}倍"
+        )
+    elif high_probability >= 0.75 and games >= 5000:
+        confidence = "中"
         action = "続行候補"
-        reason = f"設定4以上の相対確率が{round(high_probability * 100)}%"
-    elif high_probability <= 0.25:
-        confidence = "高" if games >= 6000 else "中"
+        reason = f"高設定寄りですが90%級・80%級の厳格条件には未達です"
+    elif high_probability <= 0.25 and games >= 5000:
+        confidence = "中"
         action = "見送り候補"
-        reason = f"設定4以上の相対確率が{round(high_probability * 100)}%"
+        reason = f"低設定寄りですが90%級・80%級の厳格条件には未達です"
     else:
         confidence = "高" if games >= 6000 else "中"
         action = "様子見"
@@ -146,12 +169,15 @@ def assess_juggler(profile_id: str, games: int, bb_count: int, rb_count: int) ->
         "best_setting": int(best_setting),
         "best_setting_probability_pct": round(best_probability * 100),
         "high_setting_probability_pct": round(high_probability * 100),
+        "high_low_likelihood_ratio": round(high_low_ratio, 2),
+        "prediction_grade": prediction_grade,
+        "grade_scope": "入力したBIG・REGの統計モデル内",
         "reference_reliability_pct": reference_reliability,
         "confidence": confidence,
         "action": action,
         "reason": reason,
         "source_url": profile["source_url"],
-        "notice": "BIG・REGのみの相対推定です。実際の設定や勝利を保証しません。",
+        "notice": "BIG・REGのみを設定1〜6同率の前提で比較した相対尤度です。90%級は統計モデル内の判定で、実際の設定や勝利確率を保証しません。店舗傾向と当日の示唆も併用してください。",
     }
 
 

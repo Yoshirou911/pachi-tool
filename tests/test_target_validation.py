@@ -51,3 +51,14 @@ def test_estimate_does_not_peek_at_target_day_or_future():
     leaked_estimate = date_weighted_estimate(leaked, target)
 
     assert leaked_estimate == clean_estimate
+
+
+def test_recent_instability_blocks_90_grade_even_when_long_term_is_strong():
+    values = [350] * 70 + [-800 if index in {1, 6, 11, 16} else 350 for index in range(20)]
+    validation = walk_forward_backtest(_points(values))
+
+    assert validation["recommendation_success_pct"] >= 90
+    assert validation["recent_recommendation_success_pct"] < 85
+    assert validation["trust_level"] != "90%級"
+    assert validation["confidence_interval_pct"] == 95
+    assert validation["quality_score"] <= 100

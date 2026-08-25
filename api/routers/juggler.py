@@ -11,20 +11,49 @@ from pydantic import BaseModel, Field
 
 from api.deps import _get_reports_conn
 from hall.regions import region_label, region_matches
-from hall.target_validation import decide_action, walk_forward_backtest
+from hall.target_validation import decide_action, grade_policy, walk_forward_backtest
 from juggler.models import assess_juggler, catalog, profile_for_machine
 
 
 router = APIRouter()
 
 
-def _validated_action(avg_diff: int, strong_rate: int, stale_days: int, validation: dict, usable_days: int) -> str:
-    """朝一候補は、先読みなし検証を通過した履歴だけに限定する。"""
+def _bonus_count(raw_value: float | int | None, games: int) -> int | None:
+    """収集元ごとに異なるBB/RB表現を実回数へ統一する。
+
+    アナスロ由来のDB値は ``1/289.8`` を 0.003451 のような確率で保存する。
+    手入力・将来の取得元は回数を直接保存する場合があるため両方を扱う。
+    """
+    if raw_value is None or games <= 0:
+        return None
+    value = float(raw_value)
+    if value < 0:
+        return None
+    count = round(games * value) if 0 <= value < 1 else round(value)
+    return count if 0 <= count <= games else None
+
+
+def _validated_action(
+    avg_diff: int,
+    strong_rate: int,
+    stale_days: int,
+    validation: dict,
+    usable_days: int,
+    evidence_level: str,
+) -> str:
+    """BB/RBで検証できた履歴だけを高信頼の朝一候補へ昇格する。"""
     validation_action, _ = decide_action(avg_diff, stale_days, validation, strong_rate)
-    if validation_action.startswith("狙う") and usable_days >= 20:
-        return "朝一候補"
     if validation_action == "見送り":
         return "見送り"
+    # 機種平均差枚は「出た」ことしか示さず、設定を直接示さないため上限を設ける。
+    if evidence_level != "bonus_counts":
+        return "要確認" if usable_days >= 5 and stale_days <= 90 else "データ不足"
+    if validation_action == "狙う・90%級":
+        return "朝一候補・90%級"
+    if validation_action == "狙う・80%級":
+        return "朝一候補・80%級"
+    if validation_action.startswith("狙う") and usable_days >= 30:
+        return "朝一候補"
     if usable_days >= 5 and stale_days <= 90:
         return "要確認"
     return "データ不足"
@@ -72,6 +101,7 @@ def get_juggler_targets(
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "candidates": [],
         "data_coverage": {"rows": 0, "days": 0, "halls": 0, "latest_date": None},
+        "validation_policy": grade_policy(),
         "notice": "ジャグラー履歴はまだありません。今後の収集分から朝一分析を育てます。",
     }
     if conn is None:
@@ -149,6 +179,8 @@ def get_juggler_targets(
         weighted_diff = 0.0
         usable_days = 0
         source_urls = set()
+        verified_validation_points = []
+        proxy_validation_points = []
         profile_id = profile_for_machine(machine_name)
         for row in history:
             report_day = date.fromisoformat(row["report_date"])
@@ -162,18 +194,24 @@ def get_juggler_targets(
             if games < 1500:
                 continue
             signal = None
-            if profile_id and row["bb_prob"] is not None and row["rb_prob"] is not None:
+            bb_count = _bonus_count(row["bb_prob"], games)
+            rb_count = _bonus_count(row["rb_prob"], games)
+            if profile_id and games >= 4000 and bb_count is not None and rb_count is not None:
                 try:
                     assessment = assess_juggler(
-                        profile_id, games, int(row["bb_prob"]), int(row["rb_prob"])
+                        profile_id, games, bb_count, rb_count
                     )
-                    signal = assessment["high_setting_probability_pct"] >= 60
+                    signal = assessment["high_setting_probability_pct"] >= 70
+                    verified_validation_points.append(
+                        (report_day, 100.0 if signal else 0.0)
+                    )
                 except ValueError:
                     signal = None
-            if signal is None and row["diff_coins"] is not None:
+            if signal is None and games >= 3000 and row["diff_coins"] is not None:
                 # BB/RBがない取得元は差枚だけを弱い補助材料として使う。
-                signal = int(row["diff_coins"]) > 0
-                weight *= 0.55
+                signal = int(row["diff_coins"]) >= 150
+                proxy_validation_points.append((report_day, 100.0 if signal else 0.0))
+                weight *= 0.35
             if signal is None:
                 continue
             usable_days += 1
@@ -189,13 +227,15 @@ def get_juggler_targets(
         avg_diff = round(weighted_diff / weight_total)
         latest_date = max(row["report_date"] for row in history)
         stale_days = max(0, (target_date - date.fromisoformat(latest_date)).days)
-        validation_points = [
-            (date.fromisoformat(row["report_date"]), float(row["diff_coins"] or 0))
-            for row in history
-            if int(row["games"] or 0) >= 1500 and row["diff_coins"] is not None
-        ]
+        evidence_level = "bonus_counts" if len(verified_validation_points) >= 30 else "diff_proxy"
+        validation_points = (
+            verified_validation_points if evidence_level == "bonus_counts"
+            else proxy_validation_points
+        )
         validation = walk_forward_backtest(validation_points)
-        action = _validated_action(avg_diff, strong_rate, stale_days, validation, usable_days)
+        action = _validated_action(
+            avg_diff, strong_rate, stale_days, validation, usable_days, evidence_level
+        )
         score = max(
             0,
             min(
@@ -218,9 +258,17 @@ def get_juggler_targets(
             "stale_days": stale_days,
             "source_urls": sorted(source_urls)[:3],
             "validation": validation,
+            "evidence_level": evidence_level,
+            "evidence_label": (
+                "BB・REG実績で検証" if evidence_level == "bonus_counts"
+                else "差枚による補助判定"
+            ),
+            "verified_signal_days": len(verified_validation_points),
+            "proxy_signal_days": len(proxy_validation_points),
             "reason": (
                 f"過去{usable_days}日・指定曜日/日付を重視・高設定寄り{strong_rate}%。"
-                f"先読みなし検証{validation['test_days']}日"
+                f"{('BB・REG' if evidence_level == 'bonus_counts' else '差枚補助')}の先読みなし検証"
+                f"{validation['test_days']}日・品質{validation.get('quality_score', 0)}点"
             ),
         })
 
@@ -251,7 +299,7 @@ def get_juggler_targets(
                 weight *= 1.3
             avg_diff = float(row["avg_diff_coins"])
             win_rate = float(row["win_rate_pct"] or 0)
-            signal = avg_diff > 0 and win_rate >= 50
+            signal = avg_diff >= 150 and win_rate >= 55
             usable_days += 1
             weight_total += weight
             weighted_hits += weight if signal else 0
@@ -264,8 +312,19 @@ def get_juggler_targets(
         avg_diff = round(weighted_diff / weight_total)
         latest_date = max(row["report_date"] for row in history)
         stale_days = max(0, (target_date - date.fromisoformat(latest_date)).days)
-        validation = walk_forward_backtest(history)
-        action = _validated_action(avg_diff, strong_rate, stale_days, validation, usable_days)
+        proxy_points = [
+            (
+                date.fromisoformat(row["report_date"]),
+                100.0 if float(row["avg_diff_coins"] or 0) >= 150
+                and float(row["win_rate_pct"] or 0) >= 55 else 0.0,
+            )
+            for row in history
+            if int(row["avg_games"] or 0) >= 3000 and row["avg_diff_coins"] is not None
+        ]
+        validation = walk_forward_backtest(proxy_points)
+        action = _validated_action(
+            avg_diff, strong_rate, stale_days, validation, usable_days, "diff_proxy"
+        )
         score = max(0, min(100, round(
             strong_rate * 0.5 + min(25, usable_days) + max(0, min(20, avg_diff / 25 + 10))
         )))
@@ -284,15 +343,27 @@ def get_juggler_targets(
             "stale_days": stale_days,
             "source_urls": sorted(source_urls)[:3],
             "validation": validation,
+            "evidence_level": "diff_proxy",
+            "evidence_label": "機種平均差枚による補助判定",
+            "verified_signal_days": 0,
+            "proxy_signal_days": len(proxy_points),
             "reason": (
-                f"機種別の過去{usable_days}日・プラス差枚かつ勝率50%以上が{strong_rate}%"
-                f"・先読みなし検証{validation['test_days']}日（台番号は未特定）"
+                f"機種別の過去{usable_days}日・平均+150枚かつ勝率55%以上が{strong_rate}%"
+                f"・差枚補助の先読みなし検証{validation['test_days']}日"
+                f"・品質{validation.get('quality_score', 0)}点（台番号は未特定）"
             ),
         })
 
-    priority = {"朝一候補": 3, "要確認": 2, "見送り": 1, "データ不足": 0}
+    def priority(action: str) -> int:
+        if action == "朝一候補・90%級": return 5
+        if action == "朝一候補・80%級": return 4
+        if action == "朝一候補": return 3
+        if action == "要確認": return 2
+        if action == "見送り": return 1
+        return 0
+
     candidates.sort(
-        key=lambda item: (priority[item["action"]], item["score"], item["sample_days"]),
+        key=lambda item: (priority(item["action"]), item["score"], item["sample_days"]),
         reverse=True,
     )
     candidates = candidates[:limit]
@@ -313,8 +384,9 @@ def get_juggler_targets(
             "halls": len({row["hall_name"] for row in all_rows}),
             "latest_date": max(distinct_dates) if distinct_dates else None,
         },
+        "validation_policy": grade_policy(),
         "notice": (
-            "朝一候補は過去傾向です。当日の設定投入や勝利を保証しません。"
+            "朝一候補は過去傾向です。90%級・80%級へ上がるのはBB・REG実績を先読みなしで検証できた候補だけで、当日の設定投入や勝利を保証しません。"
             if candidates else empty["notice"]
         ),
     }

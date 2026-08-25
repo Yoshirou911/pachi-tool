@@ -37,3 +37,19 @@ def test_collection_health_does_not_treat_empty_or_error_results_as_success(tmp_
     assert by_source["empty"]["status"] == "partial"
     assert by_source["mixed"]["status"] == "partial"
     assert by_source["all_failed"]["status"] == "failed"
+
+
+def test_collection_health_counts_hall_number_mapping_and_marks_missing_sources_partial(tmp_path, monkeypatch):
+    monkeypatch.setattr(collection_health, "DB_PATH", tmp_path / "health.db")
+    collection_health.run_logged("pworld", lambda: {"hall_a": 53, "hall_b": 49})
+    collection_health.run_logged(
+        "public_daily",
+        lambda: [
+            {"hall_name": "hall_a", "status": "ok", "rows": 10},
+            {"hall_name": "hall_b", "status": "no_public_data", "rows": 0},
+        ],
+    )
+    by_source = {item["source"]: item for item in collection_health.get_health()["sources"]}
+    assert by_source["pworld"]["status"] == "success"
+    assert by_source["pworld"]["records"] == 102
+    assert by_source["public_daily"]["status"] == "partial"

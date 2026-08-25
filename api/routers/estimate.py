@@ -65,6 +65,9 @@ class EstimateResponse(BaseModel):
     credible_interval: Optional[list[float]] = None  # 90%信用区間 [lo, hi]
     element_powers: Optional[dict[str, float]] = None  # 各要素の識別力
     correlated_elements: Optional[list[list]] = None  # 相関の強い要素ペア
+    sample_adequacy_pct: int = 0
+    prediction_grade: str = "判定材料不足"
+    confidence_scope: str = "後験分布の集中度（的中率ではありません）"
 
 class ChangeDetectRequest(BaseModel):
     machine_name: str
@@ -192,6 +195,19 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
     ci_lo, ci_hi = estimator.credible_interval(posterior, prob=0.90)
     powers = {k: round(v, 3) for k, v in estimator.element_discrimination_power().items()}
     correlated = [[a, b, r] for a, b, r in estimator.find_correlated_elements(threshold=0.95)]
+    sample_adequacy = min(
+        100,
+        round(observed_games / max(1, recommended_games) * 100),
+    ) if recommended_games is not None else 0
+    peak_probability = max(posterior.values(), default=0.0)
+    # これは理論値が正しい前提での統計モデル内グレード。実戦的中率とは分ける。
+    prediction_grade = (
+        "統計モデル90%級" if sample_adequacy >= 100 and peak_probability >= 0.90
+        and confidence >= 0.75 and not correlated
+        else "統計モデル80%級" if sample_adequacy >= 80 and peak_probability >= 0.80
+        and confidence >= 0.50 and not correlated
+        else "判定材料不足"
+    )
 
     return EstimateResponse(
         posterior=posterior,
@@ -212,6 +228,8 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
         credible_interval=[ci_lo, ci_hi],
         element_powers=powers,
         correlated_elements=correlated if correlated else None,
+        sample_adequacy_pct=sample_adequacy,
+        prediction_grade=prediction_grade,
     )
 
 

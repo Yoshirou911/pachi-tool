@@ -38,6 +38,7 @@ from hall.regions import region_label, region_matches
 from hall.target_validation import (
     date_weighted_estimate,
     decide_action,
+    grade_policy,
     walk_forward_backtest,
 )
 from records.models import list_sessions, session_to_dict
@@ -569,6 +570,7 @@ def get_target_search(
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "halls": [],
         "insufficient_halls": [],
+        "validation_policy": grade_policy(),
         "notice": "公開データが不足しているため候補を算出できません。",
     }
     if conn is None:
@@ -802,6 +804,11 @@ def get_target_search(
                 ),
                 "weekday_days": machine_estimate["weekday_days"],
                 "digit_days": machine_estimate["digit_days"],
+                "prediction_diagnostics": {
+                    "signal_agreement_pct": machine_estimate["signal_agreement_pct"],
+                    "volatility_coins": machine_estimate["volatility_coins"],
+                    "components": machine_estimate["components"],
+                },
                 "action": machine_action,
                 "action_reason": machine_action_reason,
                 "validation": machine_validation,
@@ -857,6 +864,11 @@ def get_target_search(
             "weekday_sample_days": estimate["weekday_days"],
             "digit_sample_days": estimate["digit_days"],
             "positive_rate": positive_rate,
+            "prediction_diagnostics": {
+                "signal_agreement_pct": estimate["signal_agreement_pct"],
+                "volatility_coins": estimate["volatility_coins"],
+                "components": estimate["components"],
+            },
             "latest_date": latest_date,
             "stale_days": stale_days,
             "data_quality": {
@@ -892,9 +904,10 @@ def get_target_search(
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "halls": ranked_halls,
         "insufficient_halls": insufficient,
+        "validation_policy": grade_policy(),
         "notice": (
             "候補は公開データを先読みなしで過去検証しています。"
-            "80%級・90%級は過去の狙い時成功率で、勝利や高設定を保証しません。"
+            "80%級・90%級は成功率だけでなく95%下限・直近成績・件数・品質を満たした検証グレードで、勝利や高設定を保証しません。"
             if ranked_halls else empty_result["notice"]
         ),
     }

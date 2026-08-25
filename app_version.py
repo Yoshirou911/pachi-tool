@@ -1,11 +1,23 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 RELEASE_DATE = "2026-08-25"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "3.1.0",
+        "released_on": "2026-08-25",
+        "title": "四條畷周辺ジャグラーの実BB・RB自動収集を開始",
+        "items": [
+            "ニコニコ住道・SUPER COSMO PREMIUM大東・ベガスベガス大東の台別G数・BIG・REG・差枚を毎日自動更新",
+            "公開機種ページ1回で直近30営業日を取り込み、日次継続で検証履歴を自動蓄積",
+            "元データの実回数を別テーブルへ保持し、手入力や他の検証済みBB・REGは上書きしない安全設計",
+            "ハッピージャグラーV III・ジャグラーガールズSS・ウルトラミラクルジャグラーの北電子公式確率を追加",
+            "BB・REGがあるが検証日数30日未満の候補を『実績を蓄積中』と表示し、80%級・90%級へ早期昇格させない",
+        ],
+    },
     {
         "version": "3.0.0",
         "released_on": "2026-08-25",

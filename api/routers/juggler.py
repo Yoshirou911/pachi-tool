@@ -227,11 +227,14 @@ def get_juggler_targets(
         avg_diff = round(weighted_diff / weight_total)
         latest_date = max(row["report_date"] for row in history)
         stale_days = max(0, (target_date - date.fromisoformat(latest_date)).days)
-        evidence_level = "bonus_counts" if len(verified_validation_points) >= 30 else "diff_proxy"
-        validation_points = (
-            verified_validation_points if evidence_level == "bonus_counts"
-            else proxy_validation_points
-        )
+        if len(verified_validation_points) >= 30:
+            evidence_level = "bonus_counts"
+        elif verified_validation_points:
+            evidence_level = "bonus_counts_growing"
+        else:
+            evidence_level = "diff_proxy"
+        # BB/RB実績が1日でもあれば、差枚代理値と混ぜず同じ根拠だけで検証する。
+        validation_points = verified_validation_points or proxy_validation_points
         validation = walk_forward_backtest(validation_points)
         action = _validated_action(
             avg_diff, strong_rate, stale_days, validation, usable_days, evidence_level
@@ -261,13 +264,14 @@ def get_juggler_targets(
             "evidence_level": evidence_level,
             "evidence_label": (
                 "BB・REG実績で検証" if evidence_level == "bonus_counts"
+                else "BB・REG実績を蓄積中" if evidence_level == "bonus_counts_growing"
                 else "差枚による補助判定"
             ),
             "verified_signal_days": len(verified_validation_points),
             "proxy_signal_days": len(proxy_validation_points),
             "reason": (
                 f"過去{usable_days}日・指定曜日/日付を重視・高設定寄り{strong_rate}%。"
-                f"{('BB・REG' if evidence_level == 'bonus_counts' else '差枚補助')}の先読みなし検証"
+                f"{('BB・REG' if evidence_level.startswith('bonus_counts') else '差枚補助')}の先読みなし検証"
                 f"{validation['test_days']}日・品質{validation.get('quality_score', 0)}点"
             ),
         })

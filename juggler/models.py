@@ -63,6 +63,39 @@ JUGGLER_PROFILES: dict[str, dict] = {
             [97.0, 98.0, 99.8, 102.7, 105.5, 107.3],
         ),
     },
+    "happy3": {
+        "name": "ハッピージャグラーV III",
+        "aliases": [
+            "ハッピージャグラーV III", "ハッピージャグラーVⅢ",
+            "ハッピージャグラーV Ⅲ", "SハッピージャグラーV III",
+        ],
+        "source_url": "https://www.kitadenshi.co.jp/slot/happyjugglerv3/",
+        "settings": _settings(
+            [273.1, 270.8, 263.2, 254.0, 239.2, 226.0],
+            [397.2, 362.1, 332.7, 300.6, 273.1, 256.0],
+            [97.0, 98.1, 99.9, 102.9, 105.8, 108.4],
+        ),
+    },
+    "girls_ss": {
+        "name": "ジャグラーガールズSS",
+        "aliases": ["ジャグラーガールズSS", "SジャグラーガールズSS"],
+        "source_url": "https://www.kitadenshi.co.jp/slot/jugglergirlsss/",
+        "settings": _settings(
+            [273.1, 270.8, 260.1, 250.1, 243.6, 226.0],
+            [381.0, 350.5, 316.6, 281.3, 270.8, 252.1],
+            [97.0, 97.9, 99.9, 102.1, 104.0, 107.5],
+        ),
+    },
+    "ultra_miracle": {
+        "name": "ウルトラミラクルジャグラー",
+        "aliases": ["ウルトラミラクルジャグラー", "Sウルトラミラクルジャグラー"],
+        "source_url": "https://www.kitadenshi.co.jp/slot/ultramiraclejuggler/",
+        "settings": _settings(
+            [267.5, 261.1, 256.0, 242.7, 233.2, 216.3],
+            [425.6, 402.1, 350.5, 322.8, 297.9, 277.7],
+            [97.0, 98.1, 99.8, 102.1, 104.5, 108.1],
+        ),
+    },
 }
 
 

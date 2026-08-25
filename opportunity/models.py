@@ -495,6 +495,56 @@ def save_result(candidate_id: int, data: dict) -> dict:
         return _row_dict(con.execute("SELECT * FROM opportunity_results WHERE id = ?", (cur.lastrowid,)).fetchone()) or {}
 
 
+def get_profile_calibration(profile_id: int) -> dict:
+    """同一ルールの実戦30件以上から、期待値を安全側へだけ縮小補正する。"""
+    with _conn() as con:
+        profile = _deserialize_profile(
+            con.execute("SELECT * FROM opportunity_profiles WHERE id=?", (profile_id,)).fetchone()
+        )
+        rows = con.execute(
+            """
+            SELECT c.current_value,r.investment_yen,r.returns_yen
+              FROM opportunity_results r
+              JOIN opportunity_candidates c ON c.id=r.candidate_id
+             WHERE c.profile_id=?
+             ORDER BY r.played_on,r.id
+            """,
+            (profile_id,),
+        ).fetchall()
+    if not profile:
+        return {"active": False, "count": 0, "factor": 1.0, "factor_pct": 100}
+    curve = sorted(profile.get("curve_points") or [], key=lambda item: float(item["value"]))
+    expected_total = 0
+    actual_total = 0
+    for row in rows:
+        point = next(
+            (item for item in reversed(curve) if float(item["value"]) <= float(row["current_value"])),
+            None,
+        )
+        expected = point.get("ev_yen") if point else profile.get("expected_value_yen")
+        if expected is None or float(expected) <= 0:
+            continue
+        expected_total += int(expected)
+        actual_total += int(row["returns_yen"] or 0) - int(row["investment_yen"] or 0)
+    count = len(rows)
+    observed = actual_total / expected_total if expected_total > 0 else 1.0
+    conservative = max(0.5, min(1.0, observed))
+    reliability = count / (count + 30) if count >= 30 else 0.0
+    factor = 1.0 - (1.0 - conservative) * reliability
+    factor = round(factor, 3)
+    return {
+        "active": count >= 30 and factor < 0.995,
+        "count": count,
+        "expected_total_yen": expected_total,
+        "actual_total_yen": actual_total,
+        "gap_yen": actual_total - expected_total,
+        "factor": factor,
+        "factor_pct": round(factor * 100),
+        "method": "conservative_shrinkage_v1",
+        "note": "30件未満では補正せず、実収支が期待値を下回る場合だけ安全側へ縮小します。",
+    }
+
+
 def save_budget(month: str, starting_bankroll: int, loss_limit_yen: int) -> dict:
     with _conn() as con:
         con.execute(

@@ -121,6 +121,30 @@ def test_empty_database_returns_explanatory_status(tmp_path, monkeypatch):
     assert heat.json()["status"] == "レイアウト未登録"
 
 
+def test_seat_heat_exposes_latest_public_floor_map(layout_database):
+    conn = sqlite3.connect(layout_database)
+    conn.execute(
+        """CREATE TABLE hall_floor_map_snapshot (
+            hall_name TEXT,snapshot_date TEXT,floor_index INTEGER,image_url TEXT,page_url TEXT
+        )"""
+    )
+    conn.executemany(
+        "INSERT INTO hall_floor_map_snapshot VALUES (?,?,?,?,?)",
+        [
+            ("テスト店", "2026-08-24", 1, "https://cdn.example/map-old.jpg", "https://example.com/shop"),
+            ("テスト店", "2026-08-25", 1, "https://cdn.example/map-new.jpg", "https://example.com/shop"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    response = client.get(
+        "/api/layouts/seat_heat",
+        params={"hall_name": "テスト店", "visit_date": "2026-08-26", "days": 30},
+    )
+    assert response.status_code == 200
+    assert response.json()["floor_map_sources"][0]["image_url"].endswith("map-new.jpg")
+
+
 def test_duplicate_seat_numbers_are_rejected(layout_database):
     payload = {
         "hall_name": "テスト店",

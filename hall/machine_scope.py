@@ -36,6 +36,19 @@ def is_smartslot_machine(machine_name: str) -> bool:
     return any(token.replace(" ", "") in name for token in _BARE_SMARTSLOT_TOKENS)
 
 
+def is_juggler_machine(machine_name: str) -> bool:
+    """公開サイト上の機種名がジャグラーシリーズなら True を返す。"""
+    if not machine_name:
+        return False
+    name = re.sub(r"[\s　]+", "", unicodedata.normalize("NFKC", machine_name))
+    return bool(name and not name.startswith("_") and "ジャグラー" in name)
+
+
+def is_supported_analysis_machine(machine_name: str) -> bool:
+    """独立分析モードのいずれかで使用する機種かを返す。"""
+    return is_smartslot_machine(machine_name) or is_juggler_machine(machine_name)
+
+
 def normalize_machine_key(machine_name: str) -> str:
     """媒体ごとの接頭辞・空白・記号差を除いた保守的な照合キー。"""
     name = unicodedata.normalize("NFKC", machine_name or "").lower()

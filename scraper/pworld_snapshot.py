@@ -1,4 +1,4 @@
-"""P-WORLD の店舗ページからスマスロ設置機種を日次保存する。"""
+"""P-WORLD の店舗ページからスマスロ・ジャグラー設置機種を日次保存する。"""
 from __future__ import annotations
 
 import re
@@ -8,7 +8,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from hall.machine_scope import is_smartslot_machine
+from hall.machine_scope import is_supported_analysis_machine
 
 try:
     from config import HALL_REPORTS_DB as DB_PATH
@@ -54,7 +54,7 @@ def init_db() -> sqlite3.Connection:
 
 
 def parse_machine_links(html: str) -> list[dict[str, str]]:
-    """店舗ページ内の機種DBリンクから、スマスロだけを重複なく返す。"""
+    """店舗ページ内の機種DBリンクから、分析対象機種だけを重複なく返す。"""
     soup = BeautifulSoup(html, "lxml")
     found: dict[str, dict[str, str]] = {}
     for anchor in soup.find_all("a", href=True):
@@ -62,7 +62,7 @@ def parse_machine_links(html: str) -> list[dict[str, str]]:
         if not match:
             continue
         name = re.sub(r"\s+", " ", anchor.get_text(" ", strip=True)).strip()
-        if not name or not is_smartslot_machine(name):
+        if not name or not is_supported_analysis_machine(name):
             continue
         found.setdefault(name, {"machine_name": name, "machine_id": match.group(1)})
     return list(found.values())
@@ -87,7 +87,7 @@ def scrape_snapshot(
     snapshot_date: str | None = None,
     html: str | None = None,
 ) -> int:
-    """1店舗の本日の設置スマスロ一覧を保存し、保存機種数を返す。"""
+    """1店舗の本日の分析対象機種一覧を保存し、保存機種数を返す。"""
     source_url = url or HALL_URLS.get(hall_name)
     if not source_url:
         return 0

@@ -1,4 +1,4 @@
-"""anoslot.moe の公開店舗ページから機種別日次集計を保存する。"""
+"""anoslot.moe の公開店舗ページからスマスロ・ジャグラー日次集計を保存する。"""
 from __future__ import annotations
 
 import json
@@ -12,7 +12,7 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-from hall.machine_scope import is_smartslot_machine
+from hall.machine_scope import is_supported_analysis_machine
 
 try:
     from config import HALL_REPORTS_DB as DB_PATH
@@ -157,7 +157,7 @@ def parse_store_page(html: str, expected_hall_name: str, source_url: str) -> lis
         if not isinstance(machine, dict) or not isinstance(machine.get("dailyData"), list):
             continue
         machine_name = str(machine.get("machineName") or machine.get("name") or "").strip()
-        if not is_smartslot_machine(machine_name):
+        if not is_supported_analysis_machine(machine_name):
             continue
         machine_id = str(machine.get("machineId") or "")
         for daily in machine["dailyData"]:

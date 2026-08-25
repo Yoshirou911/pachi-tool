@@ -158,7 +158,7 @@ def get_target_heat_map(
     visit_date: str = Query(..., description="YYYY-MM-DD"),
     days: int = Query(120, ge=14, le=365),
     long_days: int = Query(365, ge=30, le=730),
-    region: Literal["all", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
+    region: Literal["all", "shijonawate", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
 ) -> dict:
     """指定日の店舗熱量と、店舗ごとの月次・曜日別長期傾向を返す。"""
     try:
@@ -259,8 +259,13 @@ def get_target_heat_map(
             continue
         item = ranked.get(hall_name)
         score = int(item["score"]) if item else 0
+        action = item.get("action", "データ不足") if item else "データ不足"
         if not item:
             heat_level, color = "データ不足", "#64748b"
+        elif action == "見送り":
+            heat_level, color = "見送り", "#64748b"
+        elif action == "要確認":
+            heat_level, color = "要確認", "#eab308"
         elif score >= 70:
             heat_level, color = "かなり熱い", "#f43f5e"
         elif score >= 60:
@@ -278,6 +283,9 @@ def get_target_heat_map(
             "heat_level": heat_level,
             "color": color,
             "confidence": item.get("confidence", "不足") if item else "不足",
+            "action": action,
+            "action_reason": item.get("action_reason", "") if item else "データ不足",
+            "validation": item.get("validation", {}) if item else {},
             "projected_diff": item.get("avg_diff") if item else None,
             "positive_rate": item.get("positive_rate") if item else None,
             "sample_days": item.get("sample_days", 0) if item else insufficient[hall_name]["sample_days"],
@@ -288,7 +296,14 @@ def get_target_heat_map(
             "monthly_trend": monthly_by_hall.get(hall_name, []),
             "weekday_profile": weekday_by_hall.get(hall_name, []),
         })
-    halls.sort(key=lambda item: (item["score"], item["sample_days"]), reverse=True)
+    halls.sort(
+        key=lambda item: (
+            2 if item["action"].startswith("狙う") else 1 if item["action"] == "要確認" else 0,
+            item["score"],
+            item["sample_days"],
+        ),
+        reverse=True,
+    )
     center_lat, center_lng = region_center(region)
     return {
         "visit_date": visit_date,

@@ -5,14 +5,15 @@ const html = readFileSync(new URL('../mobile/index.html', import.meta.url), 'utf
 const css = readFileSync(new URL('../mobile/app.css', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../mobile/app.js', import.meta.url), 'utf8');
 
-for (const id of ['screen-home', 'screen-check', 'screen-scan', 'screen-guide', 'screen-planner', 'screen-trend', 'screen-target-map', 'screen-floor-map', 'screen-strategy', 'screen-results', 'screen-settings']) {
+for (const id of ['screen-home', 'screen-juggler', 'screen-check', 'screen-scan', 'screen-guide', 'screen-planner', 'screen-trend', 'screen-target-map', 'screen-floor-map', 'screen-strategy', 'screen-results', 'screen-settings']) {
   assert.match(html, new RegExp(`id="${id}"`), `${id} が必要`);
 }
 
 assert.match(html, /id="screen-home" class="screen active"/, 'ホーム画面を最初に表示する');
-assert.equal((html.match(/class="nav-button/g) || []).length, 11, 'モード別に切り替える専用メニューを持つ');
+assert.equal((html.match(/class="nav-button/g) || []).length, 12, 'モード別に切り替える専用メニューを持つ');
 assert.match(html, /data-screen-target="check"/, 'ホームからハイエナ判定へ移動できる');
 assert.match(html, /data-screen-target="planner"/, 'ホームから狙い台捜索へ移動できる');
+assert.match(html, /data-screen-target="juggler"/, 'ホームからジャグラー判定へ移動できる');
 assert.doesNotMatch(html, /data-screen="candidates"/, '候補台は狙い目画面へ統合する');
 assert.match(html, /data-screen="planner"/, '明日の狙い台を独立メニューにする');
 assert.match(html, /id="planner-form"/, '狙い台を登録できる');
@@ -30,6 +31,7 @@ assert.match(html, /id="floor-editor-form"/, '出典付きレイアウト編集�
 assert.match(html, /id="screen-strategy"/, '分析から保存した朝一作戦を独立表示する');
 assert.match(html, /data-module-nav="hyena"/, 'ハイエナ専用メニューが必要');
 assert.match(html, /data-module-nav="target"/, '狙い台専用メニューが必要');
+assert.match(html, /data-module-nav="juggler"/, 'ジャグラー専用メニューが必要');
 assert.match(html, /data-screen-target="guide"/, '判定画面から狙い目へ移動できる');
 assert.match(html, /id="scan-hall-form"/, '店舗を選ぶ巡回モードが必要');
 assert.match(html, /id="hyena-store-ranking"/, '今から向かう候補店の自動ランキングが必要');
@@ -42,11 +44,16 @@ assert.match(html, /id="scan-machine-list"/, '設置機種だけの巡回リス�
 assert.match(html, /id="performance-chart"/, '期待値と実収支の比較グラフを表示する');
 assert.match(html, /id="performance-summary"/, '比較指標を表示する');
 assert.match(html, /id="catalog-scope"/, '現在の対象機種を明示する');
-assert.match(html, /スマスロ攻略ホーム/, 'スマスロ専門ツールであることを明示する');
+assert.match(html, /スロット攻略ホーム/, '複数の攻略モードを持つことを明示する');
+assert.match(html, /id="juggler-assess-form"/, 'ジャグラーの営業中判定フォームが必要');
+assert.match(html, /id="juggler-target-form"/, 'ジャグラーの朝一候補フォームが必要');
+assert.match(html, /value="shijonawate" selected>四條畷駅周辺/, '四條畷駅周辺を重点地域にする');
+assert.match(app, /api\/juggler\/assess/, '公式確率を使うジャグラー判定APIを利用する');
+assert.match(app, /api\/juggler\/targets/, 'ジャグラー朝一候補APIを利用する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=2\.6\.4/);
-assert.match(html, /app\.js\?v=2\.6\.4/);
+assert.match(html, /app\.css\?v=2\.9\.0/);
+assert.match(html, /app\.js\?v=2\.9\.0/);
 assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
 assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
 assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
@@ -59,7 +66,9 @@ assert.match(app, /データ信頼度/, '判定結果からデータの信頼度
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');
 assert.match(app, /catalog\.json\?v=\$\{APP_VERSION\}/, '機種追加時に古いカタログキャッシュを使わない');
-assert.match(app, /core\.mjs\?v=2\.6\.4/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /core\.mjs\?v=2\.9\.0/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /recommendation_success_pct/, '狙い台の過去検証成績を表示する');
+assert.match(app, /保存できません：/, '検証基準に満たない候補は作戦保存を止める');
 assert.match(app, /installation_snapshot/, '店舗の設置機種を使って巡回対象を絞る');
 assert.match(app, /start_threshold\) - 100/, 'ボーダー100G手前を通過ラインとして表示する');
 assert.match(html, /id="patrol-observation-form"/, '台番号別の巡回記録を入力できる');
@@ -71,15 +80,18 @@ assert.match(html, /id="quick-templates"/, '頻出入力をワンタップで反
 assert.match(html, /id="quick-ocr-file"/, 'カメラOCR入力を利用できる');
 assert.match(html, /id="reset-record-form"/, '店舗別リセット・据え置き癖を記録できる');
 assert.match(html, /id="archive-collector-group"/, '設定から過去データ収集を管理できる');
+assert.match(html, /id="collection-health-group"/, '設定から毎日の収集状態を確認できる');
 assert.match(html, /id="mobile-archive-pause"/, 'iPhoneから収集を一時停止できる');
 assert.match(html, /id="mobile-archive-resume"/, 'iPhoneから収集を再開できる');
 assert.match(app, /api\/scrape\/archive\/status/, '過去データ収集の進捗APIを利用する');
+assert.match(app, /api\/scrape\/health/, '収集元ごとの成功・失敗状態を取得する');
+assert.match(app, /applyPersonalCalibration/, '実戦結果で期待値を安全側へ補正する');
 assert.match(app, /pending_count/, 'オフライン変更を未送信キューとして保持する');
 assert.match(html, /id="result-hit-game"/, '当選ゲーム数を詳細記録できる');
 assert.match(html, /id="brand-home"[^>]*data-screen-target="home"/, '左上ブランドからホームへ戻れる');
 assert.match(html, /id="mobile-menu-button"/, '全画面共通のメニューボタンが必要');
 assert.match(html, /id="mobile-menu-overlay"/, '開閉できる全機能メニューが必要');
-for (const target of ['home', 'check', 'scan', 'guide', 'planner', 'trend', 'target-map', 'floor-map', 'strategy', 'results', 'settings']) {
+for (const target of ['home', 'juggler', 'check', 'scan', 'guide', 'planner', 'trend', 'target-map', 'floor-map', 'strategy', 'results', 'settings']) {
   assert.match(html, new RegExp(`data-menu-screen[^>]*data-screen-target="${target}"`), `共通メニューに ${target} が必要`);
 }
 assert.match(app, /hostname === 'yoshirou911\.github\.io'/, '公開PWAではAPI接続先を切り替える');

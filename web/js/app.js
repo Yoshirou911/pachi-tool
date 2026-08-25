@@ -11,7 +11,7 @@ const API = window.location.hostname === 'localhost' || window.location.hostname
 // サーバー側で PACHI_ACCESS_TOKEN を設定した場合のみ要求されるアクセスキー。
 // 未設定のサーバー（ローカル/デスクトップ版）に対しては何も送らず、従来どおり動く。
 const TOKEN_KEY = 'pachi_access_token';
-const TARGET_REGION_KEY = 'pachi-target-region';
+const TARGET_REGION_KEY = 'pachi-target-region-v2';
 function getStoredToken() {
   try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
 }
@@ -19,12 +19,12 @@ function setStoredToken(token) {
   try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
 }
 function getTargetRegion() {
-  try { return localStorage.getItem(TARGET_REGION_KEY) || 'matsumoto_shiojiri'; } catch { return 'matsumoto_shiojiri'; }
+  try { return localStorage.getItem(TARGET_REGION_KEY) || 'shijonawate'; } catch { return 'shijonawate'; }
 }
 function syncTargetRegion(region) {
-  const value = region || 'matsumoto_shiojiri';
+  const value = region || 'shijonawate';
   try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
-  ['desktop-target-region', 'desktop-heat-region'].forEach(id => {
+  ['desktop-target-region', 'desktop-heat-region', 'desktop-juggler-region'].forEach(id => {
     const element = document.getElementById(id);
     if (element) element.value = value;
   });
@@ -87,6 +87,9 @@ const api = {
     return apiFetch(`/api/occupancy/hyena-stores?${params}`);
   },
   recordOccupancy: (body) => apiFetch('/api/occupancy', { method: 'POST', body: JSON.stringify(body) }),
+  getJugglerCatalog: () => apiFetch('/api/juggler/catalog'),
+  assessJuggler: (body) => apiFetch('/api/juggler/assess', { method: 'POST', body: JSON.stringify(body) }),
+  getJugglerTargets: (params) => apiFetch('/api/juggler/targets?' + new URLSearchParams(params)),
 };
 
 const VERSION_SEEN_KEY = 'pachi-version-seen';
@@ -115,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v2.6.4';
+    document.getElementById('desktop-version-label').textContent = 'v2.9.0';
   }
 }
 
@@ -184,12 +187,15 @@ let navigationEntries = ['home'];
 let navigationIndex = 0;
 let activeModule = 'home';
 let desktopTargetSearchData = null;
+let desktopJugglerCatalog = [];
+let desktopJugglerTargetData = null;
 let desktopTrendProfileData = null;
 let desktopFloorData = null;
 let desktopFloorEditorSeats = [];
 let desktopHallOptions = [];
 const TARGET_MODULE_TABS = new Set(['target-search', 'trend-profile', 'floor-map', 'estimate', 'hall', 'map', 'ai']);
 const HYENA_MODULE_TABS = new Set(['opportunity', 'machines', 'session']);
+const JUGGLER_MODULE_TABS = new Set(['juggler']);
 
 function updateModuleNavigation() {
   document.body.dataset.module = activeModule;
@@ -211,6 +217,10 @@ function updateModuleNavigation() {
     modeTitle.textContent = '狙い台捜索専用';
     modeSubtitle.textContent = 'TARGET MODE';
     help.textContent = '店舗・曜日・機種の分析機能だけを表示しています';
+  } else if (activeModule === 'juggler') {
+    modeTitle.textContent = 'ジャグラー専用';
+    modeSubtitle.textContent = 'JUGGLER MODE';
+    help.textContent = 'BIG・REG判定とジャグラー朝一候補だけを表示しています';
   } else {
     modeTitle.textContent = 'モード選択';
     modeSubtitle.textContent = 'CHOOSE A MODE';
@@ -278,6 +288,7 @@ function switchTab(tabId, options = {}) {
   if (tabId === 'home') activeModule = 'home';
   else if (TARGET_MODULE_TABS.has(tabId)) activeModule = 'target';
   else if (HYENA_MODULE_TABS.has(tabId)) activeModule = 'hyena';
+  else if (JUGGLER_MODULE_TABS.has(tabId)) activeModule = 'juggler';
   updateModuleNavigation();
   if (resetHistory) {
     navigationEntries = [tabId];
@@ -307,6 +318,10 @@ function switchTab(tabId, options = {}) {
   if (tabId === 'machines') loadMachinesPage();
   if (tabId === 'opportunity') loadOpportunityPage();
   if (tabId === 'target-search' && !desktopTargetSearchData) loadDesktopTargetSearch();
+  if (tabId === 'juggler') {
+    loadDesktopJugglerCatalog().catch(error => { document.getElementById('desktop-juggler-status').textContent = error.message; });
+    if (!desktopJugglerTargetData) loadDesktopJugglerTargets();
+  }
   updateNavigationButtons();
 }
 
@@ -358,6 +373,103 @@ function localDateValue(offsetDays = 0) {
   return value.toLocaleDateString('sv');
 }
 
+async function loadDesktopJugglerCatalog() {
+  if (desktopJugglerCatalog.length) return desktopJugglerCatalog;
+  desktopJugglerCatalog = await api.getJugglerCatalog();
+  document.getElementById('desktop-juggler-machine').innerHTML = desktopJugglerCatalog
+    .map(profile => `<option value="${esc(profile.id)}">${esc(profile.name)}</option>`).join('');
+  return desktopJugglerCatalog;
+}
+
+function renderDesktopJugglerAssessment(result) {
+  const tone = result.action === '続行候補' ? 'continue'
+    : result.action === '見送り候補' ? 'stop'
+      : result.action === '判定保留' ? 'hold' : 'watch';
+  const denominator = value => value ? `1/${Number(value).toLocaleString('ja-JP')}` : '当選なし';
+  const bars = Object.entries(result.setting_probabilities_pct || {}).map(([setting, value]) => `
+    <div class="desktop-juggler-probability"><span>設定${esc(setting)}</span><i style="--probability:${Math.min(100, Number(value || 0))}%"></i><b>${Number(value || 0).toFixed(1)}%</b></div>`).join('');
+  document.getElementById('desktop-juggler-assess-result').innerHTML = `
+    <article class="desktop-juggler-result-card ${tone}">
+      <div class="desktop-juggler-result-head"><div><span class="page-eyebrow">LIVE ASSESSMENT</span><h2>${esc(result.machine_name)}</h2></div><span class="desktop-juggler-action">${esc(result.action)}</span></div>
+      <div class="desktop-juggler-metrics"><span>BIG<b>${denominator(result.bb_denominator)}</b></span><span>REG<b>${denominator(result.rb_denominator)}</b></span><span>合算<b>${denominator(result.combined_denominator)}</b></span></div>
+      <p class="desktop-juggler-high">設定4以上の相対確率 ${Number(result.high_setting_probability_pct || 0)}%・信頼度 ${esc(result.confidence)}</p>
+      <p class="desktop-juggler-reason">${esc(result.reason)}</p>
+      <div class="desktop-juggler-probabilities">${bars}</div>
+      <a class="desktop-juggler-source" href="${esc(result.source_url)}" target="_blank" rel="noopener">北電子の公式スペックを確認 ↗</a>
+      <p class="desktop-juggler-note">${esc(result.notice)}</p>
+    </article>`;
+}
+
+async function runDesktopJugglerAssessment() {
+  const button = document.getElementById('desktop-juggler-assess-button');
+  button.disabled = true;
+  button.textContent = '計算中…';
+  try {
+    await loadDesktopJugglerCatalog();
+    const result = await api.assessJuggler({
+      profile_id: document.getElementById('desktop-juggler-machine').value,
+      games: Number(document.getElementById('desktop-juggler-games').value),
+      bb_count: Number(document.getElementById('desktop-juggler-bb').value),
+      rb_count: Number(document.getElementById('desktop-juggler-rb').value),
+    });
+    renderDesktopJugglerAssessment(result);
+  } catch (error) {
+    document.getElementById('desktop-juggler-assess-result').innerHTML = `<div class="juggler-desktop-empty">${esc(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = '設定傾向を判定';
+  }
+}
+
+function renderDesktopJugglerTargets(data) {
+  const coverage = data.data_coverage || {};
+  document.getElementById('desktop-juggler-status').textContent = `${data.region_label || ''}：${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日・${coverage.days || 0}日・${coverage.halls || 0}店舗`;
+  const coverageHtml = `<div class="desktop-juggler-coverage"><b>収集状況</b>　${Number(coverage.rows || 0).toLocaleString('ja-JP')}台日 / ${coverage.days || 0}営業日 / ${coverage.halls || 0}店舗${coverage.latest_date ? `・最新 ${esc(coverage.latest_date)}` : ''}<br>${esc(data.notice || '')}</div>`;
+  const candidates = data.candidates || [];
+  if (!candidates.length) {
+    document.getElementById('desktop-juggler-target-results').innerHTML = `${coverageHtml}<div class="juggler-desktop-empty">まだ朝一候補を出せる量の履歴がありません。取得機能は対応済みで、収集後に自動で候補が育ちます。</div>`;
+    return;
+  }
+  document.getElementById('desktop-juggler-target-results').innerHTML = coverageHtml + candidates.map(item => `
+    <article class="desktop-juggler-target-card">
+      <div class="desktop-juggler-target-head"><div><span class="page-eyebrow">#${item.rank} ${esc(item.action)}</span><h3>${esc(item.hall_name)}・${item.seat_number == null ? '機種候補' : `${esc(item.seat_number)}番台`}</h3></div><span>${item.score}点</span></div>
+      <p>${esc(item.machine_name)}<br>${esc(item.reason)}</p>
+      <dl><div><dt>高設定寄り</dt><dd>${item.strong_rate_pct}%</dd></div><div><dt>平均差枚</dt><dd>${Number(item.avg_diff || 0) >= 0 ? '+' : ''}${Number(item.avg_diff || 0).toLocaleString('ja-JP')}枚</dd></div><div><dt>サンプル</dt><dd>${item.sample_days}日</dd></div></dl>
+      <p class="juggler-validation">過去検証：狙い時 ${item.validation?.recommendation_success_pct ?? '--'}%／${item.validation?.test_days ?? 0}日・${esc(item.validation?.trust_level || 'データ不足')}</p>
+    </article>`).join('');
+}
+
+async function loadDesktopJugglerTargets() {
+  const button = document.getElementById('desktop-juggler-target-button');
+  button.disabled = true;
+  button.textContent = '分析中…';
+  try {
+    const data = await api.getJugglerTargets({
+      visit_date: document.getElementById('desktop-juggler-date').value,
+      days: document.getElementById('desktop-juggler-days').value,
+      region: document.getElementById('desktop-juggler-region').value,
+      limit: '20',
+    });
+    desktopJugglerTargetData = data;
+    renderDesktopJugglerTargets(data);
+  } catch (error) {
+    document.getElementById('desktop-juggler-target-results').innerHTML = `<div class="juggler-desktop-empty">${esc(error.message)}</div>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = '朝一候補を分析';
+  }
+}
+
+document.getElementById('desktop-juggler-assess-form').addEventListener('submit', event => {
+  event.preventDefault();
+  runDesktopJugglerAssessment();
+});
+document.getElementById('desktop-juggler-target-form').addEventListener('submit', event => {
+  event.preventDefault();
+  syncTargetRegion(document.getElementById('desktop-juggler-region').value);
+  loadDesktopJugglerTargets();
+});
+
 function desktopSignedCoins(value) {
   const number = Number(value || 0);
   return `${number >= 0 ? '+' : ''}${number.toLocaleString('ja-JP')}枚`;
@@ -375,11 +487,13 @@ function renderDesktopTargetSearch(data) {
   container.innerHTML = `
     <div class="desktop-target-heading"><div><span class="page-eyebrow">${esc(data.region_label || '')}・${esc(data.visit_date)} ${esc(data.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="badge">${halls.length}店舗</span></div>
     ${halls.map(hall => `<article class="card desktop-target-hall">
+      <div class="desktop-target-action target-action-${hall.action?.startsWith('狙う') ? 'go' : hall.action === '見送り' ? 'stop' : 'check'}"><b>${esc(hall.action || '要確認')}</b><span>${esc(hall.action_reason || '')}</span></div>
       <div class="desktop-target-hall-head"><span class="desktop-target-rank">${hall.rank}</span><div><h3>${esc(hall.hall_name)}</h3><p>${esc(hall.basis)}・最終データ ${esc(hall.latest_date)}</p></div><div class="desktop-target-score"><b>${hall.score}</b><small>点</small></div></div>
-      <div class="desktop-target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>実績日数</small><b>${hall.sample_days}日</b></span><span><small>信頼度</small><b class="target-confidence-${hall.confidence === '高' ? 'high' : hall.confidence === '中' ? 'mid' : 'low'}">${esc(hall.confidence)}</b></span></div>
+      <div class="desktop-target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
+      <div class="desktop-target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}</b><span>方向的中 ${hall.validation?.direction_accuracy_pct ?? 0}% ／ 推奨 ${hall.validation?.recommended_days ?? 0}回 ／ 安全側下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}%</span></div>
       <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="desktop-target-machines">
-        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・最終${esc(machine.latest_date || '--')}・${esc(machine.installation_status || '設置未確認')}</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
+        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${esc(machine.installation_status || '設置未確認')}</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
       </div>
     </article>`).join('')}
     ${insufficient.length ? `<details class="desktop-insufficient"><summary>データ不足の店舗 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}
@@ -4495,6 +4609,9 @@ function renderOpportunityQuickResult(result) {
     result.replay_adjustment?.active
       ? `再プレイ残り${Number(result.replay_adjustment.remaining_replay_medals || 0).toLocaleString()}枚／現金ギャップ-${opportunityMoney(result.cash_gap_yen)}`
       : '',
+    result.personal_calibration?.calibration_active
+      ? `自分の実戦データ補正：${Number(result.personal_calibration.count).toLocaleString()}件／補正前${opportunityMoney(result.expected_value_before_personal_calibration_yen, true)} → 安全側${opportunityMoney(result.expected_value_yen, true)}（${Number(result.personal_calibration.calibration_pct)}%）`
+      : '',
   ].filter(Boolean);
   el.innerHTML = `
     <div class="opp-quick-result-head">
@@ -4828,7 +4945,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.6.4');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=2.9.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);
@@ -5114,6 +5231,8 @@ document.addEventListener('keydown', (e) => {
 // ---------------------------------------------------------------------------
 async function init() {
   await Promise.all([checkConnection(), loadDesktopVersion()]);
+  document.getElementById('desktop-juggler-date').value = localDateValue(1);
+  document.getElementById('desktop-juggler-region').value = getTargetRegion();
   await loadMachineSelect();
   await populateSessionFilters();
   _renderRecentHallsBar();
@@ -6158,6 +6277,7 @@ function renderDesktopHeatDetail(hall) {
       <div><span>${esc(_desktopHeatData.visit_date)}の分析</span><h2>${esc(hall.hall_name)}</h2></div>
       <div class="desktop-heat-score" style="--heat-color:${esc(hall.color)}"><b>${hall.score}</b><small>点</small><em>${esc(hall.heat_level)}</em></div>
     </div>
+    <div class="desktop-target-action target-action-${hall.action?.startsWith('狙う') ? 'go' : hall.action === '見送り' ? 'stop' : 'check'}"><b>${esc(hall.action || '要確認')}</b><span>${esc(hall.action_reason || '')}</span></div>
     <div class="desktop-heat-stats">
       <div><small>指定日推定</small><strong class="${hall.projected_diff >= 0 ? 'money-up' : 'money-down'}">${hall.projected_diff == null ? '--' : desktopSignedCoins(hall.projected_diff)}</strong></div>
       <div><small>プラス日率</small><strong>${hall.positive_rate == null ? '--' : `${hall.positive_rate}%`}</strong></div>
@@ -6703,9 +6823,10 @@ async function loadScrapeManager() {
   } catch(e) {}
 
   try {
-    const [status, cookieSt] = await Promise.all([
+    const [status, cookieSt, health] = await Promise.all([
       apiFetch('/api/scrape/status').catch(() => null),
       apiFetch('/api/scrape/cookie_status').catch(() => null),
+      apiFetch('/api/scrape/health').catch(() => null),
     ]);
     // ホール一覧
     loadScrapeHalls();
@@ -6762,6 +6883,16 @@ async function loadScrapeManager() {
         ? `<span style="color:var(--success)">● スケジューラー稼働中</span> — ${next}${running}`
         : `<span style="color:var(--danger)">● スケジューラー停止中</span>`;
       schedEl.innerHTML = sched + `<span style="color:var(--text3);margin-left:8px">対象${status.total_halls || 0}店舗</span>`;
+    }
+
+    const healthEl = document.getElementById('scrape-health-info');
+    if (healthEl && health) {
+      const labels = { public_machine_daily: '日次機種', pworld_snapshot: '設置機種', dmm_store_snapshot: '四條畷店/DMM', minrepo_daily: '機種別差枚', minrepo_startup: '起動時補完' };
+      const sources = (health.sources || []).filter(item => labels[item.source] || String(item.source).includes('キコーナ四條畷店'));
+      healthEl.innerHTML = `<strong>取得元別ヘルスチェック</strong><br>${sources.length ? sources.map(item => {
+        const color = item.status === 'success' ? 'var(--success)' : item.status === 'partial' ? 'var(--warning)' : 'var(--danger)';
+        return `<span style="color:${color}">${item.status === 'success' ? '✓' : item.status === 'partial' ? '△' : '×'} ${esc(labels[item.source] || item.source)}</span> ${esc(String(item.finished_at || '').replace('T', ' '))}・${Number(item.records || 0).toLocaleString('ja-JP')}件`;
+      }).join('<br>') : 'まだ実行履歴はありません'}`;
     }
 
     // 実行ログ

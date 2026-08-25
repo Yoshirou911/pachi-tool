@@ -32,6 +32,7 @@ from api.routers import (
     estimate,
     events,
     hall,
+    juggler,
     layout,
     machines,
     map as map_router,
@@ -150,6 +151,16 @@ def _init_auxiliary_databases() -> None:
     except ImportError:
         pass
     try:
+        from scraper.dmm_snapshot import init_db as init_dmm_db
+        initializers.append(init_dmm_db)
+    except ImportError:
+        pass
+    try:
+        from scraper.collection_health import init_db as init_collection_health_db
+        initializers.append(init_collection_health_db)
+    except ImportError:
+        pass
+    try:
         from api.routers.layout import init_layout_db
         initializers.append(init_layout_db)
     except ImportError:
@@ -178,6 +189,7 @@ app.include_router(opportunity.router)
 app.include_router(estimate.router)
 app.include_router(sessions.router)
 app.include_router(hall.router)
+app.include_router(juggler.router)
 app.include_router(scrape.router)
 app.include_router(events.router)
 app.include_router(map_router.router)

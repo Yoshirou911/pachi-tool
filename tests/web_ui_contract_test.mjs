@@ -10,6 +10,11 @@ assert.match(desktopHtml, /id="page-home" class="page active"/, 'PC・ソフト�
 assert.match(desktopHtml, /data-tab="home"/, 'PC・ソフト版のメニューからホームへ戻れる');
 assert.match(desktopHtml, /data-home-destination="opportunity"/, 'ホームからハイエナへ進める');
 assert.match(desktopHtml, /data-home-destination="target-search"/, 'ホームから狙い台捜索へ進める');
+assert.match(desktopHtml, /data-home-destination="juggler"/, 'ホームからジャグラーへ進める');
+assert.match(desktopHtml, /id="page-juggler"/, 'ジャグラー専用画面が必要');
+assert.match(desktopHtml, /id="desktop-juggler-assess-form"/, 'PC・ソフト版に営業中判定が必要');
+assert.match(desktopHtml, /id="desktop-juggler-target-form"/, 'PC・ソフト版に朝一候補が必要');
+assert.match(desktopHtml, /value="shijonawate" selected>四條畷駅周辺/, 'PC・ソフト版も四條畷駅周辺を重点地域にする');
 assert.match(desktopHtml, /id="page-target-search"/, '分析ランキング専用画面が必要');
 assert.match(desktopHtml, /id="page-trend-profile"/, '店舗傾向カルテを独立画面にする');
 assert.match(desktopHtml, /id="page-floor-map"/, '店内座席ヒートマップを独立画面にする');
@@ -21,6 +26,9 @@ assert.match(desktopJs, /api\/hall\/trend_profile/, '店舗傾向APIを利用す
 assert.match(desktopJs, /api\/layouts\/seat_heat/, '店内座席ヒートAPIを利用する');
 assert.match(desktopHtml, /data-module-nav="hyena"/, 'ハイエナ専用メニューが必要');
 assert.match(desktopHtml, /data-module-nav="target"/, '狙い台専用メニューが必要');
+assert.match(desktopHtml, /data-module-nav="juggler"/, 'ジャグラー専用メニューが必要');
+assert.match(desktopJs, /api\/juggler\/assess/, 'PC・ソフト版でもジャグラー判定APIを利用する');
+assert.match(desktopJs, /api\/juggler\/targets/, 'PC・ソフト版でも朝一候補APIを利用する');
 assert.match(desktopJs, /navigationEntries = \['home'\]/, '画面履歴もホームから開始する');
 assert.match(desktopJs, /switchTab\('home', \{ record: false, resetHistory: true \}\)/, '再起動時もホームを表示する');
 assert.match(desktopCss, /\.home-mode-grid/, 'ホームのモード選択レイアウトが必要');
@@ -38,11 +46,14 @@ assert.match(desktopJs, /api\/occupancy\/hyena-stores/, 'PC・ソフト版でも
 assert.match(desktopJs, /data-opp-crawler-approve/, '期待値更新は利用者が承認してから反映する');
 assert.match(desktopJs, /api\/opportunity\/crawler\/run/, '公開ソース確認APIを利用する');
 assert.match(desktopHtml, /id="archive-collector"/, 'PC・ソフト版に過去データ収集管理が必要');
+assert.match(desktopHtml, /id="scrape-health-info"/, 'PC・ソフト版に毎日の収集状態が必要');
 assert.match(desktopHtml, /id="archive-pause-btn"/, '収集を一時停止できる');
 assert.match(desktopHtml, /id="archive-resume-btn"/, '収集を再開できる');
 assert.match(desktopJs, /api\/scrape\/archive\/jobs/, '永続キューの収集APIを利用する');
+assert.match(desktopJs, /api\/scrape\/health/, '収集元ごとの成功・失敗状態を取得する');
+assert.match(desktopJs, /personal_calibration/, 'PC・ソフト版でも実戦結果による期待値補正を表示する');
 
-for (const label of ['ハイエナ', '狙い台捜索']) {
+for (const label of ['ハイエナ', '狙い台捜索', 'ジャグラー設定狙い']) {
   assert.match(desktopHtml, new RegExp(label), `PC・ソフト版に${label}が必要`);
   assert.match(mobileHtml, new RegExp(label), `iPhone版に${label}が必要`);
 }

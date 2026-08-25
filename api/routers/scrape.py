@@ -407,6 +407,18 @@ def get_auto_scrape_status() -> dict:
     except Exception as e:
         return {"error": str(e), "scheduler_running": False, "scrape_running": scheduler.is_scrape_running()}
 
+
+@router.get("/api/scrape/health", tags=["scrape"])
+def get_collection_health() -> dict:
+    """収集元ごとの最終成功・失敗と直近履歴を返す。"""
+    from scraper.collection_health import get_health
+    health = get_health(limit=30)
+    health["scheduler_running"] = bool(
+        scheduler.get_scheduler() is not None and scheduler.get_scheduler().running
+    )
+    health["scrape_running"] = scheduler.is_scrape_running()
+    return health
+
 @router.get("/api/scrape/bulk_status", tags=["scrape"])
 def get_bulk_scrape_status() -> dict:
     """全店舗一括スクレイプの進捗を返す"""

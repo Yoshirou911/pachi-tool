@@ -83,14 +83,47 @@ export function buildValidationSummary(results = []) {
     group.actual_yen += Number(result.returns_yen || 0) - Number(result.investment_yen || 0);
     group.minutes += Number(result.played_minutes || 0);
   }
-  return [...groups.values()].map(group => ({
+  return [...groups.values()].map(group => {
+    const observedRatio = group.expected_yen > 0 ? group.actual_yen / group.expected_yen : 1;
+    const conservativeRatio = clamp(observedRatio, 0.5, 1);
+    const reliability = group.count >= 30 ? group.count / (group.count + 30) : 0;
+    const calibrationFactor = 1 - (1 - conservativeRatio) * reliability;
+    return {
     ...group,
     gap_yen: group.actual_yen - group.expected_yen,
     avg_actual_yen: Math.round(group.actual_yen / group.count),
     avg_minutes: group.minutes ? Math.round(group.minutes / group.count) : null,
     sample_level: group.count >= 30 ? 'usable' : group.count >= 10 ? 'watch' : 'insufficient',
     sample_label: group.count >= 30 ? '検証可能' : group.count >= 10 ? '要観察' : 'データ不足',
-  })).sort((a, b) => b.count - a.count || b.expected_yen - a.expected_yen);
+    calibration_factor: Math.round(calibrationFactor * 1000) / 1000,
+    calibration_pct: Math.round(calibrationFactor * 100),
+    calibration_active: group.count >= 30 && calibrationFactor < 0.995,
+  }}).sort((a, b) => b.count - a.count || b.expected_yen - a.expected_yen);
+}
+
+export function applyPersonalCalibration(assessment, profile, results = []) {
+  const validation = buildValidationSummary(results).find(row =>
+    (profile?.catalog_key && row.catalog_key === profile.catalog_key)
+    || (!profile?.catalog_key && row.machine_name === profile?.machine_name)
+  );
+  if (!assessment || !validation || !validation.calibration_active
+      || assessment.expected_value_yen == null) {
+    return { ...assessment, personal_calibration: validation || null };
+  }
+  const before = Number(assessment.expected_value_yen);
+  const adjusted = Math.round(before * validation.calibration_factor);
+  const minutes = Number(assessment.estimated_play_minutes || 0);
+  return {
+    ...assessment,
+    expected_value_before_personal_calibration_yen: before,
+    expected_value_yen: adjusted,
+    ev_per_hour_yen: minutes ? Math.round(adjusted * 60 / minutes) : assessment.ev_per_hour_yen,
+    personal_calibration: validation,
+    warnings: [
+      ...(assessment.warnings || []),
+      `同じ条件${validation.count}件の実績から期待値を安全側${validation.calibration_pct}%に補正`,
+    ],
+  };
 }
 
 export function curvePointAt(profile, currentValue) {

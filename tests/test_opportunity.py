@@ -249,6 +249,23 @@ def test_result_updates_budget_and_closes_candidate(opportunity_db):
         })
 
 
+def test_profile_calibration_activates_only_after_30_results(opportunity_db):
+    profile = _profile(curve_points=[{"value": 500, "ev_yen": 1000}])
+    for index in range(30):
+        candidate = models.save_candidate({
+            "machine_name": "テストAT機", "current_value": 600, "profile_id": profile["id"],
+        })
+        models.save_result(candidate["id"], {
+            "played_on": f"2026-07-{index % 28 + 1:02d}",
+            "investment_yen": 5000, "returns_yen": 5750,
+            "played_minutes": 60, "notes": "",
+        })
+    calibration = models.get_profile_calibration(profile["id"])
+    assert calibration["active"] is True
+    assert calibration["count"] == 30
+    assert calibration["factor_pct"] == 88
+
+
 def test_opportunity_api_flow(opportunity_db):
     client = TestClient(app)
     budget = client.put("/api/opportunity/budget", json={

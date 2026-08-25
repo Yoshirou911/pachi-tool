@@ -27,7 +27,7 @@ from typing import Optional
 
 from bs4 import BeautifulSoup
 
-from hall.machine_scope import is_smartslot_machine
+from hall.machine_scope import is_supported_analysis_machine
 
 # curl_cffi が利用可能なら使い、なければ cloudscraper にフォールバック
 try:
@@ -623,7 +623,13 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
             "SELECT COUNT(*) FROM hall_day_seat WHERE hall_name=? AND report_date=? AND source='anaslo'",
             (hall_name, date_str),
         ).fetchone()[0]
-        if existing > 0:
+        scope_complete = conn.execute(
+            """SELECT COUNT(*) FROM hall_day_seat
+                 WHERE hall_name=? AND report_date=? AND source='anaslo'
+                   AND machine_name='_SCOPE_V3_JUGGLER_'""",
+            (hall_name, date_str),
+        ).fetchone()[0]
+        if scope_complete > 0:
             print(f"  [{i+1:3d}] {date_str} スキップ ({existing}件取得済み)")
             continue
 
@@ -651,7 +657,7 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
 
         seat_rows = [
             row for row in _parse_seat_tables(day_soup, date_url)
-            if is_smartslot_machine(row["machine_name"])
+            if is_supported_analysis_machine(row["machine_name"])
         ]
         saved = 0
         if not seat_rows:
@@ -661,6 +667,11 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
                 (hall_name, report_date, machine_name, seat_number, source)
                 VALUES (?, ?, '_NODATA_', 0, 'anaslo')
             """, (hall_name, date_str))
+            conn.execute("""
+                INSERT OR REPLACE INTO hall_day_seat
+                (hall_name, report_date, machine_name, seat_number, source, source_url)
+                VALUES (?, ?, '_SCOPE_V3_JUGGLER_', 0, 'anaslo', ?)
+            """, (hall_name, date_str, date_url))
             conn.commit()
             print("データなし")
             time.sleep(DELAY)
@@ -680,6 +691,14 @@ def scrape_hall(hall_name: str, prefecture: str = "大阪府", max_days: int = 3
                 saved += 1
             except Exception as e:
                 print(f"\n    DB保存エラー: {e}")
+
+        # スマスロ＋ジャグラーの両方を解析済みであることを記録し、
+        # ジャグラー設置なしの日も無限に再取得しない。
+        conn.execute("""
+            INSERT OR REPLACE INTO hall_day_seat
+            (hall_name, report_date, machine_name, seat_number, source, source_url)
+            VALUES (?, ?, '_SCOPE_V3_JUGGLER_', 0, 'anaslo', ?)
+        """, (hall_name, date_str, date_url))
 
         conn.commit()
         total_saved += saved

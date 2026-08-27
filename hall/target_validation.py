@@ -48,6 +48,13 @@ def grade_policy() -> dict:
             "recent_success_pct": 75,
             "quality_score": 80,
         },
+        "70%実戦基準": {
+            "recommended_days": 15,
+            "success_pct": 70,
+            "lower_bound_pct": 55,
+            "recent_success_pct": 65,
+            "quality_score": 70,
+        },
     }
 
 
@@ -406,6 +413,10 @@ def walk_forward_backtest(
         enough and len(recommended) >= 25 and precision >= 0.82
         and lower_bound >= 0.68 and recent_precision >= 0.75 and quality_score >= 80
     )
+    grade70 = (
+        enough and len(recommended) >= 15 and precision >= 0.70
+        and lower_bound >= 0.55 and recent_precision >= 0.65 and quality_score >= 70
+    )
 
     return {
         "status": "validated" if enough else "insufficient",
@@ -439,6 +450,7 @@ def walk_forward_backtest(
         "trust_level": (
             "90%級" if grade90
             else "80%級" if grade80
+            else "70%実戦基準" if grade70
             else "検証済み" if enough
             else "データ不足"
         ),

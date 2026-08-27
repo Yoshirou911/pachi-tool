@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.5.2';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.5.2';
+} from './core.mjs?v=3.6.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.6.0';
 
-const APP_VERSION = '3.5.2';
+const APP_VERSION = '3.6.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -685,7 +685,11 @@ function renderTargetContext(hall) {
 function renderSeatCandidates(machine) {
   const rows = machine.seat_candidates || [];
   if (!rows.length) return '';
-  return `<span class="machine-seat-candidates">台候補 ${rows.map(row => `${row.seat_number}番・${row.positive_rate_pct}%・${row.sample_days}日`).join(' ／ ')}</span>`;
+  return `<span class="machine-seat-candidates">台候補 ${rows.map(row => `${row.seat_number}番・${row.status}・狙い時${row.validation?.recommendation_success_pct ?? '--'}%`).join(' ／ ')}</span>`;
+}
+
+function hasVerifiedSeat(machine) {
+  return (machine?.seat_candidates || []).some(item => item.status === '検証済み');
 }
 
 function targetActionRank(action) {
@@ -696,7 +700,7 @@ function selectTargetMachine(hall, requireSeat = false) {
   const machines = hall?.target_machines || [];
   if (!machines.length) return null;
   const bestRank = Math.max(...machines.map(item => targetActionRank(item.action)));
-  return machines.find(item => targetActionRank(item.action) === bestRank && (!requireSeat || item.seat_candidates?.length))
+  return machines.find(item => targetActionRank(item.action) === bestRank && (!requireSeat || hasVerifiedSeat(item)))
     || (requireSeat ? null : machines[0]);
 }
 
@@ -712,7 +716,7 @@ function selectTargetConclusion(data) {
   if (!hall) return null;
   const machine = selectTargetMachine(hall, true) || selectTargetMachine(hall);
   const seats = machine?.seat_candidates || [];
-  const seat = seats.find(item => item.status === '検証対象') || seats[0] || null;
+  const seat = seats.find(item => item.status === '検証済み') || null;
   const action = hall.action === '見送り'
     ? '見送り'
     : hall.action?.startsWith('狙う') && machine?.action?.startsWith('狙う')
@@ -728,7 +732,7 @@ function renderTargetConclusion(data) {
   const { hall, machine, seat, action, tone } = result;
   const dateParts = String(data.visit_date || '').split('-');
   const dateLabel = dateParts.length === 3 ? `${Number(dateParts[1])}/${Number(dateParts[2])}の結論` : '行く日の結論';
-  const seatLabel = seat ? `${seat.seat_number}番台${seat.status === '検証対象' ? '' : '候補'}` : '現地で未確定';
+  const seatLabel = seat ? `${seat.seat_number}番台` : '70%検証データ不足';
   const reason = action === '見送り'
     ? '安全基準を通る店舗・機種がありません'
     : action === '狙う'

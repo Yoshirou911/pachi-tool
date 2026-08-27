@@ -225,3 +225,42 @@ def test_juggler_90_grade_requires_bonus_count_history(tmp_path, monkeypatch):
     assert candidate["evidence_level"] == "bonus_counts"
     assert candidate["validation"]["trust_level"] == "90%級"
     assert candidate["action"] == "朝一候補・90%級"
+
+
+def test_juggler_machine_pool_uses_bonus_counts_without_claiming_seat(tmp_path, monkeypatch):
+    from datetime import date, timedelta
+
+    db_path = tmp_path / "juggler-pool.db"
+    conn = _connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE scrape_hall_config (hall_name TEXT PRIMARY KEY, prefecture TEXT, enabled INTEGER);
+        CREATE TABLE hall_day_seat (
+            hall_name TEXT, report_date TEXT, machine_name TEXT, seat_number INTEGER,
+            diff_coins INTEGER, games INTEGER, bb_prob REAL, rb_prob REAL, source_url TEXT
+        );
+        INSERT INTO scrape_hall_config VALUES ('キコーナ四條畷店', '大阪府', 1);
+        """
+    )
+    start = date(2026, 5, 1)
+    rows = []
+    for index in range(75):
+        report_date = (start + timedelta(days=index)).isoformat()
+        for seat in range(450, 454):
+            rows.append((
+                "キコーナ四條畷店", report_date, "マイジャグラーV", seat,
+                1200, 6000, 26 / 6000, 26 / 6000, "https://source",
+            ))
+    conn.executemany("INSERT INTO hall_day_seat VALUES (?,?,?,?,?,?,?,?,?)", rows)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(juggler_router, "_get_reports_conn", lambda: _connect(db_path))
+    result = juggler_router.get_juggler_targets(
+        "2026-08-01", days=180, limit=100, region="shijonawate"
+    )
+    pooled = next(item for item in result["candidates"] if item["scope"] == "machine_pool")
+    assert pooled["seat_number"] is None
+    assert pooled["evidence_level"] == "bonus_counts_pool"
+    assert pooled["validation"]["recommendation_success_pct"] == 100
+    assert pooled["action"] == "朝一候補・90%級"

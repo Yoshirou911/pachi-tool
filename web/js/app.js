@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.5.2';
+    document.getElementById('desktop-version-label').textContent = 'v3.6.0';
   }
 }
 
@@ -500,11 +500,15 @@ function desktopTargetActionRank(action) {
   return action?.startsWith('狙う') ? 2 : action === '要確認' ? 1 : 0;
 }
 
+function hasDesktopVerifiedSeat(machine) {
+  return (machine?.seat_candidates || []).some(item => item.status === '検証済み');
+}
+
 function selectDesktopTargetMachine(hall, requireSeat = false) {
   const machines = hall?.target_machines || [];
   if (!machines.length) return null;
   const bestRank = Math.max(...machines.map(item => desktopTargetActionRank(item.action)));
-  return machines.find(item => desktopTargetActionRank(item.action) === bestRank && (!requireSeat || item.seat_candidates?.length))
+  return machines.find(item => desktopTargetActionRank(item.action) === bestRank && (!requireSeat || hasDesktopVerifiedSeat(item)))
     || (requireSeat ? null : machines[0]);
 }
 
@@ -520,7 +524,7 @@ function selectDesktopTargetConclusion(data) {
   if (!hall) return null;
   const machine = selectDesktopTargetMachine(hall, true) || selectDesktopTargetMachine(hall);
   const seats = machine?.seat_candidates || [];
-  const seat = seats.find(item => item.status === '検証対象') || seats[0] || null;
+  const seat = seats.find(item => item.status === '検証済み') || null;
   const action = hall.action === '見送り'
     ? '見送り'
     : hall.action?.startsWith('狙う') && machine?.action?.startsWith('狙う')
@@ -535,7 +539,7 @@ function renderDesktopTargetConclusion(data) {
   const { hall, machine, seat, action, tone } = result;
   const parts = String(data.visit_date || '').split('-');
   const dateLabel = parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}の結論` : '行く日の結論';
-  const seatLabel = seat ? `${seat.seat_number}番台${seat.status === '検証対象' ? '' : '候補'}` : '現地で未確定';
+  const seatLabel = seat ? `${seat.seat_number}番台` : '70%検証データ不足';
   const reason = action === '見送り'
     ? '安全基準を通る店舗・機種がありません'
     : action === '狙う'
@@ -569,7 +573,7 @@ function renderDesktopTargetSearch(data) {
       <details class="desktop-target-backtest"><summary>直近の自動答え合わせを見る</summary><div>${renderDesktopBacktestAnswers(hall.validation)}</div></details>
       <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="desktop-target-machines">
-        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}${machine.seat_candidates?.length ? `<i>台候補 ${machine.seat_candidates.map(row => `${row.seat_number}番(${row.positive_rate_pct}%)`).join('・')}</i>` : ''}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${esc(machine.installation_status || '設置未確認')}</small><b class="${(machine.risk_adjusted_avg_diff ?? machine.avg_diff) >= 0 ? 'text-up' : 'text-down'}">安全側 ${desktopSignedCoins(machine.risk_adjusted_avg_diff ?? machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
+        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}${machine.seat_candidates?.length ? `<i>台候補 ${machine.seat_candidates.map(row => `${row.seat_number}番(${esc(row.status)}・狙い時${row.validation?.recommendation_success_pct ?? '--'}%)`).join('・')}</i>` : ''}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${esc(machine.installation_status || '設置未確認')}</small><b class="${(machine.risk_adjusted_avg_diff ?? machine.avg_diff) >= 0 ? 'text-up' : 'text-down'}">安全側 ${desktopSignedCoins(machine.risk_adjusted_avg_diff ?? machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
       </div>
     </article>`).join('')}
     ${insufficient.length ? `<details class="desktop-insufficient"><summary>データ不足の店舗 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}
@@ -5057,7 +5061,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.5.2');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.6.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

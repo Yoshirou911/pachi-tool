@@ -33,7 +33,11 @@ from hall.prior import (
     day_rating,
     machine_ranking,
 )
-from hall.machine_scope import is_smartslot_machine, machine_names_match
+from hall.machine_scope import (
+    is_smartslot_machine,
+    machine_names_match,
+    normalize_machine_key,
+)
 from hall.regions import region_label, region_matches
 from hall.target_validation import (
     activity_filter_summary,
@@ -53,6 +57,19 @@ _anaslo_scrape_status: dict[str, str] = {}
 
 def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
     """対象日より前の台番号実績から、再現性のある配置傾向だけを返す。"""
+    latest_by_seat: dict[int, object] = {}
+    for row in rows:
+        seat_number = int(row["seat_number"] or 0)
+        if seat_number <= 0:
+            continue
+        current = latest_by_seat.get(seat_number)
+        if current is None or str(row["report_date"]) > str(current["report_date"]):
+            latest_by_seat[seat_number] = row
+    layout_machine_by_seat = {
+        int(seat["seat_number"]): str(seat["machine_name"] or "")
+        for seat in layout_seats
+        if int(seat["seat_number"] or 0) > 0
+    }
     usable = [
         row for row in rows
         if int(row["seat_number"] or 0) > 0
@@ -64,13 +81,30 @@ def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
     by_tail: dict[int, list] = {}
     for row in usable:
         seat_number = int(row["seat_number"])
-        by_seat.setdefault((row["machine_name"], seat_number), []).append(row)
+        machine_key = normalize_machine_key(row["machine_name"])
+        if machine_key:
+            by_seat.setdefault((machine_key, seat_number), []).append(row)
         by_tail.setdefault(seat_number % 10, []).append(row)
 
     top_seats = []
-    for (machine_name, seat_number), history in by_seat.items():
+    empty_validation = walk_forward_backtest([])
+    for (_, seat_number), history in by_seat.items():
+        machine_name = max(
+            history,
+            key=lambda row: (str(row["report_date"]), str(row["machine_name"])),
+        )["machine_name"]
         days = len({row["report_date"] for row in history})
         if days < 5:
+            continue
+        latest_row = latest_by_seat.get(seat_number)
+        latest_machine_name = (
+            str(latest_row["machine_name"] or "") if latest_row is not None else ""
+        )
+        layout_machine_name = layout_machine_by_seat.get(seat_number) or ""
+        # 台別実績の最新配置を優先し、登録マップは実績がない時だけ使う。
+        current_machine_name = latest_machine_name or layout_machine_name
+        # 過去に置かれていた機種の台番号を、現在も同じ配置だと誤認しない。
+        if current_machine_name and not machine_names_match(machine_name, current_machine_name):
             continue
         diffs = [float(row["diff_coins"]) for row in history]
         wins = sum(value > 0 for value in diffs)
@@ -81,6 +115,21 @@ def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
             + max(0, min(25, 12.5 + avg_diff / 80))
             + min(20, days / 20 * 20)
         )
+        validation = (
+            walk_forward_backtest([
+                (date.fromisoformat(str(row["report_date"])), float(row["diff_coins"]))
+                for row in history
+            ], max_test_days=45)
+            if days >= 30 else dict(empty_validation)
+        )
+        verified = (
+            validation["status"] == "validated"
+            and (validation["recommendation_success_pct"] or 0) >= 70
+            and (validation["recommendation_lower_bound_pct"] or 0) >= 55
+            and (validation["recommended_days"] or 0) >= 15
+            and (validation["recent_recommendation_success_pct"] or 0) >= 65
+            and (validation["quality_score"] or 0) >= 70
+        )
         top_seats.append({
             "machine_name": machine_name,
             "seat_number": seat_number,
@@ -88,10 +137,17 @@ def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
             "positive_rate_pct": positive_rate,
             "avg_diff_coins": avg_diff,
             "score": max(0, min(100, score)),
-            "status": "検証対象" if days >= 20 else "蓄積中",
+            "status": "検証済み" if verified else "検証対象" if days >= 20 else "蓄積中",
+            "latest_date": str(latest_row["report_date"]) if latest_row is not None else None,
+            "current_machine_name": current_machine_name or None,
+            "placement_source": "最新台別実績" if latest_machine_name else "登録マップ",
+            "validation": validation,
         })
     top_seats.sort(
-        key=lambda item: (item["status"] == "検証対象", item["score"], item["sample_days"]),
+        key=lambda item: (
+            2 if item["status"] == "検証済み" else 1 if item["status"] == "検証対象" else 0,
+            item["score"], item["sample_days"],
+        ),
         reverse=True,
     )
 
@@ -140,7 +196,7 @@ def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
         "best_tail": tails[0] if tails else None,
         "tail_ranking": tails[:5],
         "corner": corner_summary,
-        "notice": "台別20日以上を検証対象、5～19日は蓄積中として表示",
+        "notice": "最新配置一致を必須とし、先読みなし成功70%以上だけを検証済み表示",
     }
 
 
@@ -1003,7 +1059,9 @@ def get_target_search(
 
         by_machine: dict[str, list] = {}
         for row in hall_rows:
-            by_machine.setdefault(row["machine_name"], []).append(row)
+            machine_key = normalize_machine_key(row["machine_name"])
+            if machine_key:
+                by_machine.setdefault(machine_key, []).append(row)
         machine_candidates = []
         excluded_not_installed = 0
         excluded_stale = 0
@@ -1014,7 +1072,13 @@ def get_target_search(
             if installation else None
         )
         installation_is_fresh = bool(installation and snapshot_age is not None and snapshot_age <= 21)
-        for machine_name, machine_rows in by_machine.items():
+        for machine_rows in by_machine.values():
+            # 媒体ごとの「L」「スマスロ」などの表記差を同一機種として統合し、
+            # 最終取得日の表示名を代表名にする。
+            machine_name = max(
+                machine_rows,
+                key=lambda row: (str(row["report_date"]), str(row["machine_name"])),
+            )["machine_name"]
             machine_dates = {row["report_date"] for row in machine_rows}
             if len(machine_dates) < 2:
                 continue

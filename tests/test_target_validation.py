@@ -6,6 +6,7 @@ from hall.target_validation import (
     compare_prediction_models,
     date_weighted_estimate,
     decide_action,
+    grade_policy,
     walk_forward_backtest,
 )
 
@@ -24,6 +25,16 @@ def test_walk_forward_backtest_can_certify_consistent_signal():
     action, reason = decide_action(300, 1, validation)
     assert action == "狙う・90%級"
     assert "成功率100%" in reason
+
+
+def test_policy_exposes_seventy_percent_practical_gate():
+    assert grade_policy()["70%実戦基準"] == {
+        "recommended_days": 15,
+        "success_pct": 70,
+        "lower_bound_pct": 55,
+        "recent_success_pct": 65,
+        "quality_score": 70,
+    }
 
 
 def test_walk_forward_backtest_rejects_bad_direction_accuracy():

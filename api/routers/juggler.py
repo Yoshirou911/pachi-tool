@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import _get_reports_conn
+from hall.machine_scope import normalize_machine_key
 from hall.regions import region_label, region_matches
 from hall.target_validation import decide_action, grade_policy, walk_forward_backtest
 from juggler.models import assess_juggler, catalog, profile_for_machine
@@ -46,7 +47,7 @@ def _validated_action(
     if validation_action == "見送り":
         return "見送り"
     # 機種平均差枚は「出た」ことしか示さず、設定を直接示さないため上限を設ける。
-    if evidence_level != "bonus_counts":
+    if evidence_level not in {"bonus_counts", "bonus_counts_pool"}:
         return "要確認" if usable_days >= 5 and stale_days <= 90 else "データ不足"
     if validation_action == "狙う・90%級":
         return "朝一候補・90%級"
@@ -168,12 +169,19 @@ def get_juggler_targets(
 
     by_seat: dict[tuple[str, str, int], list] = {}
     for row in rows:
+        machine_key = normalize_machine_key(row["machine_name"])
+        if not machine_key:
+            continue
         by_seat.setdefault(
-            (row["hall_name"], row["machine_name"], int(row["seat_number"])), []
+            (row["hall_name"], machine_key, int(row["seat_number"])), []
         ).append(row)
 
     candidates = []
-    for (hall_name, machine_name, seat_number), history in by_seat.items():
+    for (hall_name, _, seat_number), history in by_seat.items():
+        machine_name = max(
+            history,
+            key=lambda row: (str(row["report_date"]), str(row["machine_name"])),
+        )["machine_name"]
         weighted_hits = 0.0
         weight_total = 0.0
         weighted_diff = 0.0
@@ -276,15 +284,128 @@ def get_juggler_targets(
             ),
         })
 
+    # 台単体の履歴が短くても、同じ店舗・同じ機種のBB/REG実績を日別に束ね、
+    # 「島の25%以上が高設定寄りだった日」を店舗×機種の検証材料にする。
+    # 差枚だけの機種平均より根拠は強いが、台番号までは特定しない。
+    pool_rows: dict[tuple[str, str], dict[str, list[dict]]] = {}
+    for row in rows:
+        machine_key = normalize_machine_key(row["machine_name"])
+        profile_id = profile_for_machine(row["machine_name"])
+        games = int(row["games"] or 0)
+        bb_count = _bonus_count(row["bb_prob"], games)
+        rb_count = _bonus_count(row["rb_prob"], games)
+        if not machine_key or not profile_id or games < 4000 or bb_count is None or rb_count is None:
+            continue
+        try:
+            assessment = assess_juggler(profile_id, games, bb_count, rb_count)
+        except ValueError:
+            continue
+        pool_rows.setdefault((row["hall_name"], machine_key), {}).setdefault(
+            str(row["report_date"]), []
+        ).append({
+            "strong": assessment["high_setting_probability_pct"] >= 70,
+            "diff": float(row["diff_coins"] or 0),
+            "source_url": row["source_url"],
+            "machine_name": row["machine_name"],
+        })
+
+    for (hall_name, _), daily_rows in pool_rows.items():
+        usable_daily = []
+        for report_date, day_rows in sorted(daily_rows.items()):
+            if len(day_rows) < 2:
+                continue
+            strong_share = sum(item["strong"] for item in day_rows) / len(day_rows)
+            usable_daily.append({
+                "date": date.fromisoformat(report_date),
+                "strong_day": strong_share >= 0.25,
+                "strong_share": strong_share,
+                "avg_diff": sum(item["diff"] for item in day_rows) / len(day_rows),
+                "rows": day_rows,
+            })
+        if len(usable_daily) < 5:
+            continue
+        weighted_hits = 0.0
+        weighted_diff = 0.0
+        weight_total = 0.0
+        for item in usable_daily:
+            age = max(0, (target_date - item["date"]).days)
+            weight = math.exp(-age / 120)
+            if item["date"].weekday() == target_date.weekday():
+                weight *= 1.5
+            if item["date"].day % 10 == target_date.day % 10:
+                weight *= 1.3
+            weight_total += weight
+            weighted_hits += weight if item["strong_day"] else 0
+            weighted_diff += item["avg_diff"] * weight
+        strong_rate = round(weighted_hits / weight_total * 100)
+        avg_diff = round(weighted_diff / weight_total)
+        latest_date = max(item["date"] for item in usable_daily).isoformat()
+        stale_days = max(0, (target_date - date.fromisoformat(latest_date)).days)
+        validation_points = [
+            (item["date"], 100.0 if item["strong_day"] else -100.0)
+            for item in usable_daily
+        ]
+        validation = walk_forward_backtest(validation_points)
+        action = _validated_action(
+            avg_diff, strong_rate, stale_days, validation, len(usable_daily), "bonus_counts_pool"
+        )
+        all_day_rows = [row for item in usable_daily for row in item["rows"]]
+        machine_name = max(
+            all_day_rows,
+            key=lambda item: (item["machine_name"], item["source_url"] or ""),
+        )["machine_name"]
+        source_urls = sorted({
+            item["source_url"] for item in all_day_rows if item["source_url"]
+        })[:3]
+        score = max(0, min(100, round(
+            strong_rate * 0.55
+            + min(25, len(usable_daily))
+            + max(0, min(20, avg_diff / 25 + 10))
+        )))
+        candidates.append({
+            "hall_name": hall_name,
+            "machine_name": machine_name,
+            "seat_number": None,
+            "scope": "machine_pool",
+            "profile_id": profile_for_machine(machine_name),
+            "score": score,
+            "action": action,
+            "strong_rate_pct": strong_rate,
+            "avg_diff": avg_diff,
+            "sample_days": len(usable_daily),
+            "latest_date": latest_date,
+            "stale_days": stale_days,
+            "source_urls": source_urls,
+            "validation": validation,
+            "evidence_level": "bonus_counts_pool",
+            "evidence_label": "BB・REG実績による店舗×機種の島傾向",
+            "verified_signal_days": len(usable_daily),
+            "proxy_signal_days": 0,
+            "reason": (
+                f"過去{len(usable_daily)}日・島の25%以上が高設定寄りだった日が{strong_rate}%"
+                f"・BB/REGの先読みなし検証{validation['test_days']}日"
+                f"・品質{validation.get('quality_score', 0)}点（台番号は未特定）"
+            ),
+        })
+
     # 台番号データがない店舗でも、公開されている機種別日次集計から
     # 店舗×機種の朝一候補を出す。台番号候補より根拠が粗いことを明示する。
-    seat_machine_keys = {(item["hall_name"], item["machine_name"]) for item in candidates}
+    seat_machine_keys = {
+        (item["hall_name"], normalize_machine_key(item["machine_name"]))
+        for item in candidates
+    }
     by_machine: dict[tuple[str, str], list] = {}
     for row in machine_rows:
-        by_machine.setdefault((row["hall_name"], row["machine_name"]), []).append(row)
-    for (hall_name, machine_name), history in by_machine.items():
-        if (hall_name, machine_name) in seat_machine_keys:
+        machine_key = normalize_machine_key(row["machine_name"])
+        if machine_key:
+            by_machine.setdefault((row["hall_name"], machine_key), []).append(row)
+    for (hall_name, machine_key), history in by_machine.items():
+        if (hall_name, machine_key) in seat_machine_keys:
             continue
+        machine_name = max(
+            history,
+            key=lambda row: (str(row["report_date"]), str(row["machine_name"])),
+        )["machine_name"]
         weighted_hits = 0.0
         weight_total = 0.0
         weighted_diff = 0.0

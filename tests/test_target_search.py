@@ -269,6 +269,55 @@ def test_seat_patterns_require_history_and_personal_profit_never_raises_predicti
     assert profit["can_raise_prediction"] is False
 
 
+def test_seat_patterns_exclude_machine_that_moved_to_another_seat():
+    rows = [
+        {
+            "report_date": f"2026-07-{day:02d}", "machine_name": "L炎炎ノ消防隊",
+            "seat_number": 325, "diff_coins": 500, "games": 3000,
+        }
+        for day in range(1, 21)
+    ]
+    rows.append({
+        "report_date": "2026-07-21", "machine_name": "Lガンダムユニコーン",
+        "seat_number": 325, "diff_coins": 100, "games": 3000,
+    })
+
+    summary = hall_router._seat_pattern_summary(rows, [])
+
+    assert all(item["machine_name"] != "L炎炎ノ消防隊" for item in summary["top_seats"])
+
+
+def test_target_search_merges_machine_name_variants(tmp_path, monkeypatch):
+    db_path = tmp_path / "aliases.db"
+    conn = _connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE scrape_hall_config (hall_name TEXT PRIMARY KEY, enabled INTEGER);
+        CREATE TABLE hall_day_machine (
+            hall_name TEXT, report_date TEXT, machine_name TEXT,
+            avg_diff_coins INTEGER, win_rate_pct REAL, unit_count INTEGER,
+            source_url TEXT
+        );
+        INSERT INTO scrape_hall_config VALUES ('表記統合店', 1);
+        """
+    )
+    rows = [
+        ("表記統合店", "2026-08-01", "モンキーターンV", 300, 60, 5, "https://source/1"),
+        ("表記統合店", "2026-08-02", "スマスロモンキーターンV", 500, 65, 5, "https://source/2"),
+        ("表記統合店", "2026-08-03", "LモンキーターンV", 700, 70, 5, "https://source/3"),
+    ]
+    conn.executemany("INSERT INTO hall_day_machine VALUES (?,?,?,?,?,?,?)", rows)
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(hall_router, "_get_reports_conn", lambda: _connect(db_path))
+    result = hall_router.get_target_search("2026-08-10", days=120, limit=8)
+
+    machines = result["halls"][0]["target_machines"]
+    assert len(machines) == 1
+    assert machines[0]["sample_days"] == 3
+
+
 def test_collection_days_expand_to_cover_missed_dates(tmp_path, monkeypatch):
     db_path = tmp_path / "reports.db"
     conn = sqlite3.connect(db_path)

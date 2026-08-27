@@ -56,8 +56,8 @@ assert.match(app, /api\/juggler\/assess/, '公式確率を使うジャグラー�
 assert.match(app, /api\/juggler\/targets/, 'ジャグラー朝一候補APIを利用する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=3\.5\.1/);
-assert.match(html, /app\.js\?v=3\.5\.1/);
+assert.match(html, /app\.css\?v=3\.5\.2/);
+assert.match(html, /app\.js\?v=3\.5\.2/);
 assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
 assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
 assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
@@ -70,8 +70,9 @@ assert.match(app, /データ信頼度/, '判定結果からデータの信頼度
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');
 assert.match(app, /catalog\.json\?v=\$\{APP_VERSION\}/, '機種追加時に古いカタログキャッシュを使わない');
-assert.match(app, /core\.mjs\?v=3\.5\.1/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /core\.mjs\?v=3\.5\.2/, '内部判定ロジックも更新時にキャッシュを破棄する');
 assert.match(app, /renderTargetConclusion/, '狙い台検索の最上部に行く日の結論を表示する');
+assert.match(app, /selectTargetMachine\(item, true\)/, '同じ安全ランクなら台番号履歴のある店舗と機種を優先する');
 assert.match(css, /\.target-conclusion\s*\{[^}]*position:\s*sticky/s, '行く日の結論はスクロール中も確認できる');
 assert.match(app, /recommendation_success_pct/, '狙い台の過去検証成績を表示する');
 assert.match(app, /保存できません：/, '検証基準に満たない候補は作戦保存を止める');

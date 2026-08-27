@@ -52,6 +52,7 @@ assert.match(desktopHtml, /id="archive-resume-btn"/, '収集を再開できる')
 assert.match(desktopJs, /api\/scrape\/archive\/jobs/, '永続キューの収集APIを利用する');
 assert.match(desktopJs, /api\/scrape\/health/, '収集元ごとの成功・失敗状態を取得する');
 assert.match(desktopJs, /personal_calibration/, 'PC・ソフト版でも実戦結果による期待値補正を表示する');
+assert.match(desktopJs, /selectDesktopTargetMachine\(item, true\)/, 'PC・ソフト版も台番号履歴のある組合せを優先する');
 
 for (const label of ['ハイエナ', '狙い台捜索', 'ジャグラー設定狙い']) {
   assert.match(desktopHtml, new RegExp(label), `PC・ソフト版に${label}が必要`);

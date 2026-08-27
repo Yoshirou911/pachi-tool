@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.5.1';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.5.1';
+} from './core.mjs?v=3.5.2';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.5.2';
 
-const APP_VERSION = '3.5.1';
+const APP_VERSION = '3.5.2';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -688,17 +688,29 @@ function renderSeatCandidates(machine) {
   return `<span class="machine-seat-candidates">台候補 ${rows.map(row => `${row.seat_number}番・${row.positive_rate_pct}%・${row.sample_days}日`).join(' ／ ')}</span>`;
 }
 
+function targetActionRank(action) {
+  return action?.startsWith('狙う') ? 2 : action === '要確認' ? 1 : 0;
+}
+
+function selectTargetMachine(hall, requireSeat = false) {
+  const machines = hall?.target_machines || [];
+  if (!machines.length) return null;
+  const bestRank = Math.max(...machines.map(item => targetActionRank(item.action)));
+  return machines.find(item => targetActionRank(item.action) === bestRank && (!requireSeat || item.seat_candidates?.length))
+    || (requireSeat ? null : machines[0]);
+}
+
 function selectTargetConclusion(data) {
   const halls = data?.halls || [];
-  const hall = halls.find(item => item.action?.startsWith('狙う'))
+  const primaryHall = halls.find(item => item.action?.startsWith('狙う'))
     || halls.find(item => item.action === '要確認')
     || halls[0];
+  if (!primaryHall) return null;
+  const hallRank = targetActionRank(primaryHall.action);
+  const hall = halls.find(item => targetActionRank(item.action) === hallRank && selectTargetMachine(item, true))
+    || primaryHall;
   if (!hall) return null;
-  const machines = hall.target_machines || [];
-  const machine = machines.find(item => item.action?.startsWith('狙う'))
-    || machines.find(item => item.action === '要確認')
-    || machines[0]
-    || null;
+  const machine = selectTargetMachine(hall, true) || selectTargetMachine(hall);
   const seats = machine?.seat_candidates || [];
   const seat = seats.find(item => item.status === '検証対象') || seats[0] || null;
   const action = hall.action === '見送り'

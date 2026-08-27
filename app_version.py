@@ -1,11 +1,22 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "3.5.1"
+APP_VERSION = "3.5.2"
 RELEASE_DATE = "2026-08-28"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "3.5.2",
+        "released_on": "2026-08-28",
+        "title": "公開版の台番号候補を補完",
+        "items": [
+            "PCに蓄積した四條畷周辺の台別履歴を、公開サーバーへ安全に追加統合できる仕組みを追加",
+            "同じ安全ランクなら台番号履歴がある店舗・機種の組合せを結論欄で優先",
+            "根拠がある番号は検証対象と蓄積中を区別し、材料不足時は未確定のまま維持",
+            "スマホ・PC・Windowsソフト版で同じ台番号選択を使用",
+        ],
+    },
     {
         "version": "3.5.1",
         "released_on": "2026-08-28",

@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.5.1';
+    document.getElementById('desktop-version-label').textContent = 'v3.5.2';
   }
 }
 
@@ -496,17 +496,29 @@ function renderDesktopTargetContext(hall) {
   </div>`;
 }
 
+function desktopTargetActionRank(action) {
+  return action?.startsWith('狙う') ? 2 : action === '要確認' ? 1 : 0;
+}
+
+function selectDesktopTargetMachine(hall, requireSeat = false) {
+  const machines = hall?.target_machines || [];
+  if (!machines.length) return null;
+  const bestRank = Math.max(...machines.map(item => desktopTargetActionRank(item.action)));
+  return machines.find(item => desktopTargetActionRank(item.action) === bestRank && (!requireSeat || item.seat_candidates?.length))
+    || (requireSeat ? null : machines[0]);
+}
+
 function selectDesktopTargetConclusion(data) {
   const halls = data?.halls || [];
-  const hall = halls.find(item => item.action?.startsWith('狙う'))
+  const primaryHall = halls.find(item => item.action?.startsWith('狙う'))
     || halls.find(item => item.action === '要確認')
     || halls[0];
+  if (!primaryHall) return null;
+  const hallRank = desktopTargetActionRank(primaryHall.action);
+  const hall = halls.find(item => desktopTargetActionRank(item.action) === hallRank && selectDesktopTargetMachine(item, true))
+    || primaryHall;
   if (!hall) return null;
-  const machines = hall.target_machines || [];
-  const machine = machines.find(item => item.action?.startsWith('狙う'))
-    || machines.find(item => item.action === '要確認')
-    || machines[0]
-    || null;
+  const machine = selectDesktopTargetMachine(hall, true) || selectDesktopTargetMachine(hall);
   const seats = machine?.seat_candidates || [];
   const seat = seats.find(item => item.status === '検証対象') || seats[0] || null;
   const action = hall.action === '見送り'
@@ -5045,7 +5057,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.5.1');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.5.2');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

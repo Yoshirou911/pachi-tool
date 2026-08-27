@@ -62,6 +62,40 @@ def test_trend_profile_uses_only_dates_before_visit(layout_database):
     assert data["machine_profile"][0]["machine_name"] == "スマスロ北斗の拳"
 
 
+def test_store_machine_strength_exposes_backtest_and_region_matrix(layout_database):
+    visit = date.today() + timedelta(days=1)
+    conn = sqlite3.connect(layout_database)
+    rows = []
+    for offset in range(75, 0, -1):
+        report_date = (visit - timedelta(days=offset)).isoformat()
+        rows.extend([
+            ("テスト店", report_date, "スマスロモンキーターンV", 900, 70, "https://example.com/strong"),
+            ("テスト店", report_date, "L弱い機種", -300, 30, "https://example.com/weak"),
+        ])
+    conn.executemany("INSERT INTO hall_day_machine VALUES (?,?,?,?,?,?)", rows)
+    conn.commit()
+    conn.close()
+
+    profile = client.get(
+        "/api/hall/trend_profile",
+        params={"hall_name": "テスト店", "visit_date": visit.isoformat(), "days": 90},
+    ).json()
+    strong = profile["machine_profile"][0]
+    assert strong["machine_name"] == "スマスロモンキーターンV"
+    assert strong["handling_label"] == "70%検証済み"
+    assert strong["validation"]["recommendation_success_pct"] == 100
+    assert strong["strength_margin"] > 0
+    assert strong["visit_weekday_days"] > 0
+
+    matrix = client.get(
+        "/api/hall/machine_strength_matrix",
+        params={"visit_date": visit.isoformat(), "days": 90, "region": "all"},
+    )
+    assert matrix.status_code == 200, matrix.text
+    assert matrix.json()["halls"][0]["hall_name"] == "テスト店"
+    assert matrix.json()["halls"][0]["verified_machine_count"] == 1
+
+
 def test_layout_save_and_seat_heat(layout_database):
     visit = date.today() + timedelta(days=1)
     valid_from = (visit - timedelta(days=30)).isoformat()

@@ -11,6 +11,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from api.deps import HALL_REPORTS_DB, _get_reports_conn
+from hall.machine_scope import is_smartslot_machine, normalize_machine_key
+from hall.regions import region_label, region_matches
+from hall.target_validation import grade_policy, walk_forward_backtest
 
 router = APIRouter()
 
@@ -265,6 +268,25 @@ def _profile_score(values: list[float], baseline: float, scale: float) -> int:
     return max(0, min(100, round(50 + (_average(values) - baseline) / max(scale, 80) * 18)))
 
 
+def _machine_strength_validation(machine_rows: list[dict], target: date) -> dict:
+    """同一機種の日別実績をまとめ、対象日を先読みしない成績を返す。"""
+    by_date: dict[str, list[tuple[float, int]]] = defaultdict(list)
+    for row in machine_rows:
+        report_date = str(row["report_date"])
+        if date.fromisoformat(report_date) >= target:
+            continue
+        units = max(1, int(row.get("unit_count") or 1))
+        by_date[report_date].append((float(row["diff"] or 0), units))
+    points = []
+    for report_date, values in sorted(by_date.items()):
+        total_units = sum(units for _, units in values)
+        points.append((
+            date.fromisoformat(report_date),
+            sum(value * units for value, units in values) / total_units,
+        ))
+    return walk_forward_backtest(points, max_test_days=60)
+
+
 @router.get("/api/hall/trend_profile", tags=["hall"])
 def get_hall_trend_profile(
     hall_name: str = Query(..., min_length=1),
@@ -293,7 +315,10 @@ def get_hall_trend_profile(
     source_urls: set[str] = set()
     for row in rows:
         by_day[row["report_date"]].append(row)
-        by_machine[row["machine_name"]].append(row)
+        if is_smartslot_machine(row["machine_name"]):
+            machine_key = normalize_machine_key(row["machine_name"])
+            if machine_key:
+                by_machine[machine_key].append(row)
         if row.get("source_url"):
             source_urls.add(row["source_url"])
 
@@ -350,7 +375,11 @@ def get_hall_trend_profile(
 
     cutoff_recent = reference - timedelta(days=13)
     machine_profile = []
-    for machine_name, machine_rows in by_machine.items():
+    for machine_key, machine_rows in by_machine.items():
+        machine_name = max(
+            machine_rows,
+            key=lambda row: (str(row["report_date"]), str(row["machine_name"])),
+        )["machine_name"]
         values = [float(row["diff"] or 0) for row in machine_rows]
         weighted_values = [
             (float(row["diff"] or 0), max(1, int(row.get("unit_count") or 1)))
@@ -364,18 +393,61 @@ def get_hall_trend_profile(
         sample_days = len({row["report_date"] for row in machine_rows})
         reliability = min(1.0, sample_days / 20)
         adjusted_avg = avg * reliability + baseline * (1 - reliability)
+        strength_margin = round(adjusted_avg - baseline)
+        target_weekday_values = [
+            float(row["diff"] or 0) for row in machine_rows
+            if date.fromisoformat(row["report_date"]).weekday() == target.weekday()
+        ]
         machine_profile.append({
+            "machine_key": machine_key,
             "machine_name": machine_name,
             "avg_diff": round(adjusted_avg),
             "raw_avg_diff": round(avg),
+            "strength_margin": strength_margin,
             "positive_rate": round(sum(value > 0 for value in values) / len(values) * 100, 1),
             "sample_days": sample_days,
             "reliability_pct": round(reliability * 100),
+            "visit_weekday": weekday_names[target.weekday()],
+            "visit_weekday_avg": round(_average(target_weekday_values)) if target_weekday_values else None,
+            "visit_weekday_days": len(target_weekday_values),
             "recent_avg": round(_average(recent)) if recent else None,
             "trend": round(_average(recent) - _average(older)) if recent and older else None,
             "score": max(0, min(100, round(50 + (adjusted_avg - baseline) / max(scale, 100) * 18))),
         })
     machine_profile.sort(key=lambda item: (item["score"], item["sample_days"]), reverse=True)
+    machine_profile = machine_profile[:30]
+    for machine in machine_profile:
+        validation = _machine_strength_validation(by_machine[machine["machine_key"]], target)
+        validation_passed = validation.get("trust_level") in {
+            "70%実戦基準", "80%級", "90%級",
+        }
+        if validation_passed and machine["strength_margin"] >= 0:
+            handling_label = "70%検証済み"
+            handling_rank = 4
+        elif (
+            machine["sample_days"] >= 30
+            and machine["strength_margin"] >= 100
+            and machine["positive_rate"] >= 55
+        ):
+            handling_label = "強い扱い候補"
+            handling_rank = 3
+        elif machine["sample_days"] >= 20 and machine["strength_margin"] > 0:
+            handling_label = "やや強め"
+            handling_rank = 2
+        elif machine["sample_days"] < 21:
+            handling_label = "データ不足"
+            handling_rank = 0
+        else:
+            handling_label = "通常・弱め"
+            handling_rank = 1
+        machine["validation"] = validation
+        machine["handling_label"] = handling_label
+        machine["handling_rank"] = handling_rank
+        machine.pop("machine_key", None)
+    machine_profile.sort(
+        key=lambda item: (item["handling_rank"], item["score"], item["sample_days"]),
+        reverse=True,
+    )
 
     best_weekday = max(weekday_profile, key=lambda item: item["score"], default=None)
     best_digit = max(digit_profile, key=lambda item: item["score"], default=None)
@@ -421,12 +493,102 @@ def get_hall_trend_profile(
         "weekday_profile": weekday_profile,
         "digit_profile": digit_profile,
         "date_blocks": date_blocks,
-        "machine_profile": machine_profile[:30],
+        "machine_profile": machine_profile,
         "next_dates": sorted(next_dates[:8], key=lambda item: item["date"]),
         "insights": insights,
         "source_label": source_label,
         "source_urls": sorted(source_urls)[:10],
+        "validation_policy": grade_policy(),
         "notice": "予測日より前に取得した公開実績だけで計算しています。結果を保証するものではありません。",
+    }
+
+
+@router.get("/api/hall/machine_strength_matrix", tags=["hall"])
+def get_machine_strength_matrix(
+    visit_date: str = Query(...),
+    days: int = Query(365, ge=30, le=730),
+    region: Literal["all", "shijonawate", "matsumoto_shiojiri", "nagano", "osaka"] = "shijonawate",
+    limit: int = Query(12, ge=1, le=20),
+) -> dict:
+    """地域内の店舗ごとに、強く扱うスマスロ機種を横並びで返す。"""
+    _parse_date(visit_date)
+    conn = _get_reports_conn()
+    if conn is None:
+        return {
+            "visit_date": visit_date, "region": region, "region_label": region_label(region),
+            "halls": [], "validation_policy": grade_policy(),
+        }
+    try:
+        tables = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        hall_prefectures: dict[str, str | None] = {}
+        if "scrape_hall_config" in tables:
+            columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(scrape_hall_config)")
+            }
+            prefecture_sql = "prefecture" if "prefecture" in columns else "NULL"
+            enabled_sql = "WHERE enabled=1" if "enabled" in columns else ""
+            hall_prefectures = {
+                row[0]: row[1] for row in conn.execute(
+                    f"SELECT hall_name,{prefecture_sql} FROM scrape_hall_config {enabled_sql}"
+                ).fetchall()
+            }
+        if not hall_prefectures and "hall_day_machine" in tables:
+            hall_prefectures = {
+                row[0]: None for row in conn.execute(
+                    "SELECT DISTINCT hall_name FROM hall_day_machine"
+                ).fetchall()
+            }
+    finally:
+        conn.close()
+
+    hall_names = sorted(
+        hall_name for hall_name, prefecture in hall_prefectures.items()
+        if region_matches(hall_name, prefecture, region)
+    )[:limit]
+    halls = []
+    for hall_name in hall_names:
+        profile = get_hall_trend_profile(
+            hall_name=hall_name, visit_date=visit_date, days=days
+        )
+        if profile.get("status") != "分析済み":
+            continue
+        all_machines = profile.get("machine_profile", [])
+        machines = all_machines[:5]
+        halls.append({
+            "hall_name": hall_name,
+            "sample_days": profile.get("sample_days", 0),
+            "confidence": profile.get("confidence", "低"),
+            "overall": profile.get("overall", {}),
+            "verified_machine_count": sum(
+                machine.get("handling_label") == "70%検証済み" for machine in all_machines
+            ),
+            "strong_machine_count": sum(
+                machine.get("handling_rank", 0) >= 3 for machine in all_machines
+            ),
+            "top_machines": machines,
+        })
+    halls.sort(
+        key=lambda item: (
+            item["verified_machine_count"], item["strong_machine_count"],
+            item["top_machines"][0]["score"] if item["top_machines"] else 0,
+        ),
+        reverse=True,
+    )
+    return {
+        "visit_date": visit_date,
+        "region": region,
+        "region_label": region_label(region),
+        "generated_at": datetime.now().isoformat(timespec="minutes"),
+        "halls": halls,
+        "validation_policy": grade_policy(),
+        "notice": (
+            "70%検証済みは、先読みなし検証の成功率・95%下限・直近成績・品質を"
+            "すべて通過した店舗×機種だけです。"
+        ),
     }
 
 

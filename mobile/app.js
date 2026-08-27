@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.6.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.6.0';
+} from './core.mjs?v=3.7.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.7.0';
 
-const APP_VERSION = '3.6.0';
+const APP_VERSION = '3.7.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -1389,7 +1389,21 @@ function renderTrendCalendar(rows) {
   }).join('')}</div>`;
 }
 
-function renderTrendProfile(aiResult = null) {
+function renderStoreStrengthMatrix(matrix) {
+  const halls = matrix?.halls || [];
+  if (!halls.length) return '';
+  return `<article class="panel store-strength-panel">
+    <div class="section-bar"><div><span class="page-step">${esc(matrix.region_label || '選択地域')}</span><h2>店舗別・強い機種早見表</h2></div><span class="count-badge">${halls.length}店</span></div>
+    <p class="store-strength-guide">70%検証済みは、過去成功率だけでなく95%下限・直近成績・品質まで通過した組み合わせです。</p>
+    <div class="store-strength-grid">${halls.map(hall => `<section>
+      <header><div><strong>${esc(hall.hall_name)}</strong><small>${hall.sample_days}日・信頼度${esc(hall.confidence)}</small></div><b>${hall.verified_machine_count ? `検証済み${hall.verified_machine_count}` : '検証中'}</b></header>
+      <div>${(hall.top_machines || []).slice(0, 3).map((machine, index) => `<span><i>${index + 1}</i><em><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.handling_label)}・店平均との差${signedCoins(machine.strength_margin)}・${machine.visit_weekday_days || 0}${esc(machine.visit_weekday || '')}曜</small><small>95%下限${machine.validation?.recommendation_lower_bound_pct ?? '--'}%・品質${machine.validation?.quality_score ?? 0}点</small></em><b>${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}</b></span>`).join('') || '<p class="empty">機種データ不足</p>'}</div>
+    </section>`).join('')}</div>
+    <p class="fine-print">${esc(matrix.notice || '')}</p>
+  </article>`;
+}
+
+function renderTrendProfile(aiResult = null, strengthMatrix = null) {
   const container = byId('trend-results');
   if (!trendData || trendData.status !== '分析済み') {
     container.innerHTML = `<p class="empty">${esc(trendData?.notice || 'この店舗の公開実績をまだ取得できていません。')}</p>`;
@@ -1405,11 +1419,12 @@ function renderTrendProfile(aiResult = null) {
       <div class="target-reasons">${trendData.insights.map(item => `<span>${esc(item)}</span>`).join('')}</div>
     </article>
     <article class="panel ai-insight-card"><div class="section-bar"><div><span class="page-step">AI / 統計</span><h2>この店のクセ</h2></div><span class="count-badge">${esc(engineLabel)}</span></div><p>${esc(aiSummary || trendData.insights.join('\n')).replace(/\n/g, '<br>')}</p></article>
+    ${renderStoreStrengthMatrix(strengthMatrix)}
     <article class="panel"><div class="section-bar"><h2>直近42日のカレンダー</h2><span class="count-badge">色が強さ</span></div>${renderTrendCalendar(trendData.calendar)}</article>
     <article class="panel"><div class="section-bar"><h2>曜日ごとのクセ</h2></div>${renderProfileBars(trendData.weekday_profile, 'weekday')}</article>
     <article class="panel"><div class="section-bar"><h2>日付末尾のクセ</h2></div>${renderProfileBars(trendData.digit_profile, 'digit')}</article>
     <article class="panel"><div class="section-bar"><h2>次の注目日</h2></div><div class="next-hot-dates">${(trendData.next_dates || []).map(item => `<div class="${item.score >= 60 ? 'hot' : ''}"><strong>${esc(item.date.slice(5).replace('-', '/'))}</strong><span>${esc(item.weekday)}曜</span><b>${item.score}点</b><small>${esc(item.evidence)}</small></div>`).join('')}</div></article>
-    <article class="panel"><div class="section-bar"><h2>扱いが強い機種</h2><span class="count-badge">上位10</span></div><div class="trend-machine-list">${topMachines.slice(0, 10).map((machine, index) => `<div><span class="target-rank">${index + 1}</span><div><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・プラス率${machine.positive_rate}%${machine.trend == null ? '' : `・直近差${signedCoins(machine.trend)}`}</small></div><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">補正${signedCoins(machine.avg_diff)}</b><button type="button" data-trend-machine="${index}">朝一候補に保存</button></div>`).join('')}</div></article>
+    <article class="panel"><div class="section-bar"><h2>この店舗が強く扱う機種</h2><span class="count-badge">上位10</span></div><div class="trend-machine-list">${topMachines.slice(0, 10).map((machine, index) => `<div><span class="target-rank">${index + 1}</span><div><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.handling_label || '検証中')}・${machine.sample_days}日・店平均との差${signedCoins(machine.strength_margin ?? 0)}・プラス率${machine.positive_rate}%・狙い時${machine.validation?.recommendation_success_pct ?? '--'}%</small><small>95%下限${machine.validation?.recommendation_lower_bound_pct ?? '--'}%・直近${machine.validation?.recent_recommendation_success_pct ?? '--'}%・品質${machine.validation?.quality_score ?? 0}点</small></div><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">補正${signedCoins(machine.avg_diff)}</b><button type="button" data-trend-machine="${index}">朝一候補に保存</button></div>`).join('')}</div></article>
     <details class="insufficient-halls"><summary>出典と注意事項</summary><div>${(trendData.source_urls || []).map(url => `<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener">公開データ</a>`).join('') || '<span>取得元URLはデータ内にありません。</span>'}<span>${esc(trendData.notice)}</span></div></details>`;
 }
 
@@ -1423,16 +1438,19 @@ async function loadTrendProfile() {
   status.textContent = '曜日・日付・機種・次の注目日を分析中...';
   try {
     const query = `hall_name=${encodeURIComponent(hall)}&visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`;
-    const [profileResponse, aiResponse, coverageResponse] = await Promise.all([
+    const region = localStorage.getItem(TARGET_REGION_KEY) || 'shijonawate';
+    const [profileResponse, aiResponse, coverageResponse, matrixResponse] = await Promise.all([
       fetch(apiUrl(`/api/hall/trend_profile?${query}`)),
       fetch(apiUrl(`/api/ai/hall_profile?${query}`)).catch(() => null),
       fetch(apiUrl(`/api/hall/data_coverage?hall_name=${encodeURIComponent(hall)}&ts=${Date.now()}`), { cache: 'no-store' }).catch(() => null),
+      fetch(apiUrl(`/api/hall/machine_strength_matrix?visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}&region=${encodeURIComponent(region)}`)).catch(() => null),
     ]);
     if (!profileResponse.ok) throw new Error(`傾向API ${profileResponse.status}`);
     trendData = await profileResponse.json();
     const aiData = aiResponse?.ok ? await aiResponse.json() : null;
+    const matrixData = matrixResponse?.ok ? await matrixResponse.json() : null;
     renderDataCoverage('trend-data-coverage', coverageResponse?.ok ? await coverageResponse.json() : null);
-    renderTrendProfile(aiData);
+    renderTrendProfile(aiData, matrixData);
     status.textContent = `${trendData.sample_days || 0}日分・信頼度${trendData.confidence || '不足'}で分析`;
   } catch (error) {
     renderDataCoverage('trend-data-coverage', null);

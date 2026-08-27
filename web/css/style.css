@@ -306,6 +306,11 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
 /* ===== Target discovery ===== */
 .target-search-page { gap: 16px; }
 .target-search-controls { border-color: rgba(124,127,245,.25); }
+.target-analysis-shortcut { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-color: rgba(56,189,248,.24); background: linear-gradient(135deg, rgba(56,189,248,.08), rgba(124,58,237,.07)); }
+.target-analysis-shortcut strong,.target-analysis-shortcut span { display: block; }
+.target-analysis-shortcut strong { font-size: .82rem; }
+.target-analysis-shortcut span { margin-top: 4px; color: var(--text3); font-size: .65rem; }
+.target-analysis-shortcut .btn { flex: 0 0 auto; }
 .target-search-help { margin-top: 10px; color: var(--text3); font-size: .68rem; }
 .desktop-target-results { display: grid; gap: 13px; }
 .desktop-target-conclusion {
@@ -1433,6 +1438,22 @@ tr[style*="cursor: pointer"]:active { background: rgba(124,127,245,.12) !importa
 .desktop-profile-machines small { color: var(--text3); font-size: .59rem; }
 .desktop-profile-machines b { text-align: right; font-size: .68rem; }
 .desktop-profile-machines em { color: #fbbf24; text-align: right; font-size: .62rem; font-style: normal; }
+.desktop-store-strength > p { margin: 0 0 12px; color: var(--text3); font-size: .68rem; }
+.desktop-store-strength > div:last-of-type { display: grid; grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); gap: 10px; }
+.desktop-store-strength section { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: rgba(8,15,29,.42); }
+.desktop-store-strength section header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: rgba(99,102,241,.08); }
+.desktop-store-strength section header strong,.desktop-store-strength section header small { display: block; }
+.desktop-store-strength section header strong { font-size: .72rem; }
+.desktop-store-strength section header small { margin-top: 2px; color: var(--text3); font-size: .57rem; }
+.desktop-store-strength section header > b { padding: 4px 7px; border-radius: 999px; color: #c4b5fd; background: rgba(124,58,237,.16); font-size: .57rem; }
+.desktop-store-strength section > span { display: grid; grid-template-columns: 22px minmax(0,1fr) 40px; align-items: center; gap: 8px; padding: 9px 11px; border-top: 1px solid var(--border); }
+.desktop-store-strength section > span i { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; color: #93c5fd; background: rgba(59,130,246,.12); font-size: .55rem; font-style: normal; font-weight: 900; }
+.desktop-store-strength section > span em { min-width: 0; font-style: normal; }
+.desktop-store-strength section > span strong,.desktop-store-strength section > span small { display: block; }
+.desktop-store-strength section > span strong { overflow: hidden; font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-store-strength section > span small { margin-top: 2px; color: var(--text3); font-size: .53rem; }
+.desktop-store-strength section > span > b { color: #fbbf24; text-align: right; font-size: .64rem; }
+.desktop-store-strength > small { display: block; margin-top: 10px; color: var(--text3); font-size: .57rem; }
 .desktop-analysis-sources summary { cursor: pointer; color: var(--text2); font-size: .7rem; font-weight: 750; }
 .desktop-analysis-sources div { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
 .desktop-analysis-sources a { padding: 4px 9px; border: 1px solid rgba(147,197,253,.22); border-radius: 99px; color: #93c5fd; font-size: .61rem; text-decoration: none; }

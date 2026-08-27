@@ -23,6 +23,9 @@ assert.match(desktopHtml, /id="desktop-heat-long-days"/, 'PC・ソフト版で�
 assert.match(desktopHtml, /id="desktop-heat-detail"/, '店舗ごとの長期傾向を表示できる');
 assert.match(desktopJs, /api\/map\/target_heat/, '日付別ヒートマップAPIを利用する');
 assert.match(desktopJs, /api\/hall\/trend_profile/, '店舗傾向APIを利用する');
+assert.match(desktopJs, /api\/hall\/machine_strength_matrix/, 'PC・ソフト版でも店舗×機種を横断分析する');
+assert.match(desktopHtml, /data-home-destination="trend-profile"/, '狙い台捜索から店舗×機種分析へ移動できる');
+assert.match(desktopJs, /recommendation_lower_bound_pct/, 'PC・ソフト版でも機種別70%判定の95%下限を表示する');
 assert.match(desktopJs, /api\/layouts\/seat_heat/, '店内座席ヒートAPIを利用する');
 assert.match(desktopHtml, /data-module-nav="hyena"/, 'ハイエナ専用メニューが必要');
 assert.match(desktopHtml, /data-module-nav="target"/, '狙い台専用メニューが必要');

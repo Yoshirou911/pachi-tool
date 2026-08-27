@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.6.0';
+    document.getElementById('desktop-version-label').textContent = 'v3.7.0';
   }
 }
 
@@ -653,7 +653,18 @@ function desktopProfileBars(rows, labelKey) {
   }).join('')}</div>`;
 }
 
-function renderDesktopTrendProfile(aiResult = null) {
+function renderDesktopStoreStrengthMatrix(matrix) {
+  const halls = matrix?.halls || [];
+  if (!halls.length) return '';
+  return `<article class="card desktop-store-strength">
+    <div class="card-title card-title-row"><span>店舗別・強い機種早見表</span><small>${esc(matrix.region_label || '選択地域')}・${halls.length}店</small></div>
+    <p>70%検証済みは、成功率・95%下限・直近成績・品質をすべて通過した店舗×機種です。</p>
+    <div>${halls.map(hall => `<section><header><div><strong>${esc(hall.hall_name)}</strong><small>${hall.sample_days}日・信頼度${esc(hall.confidence)}</small></div><b>${hall.verified_machine_count ? `検証済み${hall.verified_machine_count}` : '検証中'}</b></header>${(hall.top_machines || []).slice(0, 3).map((machine, index) => `<span><i>${index + 1}</i><em><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.handling_label)}・店平均との差${desktopSignedCoins(machine.strength_margin)}・${machine.visit_weekday_days || 0}${esc(machine.visit_weekday || '')}曜</small><small>95%下限${machine.validation?.recommendation_lower_bound_pct ?? '--'}%・品質${machine.validation?.quality_score ?? 0}点</small></em><b>${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}</b></span>`).join('') || '<p>機種データ不足</p>'}</section>`).join('')}</div>
+    <small>${esc(matrix.notice || '')}</small>
+  </article>`;
+}
+
+function renderDesktopTrendProfile(aiResult = null, strengthMatrix = null) {
   const root = document.getElementById('desktop-trend-results');
   const data = desktopTrendProfileData;
   if (!data || data.status !== '分析済み') {
@@ -671,13 +682,14 @@ function renderDesktopTrendProfile(aiResult = null) {
       <div class="desktop-profile-score"><small>全体平均</small><b class="${data.overall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(data.overall.avg_diff)}</b><span>プラス日率 ${data.overall.positive_day_rate}%</span></div>
     </article>
     <article class="card desktop-ai-brief"><div class="card-title card-title-row"><span>分析の要点</span><em>${esc(aiResult?.engine || '統計エンジン')}</em></div><p>${esc(aiText).replace(/\n/g, '<br>')}</p><small>断定ではなく、取得済み実績から見た傾向です。</small></article>
+    ${renderDesktopStoreStrengthMatrix(strengthMatrix)}
     <div class="desktop-analysis-grid">
       <article class="card"><div class="card-title">曜日別</div>${desktopProfileBars(data.weekday_profile, 'weekday')}</article>
       <article class="card"><div class="card-title">日付末尾別</div>${desktopProfileBars(data.digit_profile, 'digit')}</article>
     </div>
     <article class="card"><div class="card-title card-title-row"><span>直近42日の実績カレンダー</span><small>点数は店舗内の相対評価</small></div><div class="desktop-trend-calendar">${(data.calendar || []).slice(-42).map(day => `<div style="--calendar-score:${Math.max(0, Math.min(100, Number(day.score || 0)))}%"><span>${esc(day.date.slice(5).replace('-', '/'))}</span><b>${day.score}</b><small class="${day.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(day.avg_diff)}</small></div>`).join('')}</div></article>
     <article class="card"><div class="card-title">次の注目日</div><div class="desktop-next-dates">${(data.next_dates || []).map(day => `<div class="${day.score >= 60 ? 'hot' : ''}"><strong>${esc(day.date.slice(5).replace('-', '/'))}</strong><span>${esc(day.weekday)}曜</span><b>${day.score}点</b><small>${esc(day.evidence)}</small></div>`).join('')}</div></article>
-    <article class="card"><div class="card-title">扱いが強い機種</div><div class="desktop-profile-machines">${(data.machine_profile || []).slice(0, 12).map((machine, index) => `<div><span>${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${machine.sample_days}日・信頼${machine.reliability_pct ?? 0}%・プラス率${machine.positive_rate}%</small><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('')}</div></article>
+    <article class="card"><div class="card-title">この店舗が強く扱う機種</div><div class="desktop-profile-machines">${(data.machine_profile || []).slice(0, 12).map((machine, index) => `<div><span>${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.handling_label || '検証中')}・${machine.sample_days}日・店平均との差${desktopSignedCoins(machine.strength_margin ?? 0)}・狙い時${machine.validation?.recommendation_success_pct ?? '--'}%・95%下限${machine.validation?.recommendation_lower_bound_pct ?? '--'}%・品質${machine.validation?.quality_score ?? 0}点</small><b class="${machine.avg_diff >= 0 ? 'money-up' : 'money-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('')}</div></article>
     <details class="card desktop-analysis-sources"><summary>出典と注意事項</summary><div>${sources || '<span>データ内に出典URLはありません。</span>'}<p>${esc(data.notice)}</p></div></details>`;
 }
 
@@ -692,12 +704,13 @@ async function loadDesktopTrendProfile() {
   status.textContent = '公開実績と日付パターンを分析中...';
   try {
     const query = new URLSearchParams({ hall_name: hall, visit_date: visitDate, days });
-    const [profile, aiResult] = await Promise.all([
+    const [profile, aiResult, strengthMatrix] = await Promise.all([
       apiFetch(`/api/hall/trend_profile?${query}`),
       apiFetch(`/api/ai/hall_profile?${query}`).catch(() => null),
+      apiFetch(`/api/hall/machine_strength_matrix?visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}&region=${encodeURIComponent(getTargetRegion())}`).catch(() => null),
     ]);
     desktopTrendProfileData = profile;
-    renderDesktopTrendProfile(aiResult);
+    renderDesktopTrendProfile(aiResult, strengthMatrix);
     status.textContent = profile.status === '分析済み' ? `${profile.sample_days}日分・信頼度${profile.confidence}で分析しました。` : profile.notice;
   } catch (error) {
     desktopTrendProfileData = null;
@@ -5061,7 +5074,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.6.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.7.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

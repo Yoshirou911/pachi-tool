@@ -573,6 +573,10 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .saved-section { margin: 24px 1px 4px; }
 
 .planner-panel { border-color: rgba(167, 139, 250, .22); }
+.target-analysis-shortcut { display: grid; gap: 10px; border-color: rgba(56,189,248,.24); background: linear-gradient(135deg, rgba(56,189,248,.08), rgba(124,58,237,.08)); }
+.target-analysis-shortcut strong,.target-analysis-shortcut span { display: block; }
+.target-analysis-shortcut strong { font-size: .76rem; }
+.target-analysis-shortcut span { margin-top: 4px; color: var(--muted-2); font-size: .57rem; line-height: 1.6; }
 .plan-icon { color: #cbbcff; background: rgba(167, 139, 250, .09); border-color: rgba(167, 139, 250, .18); }
 .plan-button { background: linear-gradient(135deg, #a9c7ff, #c5b5ff); }
 .planner-list-heading { margin: 23px 2px 11px; }
@@ -748,6 +752,21 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .trend-machine-list small { display: block; margin-top: 3px; color: var(--muted-2); font-size: .48rem; }
 .trend-machine-list > div > b { font-size: .58rem; }
 .trend-machine-list button { grid-column: 2 / -1; min-height: 32px; color: #0a1220; border: 0; border-radius: 8px; background: #c2b5ff; font-size: .53rem; font-weight: 900; }
+.store-strength-guide { margin: -2px 0 10px; color: var(--muted-2); font-size: .55rem; line-height: 1.65; }
+.store-strength-grid { display: grid; gap: 8px; }
+.store-strength-grid > section { overflow: hidden; border: 1px solid rgba(129,140,248,.18); border-radius: 12px; background: rgba(4,11,22,.48); }
+.store-strength-grid header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 10px; background: rgba(99,102,241,.08); }
+.store-strength-grid header strong,.store-strength-grid header small { display: block; }
+.store-strength-grid header strong { font-size: .68rem; }
+.store-strength-grid header small { margin-top: 2px; color: var(--muted-2); font-size: .48rem; }
+.store-strength-grid header > b { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; color: #c4b5fd; background: rgba(124,58,237,.16); font-size: .49rem; }
+.store-strength-grid section > div > span { display: grid; grid-template-columns: 22px minmax(0,1fr) 38px; align-items: center; gap: 7px; padding: 8px 10px; border-top: 1px solid rgba(148,163,184,.09); }
+.store-strength-grid section > div i { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; color: #93c5fd; background: rgba(59,130,246,.12); font-size: .48rem; font-style: normal; font-weight: 900; }
+.store-strength-grid section > div em { min-width: 0; font-style: normal; }
+.store-strength-grid section > div strong,.store-strength-grid section > div small { display: block; }
+.store-strength-grid section > div strong { overflow: hidden; font-size: .59rem; text-overflow: ellipsis; white-space: nowrap; }
+.store-strength-grid section > div small { margin-top: 2px; color: var(--muted-2); font-size: .45rem; }
+.store-strength-grid section > div > span > b { color: #fbbf24; text-align: right; font-size: .58rem; }
 .insufficient-halls a { color: var(--blue); font-size: .55rem; }
 .floor-map-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 9px; margin: 0 2px 8px; }
 .floor-map-meta span { color: var(--text); font-size: .64rem; font-weight: 850; }

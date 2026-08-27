@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=3.6.0">
+  <link rel="stylesheet" href="./app.css?v=3.7.0">
   <title>PACHI TOOL | スロット攻略</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スロット攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v3.6.0</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v3.7.0</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -41,7 +41,7 @@
         <button class="menu-item" type="button" data-menu-screen data-screen-target="juggler"><span>G</span><b>ジャグラー判定</b><small>BIG・REGと朝一候補</small></button>
         <p class="menu-section-label">狙い台捜索</p>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="planner"><span>◇</span><b>狙い台捜索</b><small>行く日から候補を分析</small></button>
-        <button class="menu-item" type="button" data-menu-screen data-screen-target="trend"><span>▥</span><b>傾向分析</b><small>店舗の強い日と機種を確認</small></button>
+        <button class="menu-item" type="button" data-menu-screen data-screen-target="trend"><span>▥</span><b>店舗×強い機種</b><small>店ごとの得意機種を比較</small></button>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="target-map"><span>⌖</span><b>周辺マップ</b><small>日付別に熱い店舗を見る</small></button>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="floor-map"><span>▦</span><b>店内マップ</b><small>座席の強さを視覚化</small></button>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="strategy"><span>☑</span><b>朝一作戦</b><small>保存した候補を確認</small></button>
@@ -377,14 +377,19 @@
         <p id="target-search-status" class="fine-print">平均差枚・プラス日率・同曜日実績・データ鮮度をまとめて評価します。</p>
       </article>
 
+      <article class="panel target-analysis-shortcut">
+        <div><strong>店ごとの得意機種を比べる</strong><span>四條畷周辺の店舗×スマスロを、70%検証基準つきで横並びにします。</span></div>
+        <button class="secondary-button" type="button" data-screen-target="trend">店舗別の強い機種を見る →</button>
+      </article>
+
       <div id="target-search-results" class="target-search-results"></div>
     </section>
 
     <section id="screen-trend" class="screen">
       <div class="page-heading compact-heading">
         <span class="module-tag module-plan">狙い台捜索</span>
-        <h1>店舗の傾向分析</h1>
-        <p>店舗ごとの強い曜日・日付・機種・次の注目日を徹底分析します。</p>
+        <h1>店舗×強い機種</h1>
+        <p>店ごとに強く扱う機種を比較し、曜日・日付・次の注目日まで分析します。</p>
       </div>
       <article class="panel trend-controls">
         <form id="trend-form">
@@ -553,7 +558,7 @@
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v3.6.0・更新日 2026/08/28</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v3.7.0・更新日 2026/08/28</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
@@ -672,6 +677,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=3.6.0"></script>
+  <script type="module" src="./app.js?v=3.7.0"></script>
 </body>
 </html>

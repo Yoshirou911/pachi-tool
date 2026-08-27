@@ -28,6 +28,9 @@ def is_smartslot_machine(machine_name: str) -> bool:
     name = re.sub(r"[\s　]+", "", unicodedata.normalize("NFKC", machine_name))
     if not name or name.startswith("_") or "ジャグラー" in name:
         return False
+    # P / eF で始まる型式はパチンコ。作品名にスマスロ用トークンが含まれても除外する。
+    if re.match(r"^(?:P|EF)", name, flags=re.IGNORECASE):
+        return False
     if "スマスロ" in name:
         return True
     # 型式名の先頭 L / LB はスマスロの表示として各データ媒体で使われる。
@@ -57,6 +60,8 @@ def normalize_machine_key(machine_name: str) -> str:
     while name and name != previous:
         previous = name
         name = re.sub(r"^(?:スマスロ|パチスロ|lb?|l)", "", name)
+    # 媒体による「V」「5」の表記差を代表機種だけ安全に統合する。
+    name = re.sub(r"^モンキーターンv$", "モンキーターン5", name)
     return "".join(character for character in name if character.isalnum())
 
 

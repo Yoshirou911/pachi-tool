@@ -38,6 +38,7 @@ class EstimateRequest(BaseModel):
     games_total: int = Field(default=0, ge=0)
     started_from: int = Field(default=0, ge=0)  # 宵越しなど引き継ぎG数。実観測G数 = games_total - started_from
     element_counts: dict[str, int] = Field(default_factory=dict)
+    element_trials: dict[str, int] = Field(default_factory=dict)
     prior: Optional[dict[str, float]] = None
     hall_name: str = ""
     weekday: Optional[int] = Field(default=None, ge=0, le=6)
@@ -68,6 +69,14 @@ class EstimateResponse(BaseModel):
     sample_adequacy_pct: int = 0
     prediction_grade: str = "判定材料不足"
     confidence_scope: str = "後験分布の集中度（的中率ではありません）"
+    observed_games: int = 0
+    high_setting_probabilities: dict[str, float] = Field(default_factory=dict)
+    action: str = "情報不足"
+    action_reason: str = ""
+    next_review_games: Optional[int] = None
+    input_notice: str = ""
+    profile_verified: bool = False
+    profile_source_url: str = ""
 
 class ChangeDetectRequest(BaseModel):
     machine_name: str
@@ -117,7 +126,11 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
     if req.started_from > req.games_total:
         raise HTTPException(422, "引き継ぎG数は総ゲーム数以下で指定してください")
     observed_games = req.games_total - req.started_from
-    obs = Observation(total_games=observed_games, counts=req.element_counts)
+    obs = Observation(
+        total_games=observed_games,
+        counts=req.element_counts,
+        trials=req.element_trials,
+    )
     estimator = SettingEstimator(profile)
 
     try:
@@ -159,7 +172,8 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
     if observed_games > 0:
         for el in profile.elements:
             cnt = req.element_counts.get(el.name, 0)
-            obs_rate = cnt / observed_games
+            trials = req.element_trials.get(el.name, observed_games)
+            obs_rate = cnt / trials if trials > 0 else 0.0
             observed_rates[el.name] = round(obs_rate, 6)
             theory = {sv: el.probabilities.get(sv, 0.0) for sv in profile.settings}
             closest_s = min(theory, key=lambda sv: abs(theory[sv] - obs_rate))
@@ -167,6 +181,8 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
             direction = "up" if obs_rate > avg_theory else "down"
             element_analysis.append({
                 "name": el.name,
+                "count": cnt,
+                "trials": trials,
                 "observed": round(obs_rate, 6),
                 "observed_per_n": round(1 / obs_rate, 1) if obs_rate > 0 else None,
                 "theoretical": {sv: round(v, 6) for sv, v in theory.items()},
@@ -174,31 +190,34 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
                 "direction": direction,
             })
 
-    # ゲーム数不足警告: 最低でも「最も出にくい要素の期待出現数 >= 30」が信頼できるライン
+    # サンプル量: 入力した要素のうち、最も観測が育った要素を基準にする。
+    # 未入力の超低確率要素（リーチ目等）が他の十分な観測を無効化しないようにする。
     sample_warning = None
     recommended_games = None
+    sample_adequacy = 0
     if profile.elements:
-        # 各要素の最高設定確率で期待出現数30回に必要なG数を計算
-        max_needed = 0
-        for el in profile.elements:
+        supplied = [el for el in profile.elements if el.name in req.element_counts]
+        checked = supplied or list(profile.elements)
+        adequacies = []
+        game_based_needs = []
+        for el in checked:
             max_p = max(el.probabilities.get(sv, 0.01) for sv in profile.settings)
             needed = int(30 / max_p) if max_p > 0 else 10000
-            max_needed = max(max_needed, needed)
-        recommended_games = max_needed
-        if observed_games < max_needed * 0.5:
-            sample_warning = f"サンプル不足（{observed_games}G / 推奨{max_needed}G）"
-        elif observed_games < max_needed:
-            pct = int(observed_games / max_needed * 100)
-            sample_warning = f"現在{observed_games}G（推奨{max_needed}Gの{pct}%）— サンプル不足のため推測精度が低い可能性があります"
+            trials = req.element_trials.get(el.name, observed_games)
+            adequacies.append(trials / max(1, needed))
+            if el.name not in req.element_trials:
+                game_based_needs.append(needed)
+        sample_adequacy = min(100, round(max(adequacies, default=0) * 100))
+        recommended_games = min(game_based_needs) if game_based_needs else None
+        if sample_adequacy < 50:
+            sample_warning = f"サンプル不足（充足{sample_adequacy}%）"
+        elif sample_adequacy < 100:
+            sample_warning = f"サンプル充足{sample_adequacy}% — まだ推測のブレが残ります"
 
     # 信用区間・識別力・相関チェック
     ci_lo, ci_hi = estimator.credible_interval(posterior, prob=0.90)
     powers = {k: round(v, 3) for k, v in estimator.element_discrimination_power().items()}
     correlated = [[a, b, r] for a, b, r in estimator.find_correlated_elements(threshold=0.95)]
-    sample_adequacy = min(
-        100,
-        round(observed_games / max(1, recommended_games) * 100),
-    ) if recommended_games is not None else 0
     peak_probability = max(posterior.values(), default=0.0)
     # これは理論値が正しい前提での統計モデル内グレード。実戦的中率とは分ける。
     prediction_grade = (
@@ -208,6 +227,35 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
         and confidence >= 0.50 and not correlated
         else "判定材料不足"
     )
+
+    high4 = sum(p for s, p in posterior.items() if int(s) >= 4)
+    high5 = sum(p for s, p in posterior.items() if int(s) >= 5)
+    setting6 = posterior.get("6", 0.0)
+    has_observation = any(name in req.element_counts for name in (el.name for el in profile.elements))
+    review_points = sorted({1000, 2000, 3000, 4000, 5000, int(recommended_games or 0)})
+    next_review_games = next((point for point in review_points if point > observed_games), None)
+    remaining_text = (
+        f"あと{next_review_games - observed_games:,}Gで再判定" if next_review_games else "現在のデータで再確認"
+    )
+    profile_verified = bool(data.get("verified_for_live_setting") and data.get("source_url"))
+    if not profile_verified:
+        action = "情報不足"
+        action_reason = "この機種の設定差データは出典照合が未完了のため、続行・撤退判断には使えません。"
+    elif not has_observation or observed_games < 500:
+        action = "情報不足"
+        action_reason = "設定差のある実戦項目が不足しています。差枚や一時的な当たりだけでは判定しません。"
+    elif sample_adequacy < 35:
+        action = "様子見"
+        action_reason = f"まだブレが大きい段階です。{remaining_text}を目安に、設定差の大きい項目を追加してください。"
+    elif high4 >= 0.65 and ev_result.ev >= 1.0:
+        action = "続行候補"
+        action_reason = f"設定4以上{high4*100:.0f}%・推定機械割{ev_result.ev_pct:.1f}%です。確定ではないため示唆と店内状況も確認してください。"
+    elif high4 <= 0.20 and ev_result.ev < 0.99:
+        action = "撤退候補"
+        action_reason = f"設定4以上{high4*100:.0f}%・推定機械割{ev_result.ev_pct:.1f}%です。少数試行なら即断せず、代替台の有無も含めて判断してください。"
+    else:
+        action = "様子見"
+        action_reason = f"高設定・低設定のどちらにも十分寄っていません。{remaining_text}が次の確認目安です。"
 
     return EstimateResponse(
         posterior=posterior,
@@ -230,6 +278,18 @@ def estimate(req: EstimateRequest) -> EstimateResponse:
         correlated_elements=correlated if correlated else None,
         sample_adequacy_pct=sample_adequacy,
         prediction_grade=prediction_grade,
+        observed_games=observed_games,
+        high_setting_probabilities={
+            "setting4_or_higher": round(high4, 4),
+            "setting5_or_higher": round(high5, 4),
+            "setting6": round(setting6, 4),
+        },
+        action=action,
+        action_reason=action_reason,
+        next_review_games=next_review_games,
+        input_notice="差枚・現在の勝ち負けは設定判別要素にしていません。割合系の項目は出現回数と試行回数の両方が必要です。",
+        profile_verified=profile_verified,
+        profile_source_url=str(data.get("source_url") or ""),
     )
 
 

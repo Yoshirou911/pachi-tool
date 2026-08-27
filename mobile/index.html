@@ -12,14 +12,14 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <link rel="stylesheet" href="./app.css?v=3.1.0">
+  <link rel="stylesheet" href="./app.css?v=3.5.1">
   <title>PACHI TOOL | スロット攻略</title>
 </head>
 <body>
   <header class="topbar">
     <button id="brand-home" class="brand" type="button" data-screen-target="home" aria-label="ホームへ戻る"><span class="brand-mark">P</span><span class="brand-copy"><strong>PACHI TOOL</strong><small id="brand-mode-label">スロット攻略ホーム</small></span></button>
     <div class="topbar-actions">
-      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v3.1.0</span><em id="mobile-version-new">NEW</em></button>
+      <button id="mobile-version-button" class="version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="mobile-version-label">v3.5.1</span><em id="mobile-version-new">NEW</em></button>
       <span id="network-badge" class="status-badge">確認中</span>
       <button id="mobile-menu-button" class="menu-button" type="button" aria-label="メニューを開く" aria-controls="mobile-menu-panel" aria-expanded="false"><span></span><span></span><span></span></button>
     </div>
@@ -35,6 +35,8 @@
         <button class="menu-item" type="button" data-menu-screen data-screen-target="check"><span>◎</span><b>空き台判定</b><small>期待値と必要資金を確認</small></button>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="scan"><span>↻</span><b>店舗巡回</b><small>見る島とボーダーを絞る</small></button>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="guide"><span>☷</span><b>期待値早見表</b><small>狙い目を一覧で比較</small></button>
+        <p class="menu-section-label">スマスロ設定狙い</p>
+        <button class="menu-item" type="button" data-menu-screen data-screen-target="setting"><span>6</span><b>設定判別</b><small>実戦中の続行・様子見・撤退</small></button>
         <p class="menu-section-label">ジャグラー設定狙い</p>
         <button class="menu-item" type="button" data-menu-screen data-screen-target="juggler"><span>G</span><b>ジャグラー判定</b><small>BIG・REGと朝一候補</small></button>
         <p class="menu-section-label">狙い台捜索</p>
@@ -80,9 +82,40 @@
           <small>営業中の設定推定と、蓄積データによる朝一候補を分けて確認</small>
           <span class="mode-action">ジャグラーを開く <b>→</b></span>
         </button>
+        <button class="mode-card setting-mode" type="button" data-screen-target="setting">
+          <span class="mode-icon">6</span>
+          <span class="module-tag module-setting">スマスロ設定判別</span>
+          <strong>打ちながら設定を見切る</strong>
+          <small>設定差のある初当たり・小役・CZなどから高設定確率を更新</small>
+          <span class="mode-action">設定判別を開く <b>→</b></span>
+        </button>
       </div>
 
-      <p class="home-footnote">3つの攻略モードは別々に管理し、根拠の違う判定を混ぜません。</p>
+      <p class="home-footnote">4つの攻略モードは別々に管理し、根拠の違う判定を混ぜません。</p>
+    </section>
+
+    <section id="screen-setting" class="screen">
+      <div class="page-heading compact-heading">
+        <span class="module-tag module-setting">スマスロ設定判別</span>
+        <h1>高設定確率を途中更新</h1>
+        <p>勝ち負けではなく、機種ごとの設定差がある項目で続行判断します。</p>
+      </div>
+
+      <article class="panel setting-live-panel">
+        <div class="panel-heading"><span class="heading-icon setting-icon">6</span><div><h2>いまの台を判定</h2><p>入力できる項目だけで判定できます</p></div></div>
+        <form id="setting-assess-form">
+          <label>機種<select id="setting-machine" required><option value="">読み込み中...</option></select></label>
+          <div class="two-col"><label>店舗<select id="setting-hall"><option value="">店舗傾向を使わない</option></select></label><label>台番号<input id="setting-seat" type="number" min="1" inputmode="numeric" placeholder="例：501"></label></div>
+          <label>総回転<div class="number-field"><input id="setting-games" class="big-input" type="number" min="0" max="100000" inputmode="numeric" placeholder="例：3000" required><span>G</span></div></label>
+          <div class="setting-quick-row" aria-label="ゲーム数クイック入力"><button type="button" data-setting-games-add="100">+100G</button><button type="button" data-setting-games-add="500">+500G</button><button type="button" data-setting-games-add="1000">+1000G</button></div>
+          <label>確定示唆<select id="setting-min"><option value="">なし・未確認</option><option value="4">設定4以上確定</option><option value="5">設定5以上確定</option><option value="6">設定6確定</option></select></label>
+          <div class="field-step setting-field-step"><span>＋</span><label>設定差のある実戦項目</label></div>
+          <div id="setting-elements" class="setting-elements"><p class="fine-print">機種を選ぶと入力項目が表示されます。</p></div>
+          <button id="setting-assess-button" class="primary-button setting-button" type="submit">続行判断を更新</button>
+        </form>
+        <p class="fine-print">差枚・現在の勝ち負けだけでは判定しません。割合系は「成功回数／試行回数」を入力し、少数試行では必ず様子見にします。</p>
+      </article>
+      <div id="setting-assess-result" class="setting-assess-result" aria-live="polite"></div>
     </section>
 
     <section id="screen-juggler" class="screen">
@@ -101,6 +134,7 @@
             <label>BIG<input id="juggler-bb" type="number" min="0" max="1000" inputmode="numeric" placeholder="24" required><span>回</span></label>
             <label>REG<input id="juggler-rb" type="number" min="0" max="1000" inputmode="numeric" placeholder="22" required><span>回</span></label>
           </div>
+          <div class="setting-quick-row" aria-label="ジャグラークイック入力"><button type="button" data-juggler-add="games">+100G</button><button type="button" data-juggler-add="bb">BIG +1</button><button type="button" data-juggler-add="rb">REG +1</button><button type="button" data-juggler-add="reset">クリア</button></div>
           <button id="juggler-assess-button" class="primary-button juggler-button" type="submit">設定傾向を判定</button>
         </form>
         <p class="fine-print">2000G未満は必ず判定保留。BIG・REGだけで実設定を確定する機能ではありません。</p>
@@ -110,7 +144,7 @@
       <article class="panel juggler-target-panel">
         <div class="panel-heading"><span class="heading-icon juggler-icon">◎</span><div><h2>朝一候補を探す</h2><p>店舗・曜日・日付・台番号の履歴から抽出</p></div></div>
         <form id="juggler-target-form">
-          <label>対象地域<select id="juggler-region"><option value="shijonawate" selected>四條畷駅周辺</option><option value="osaka">大阪府全体</option><option value="matsumoto_shiojiri">松本・塩尻</option><option value="nagano">長野県全体</option><option value="all">全地域</option></select></label>
+          <label>対象地域<select id="juggler-region"><option value="shijonawate" selected>四條畷駅周辺</option></select></label>
           <div class="two-col"><label>行く日<input id="juggler-visit-date" type="date" required></label><label>分析期間<select id="juggler-days"><option value="90">90日</option><option value="180" selected>180日</option><option value="365">1年</option></select></label></div>
           <button id="juggler-target-button" class="primary-button juggler-button" type="submit">朝一候補を分析</button>
         </form>
@@ -214,7 +248,7 @@
 
       <article class="panel hyena-store-panel">
         <div class="section-bar"><div><span class="page-step">AUTO STORE RANKING</span><h2>今から向かう店</h2></div><button id="hyena-store-refresh" class="secondary-button compact-button" type="button">再計算</button></div>
-        <label class="ranking-time-field">地域<select id="hyena-store-prefecture"><option value="">すべて</option><option value="大阪府">大阪府</option><option value="長野県">長野県（松本・塩尻）</option></select></label>
+        <label class="ranking-time-field">地域<select id="hyena-store-prefecture"><option value="大阪府" selected>四條畷駅周辺</option></select></label>
         <label class="ranking-time-field">行く日時<input id="hyena-store-at" type="datetime-local"></label>
         <div id="hyena-store-ranking" class="hyena-store-ranking"><p class="empty">対応機種・過去稼働・混雑傾向から候補店を計算します。</p></div>
         <p id="hyena-store-notice" class="fine-print">候補店の順位です。期待値のある空き台を保証するものではありません。</p>
@@ -333,7 +367,7 @@
       <article class="panel planner-panel target-search-panel">
         <div class="panel-heading"><span class="heading-icon plan-icon">◇</span><div><h2>行く日と地域を指定</h2><p>選んだ地域の取得済みデータだけを分析します</p></div></div>
         <form id="target-search-form">
-          <label>対象地域<select id="target-search-region"><option value="shijonawate" selected>四條畷駅周辺</option><option value="osaka">大阪府全体</option><option value="matsumoto_shiojiri">松本・塩尻</option><option value="nagano">長野県全体</option><option value="all">全地域</option></select></label>
+          <label>対象地域<select id="target-search-region"><option value="shijonawate" selected>四條畷駅周辺</option></select></label>
           <div class="two-col">
             <label>行く日<input id="target-visit-date" type="date" required></label>
             <label>分析期間<select id="target-search-days"><option value="60">直近60日</option><option value="120" selected>直近120日</option><option value="180">直近180日</option></select></label>
@@ -462,7 +496,7 @@
       </div>
       <article class="panel target-map-controls">
         <form id="target-map-form">
-          <label>対象地域<select id="target-map-region"><option value="shijonawate" selected>四條畷駅周辺</option><option value="osaka">大阪府全体</option><option value="matsumoto_shiojiri">松本・塩尻</option><option value="nagano">長野県全体</option><option value="all">全地域</option></select></label>
+          <label>対象地域<select id="target-map-region"><option value="shijonawate" selected>四條畷駅周辺</option></select></label>
           <div class="two-col">
             <label>行く日<input id="target-map-date" type="date" required></label>
             <label>長期表示<select id="target-map-long-days"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></label>
@@ -519,7 +553,7 @@
       </div>
 
       <details id="patch-notes-group" class="settings-group release-notes-group">
-        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v3.1.0・更新日 2026/08/25</small></span><i>⌄</i></summary>
+        <summary><span><b>更新履歴 <em id="settings-version-new" class="new-badge">NEW</em></b><small id="settings-version-summary">現在 v3.5.1・更新日 2026/08/28</small></span><i>⌄</i></summary>
         <div class="settings-body">
           <div id="mobile-release-current" class="release-current"></div>
           <div id="mobile-patch-notes" class="patch-notes-list"></div>
@@ -612,14 +646,15 @@
     <button class="nav-button" data-module-nav="hyena" data-screen="check"><span class="nav-icon">◎</span><span>判定</span></button>
     <button class="nav-button" data-module-nav="hyena" data-screen="scan"><span class="nav-icon">↻</span><span>巡回</span></button>
     <button class="nav-button" data-module-nav="hyena" data-screen="guide"><span class="nav-icon">☷</span><span>早見表</span></button>
+    <button class="nav-button" data-module-nav="setting" data-screen="setting"><span class="nav-icon">6</span><span>設定判別</span></button>
     <button class="nav-button" data-module-nav="juggler" data-screen="juggler"><span class="nav-icon">G</span><span>ジャグ</span></button>
     <button class="nav-button" data-module-nav="target" data-screen="planner"><span class="nav-icon">◇</span><span>捜索</span></button>
     <button class="nav-button" data-module-nav="target" data-screen="trend"><span class="nav-icon">▥</span><span>傾向</span></button>
     <button class="nav-button" data-module-nav="target" data-screen="target-map"><span class="nav-icon">⌖</span><span>周辺</span></button>
     <button class="nav-button" data-module-nav="target" data-screen="floor-map"><span class="nav-icon">▦</span><span>店内</span></button>
     <button class="nav-button" data-module-nav="target" data-screen="strategy"><span class="nav-icon">☑</span><span>作戦</span></button>
-    <button class="nav-button" data-module-nav="hyena target juggler" data-screen="results"><span class="nav-icon">▤</span><span>記録</span></button>
-    <button class="nav-button" data-module-nav="hyena target juggler" data-screen="settings"><span class="nav-icon">⚙</span><span>設定</span></button>
+    <button class="nav-button" data-module-nav="hyena target juggler setting" data-screen="results"><span class="nav-icon">▤</span><span>記録</span></button>
+    <button class="nav-button" data-module-nav="hyena target juggler setting" data-screen="settings"><span class="nav-icon">⚙</span><span>設定</span></button>
   </nav>
 
   <dialog id="result-dialog">
@@ -637,6 +672,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=3.1.0"></script>
+  <script type="module" src="./app.js?v=3.5.1"></script>
 </body>
 </html>

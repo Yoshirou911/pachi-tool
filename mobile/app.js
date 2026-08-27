@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.1.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.1.0';
+} from './core.mjs?v=3.5.1';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.5.1';
 
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '3.5.1';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -19,10 +19,10 @@ const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
   : '';
 const apiUrl = path => `${API_ORIGIN}${path}`;
 function storedTargetRegion() {
-  try { return localStorage.getItem(TARGET_REGION_KEY) || 'shijonawate'; } catch { return 'shijonawate'; }
+  return 'shijonawate';
 }
 function setTargetRegion(region) {
-  const value = region || 'shijonawate';
+  const value = 'shijonawate';
   try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
   ['target-search-region', 'target-map-region', 'juggler-region'].forEach(id => {
     const element = document.getElementById(id);
@@ -37,8 +37,8 @@ let releaseInfo = {
   patch_notes: [{
     version: APP_VERSION,
     released_on: '2026-08-25',
-    title: '四條畷周辺ジャグラーの実BB・RB自動収集を開始',
-    items: ['周辺3店舗の台別G数・BIG・REG・差枚を毎日更新', '直近30営業日を初回取り込み', '公式確率3機種を追加'],
+    title: '収集・分析対象を四條畷駅周辺へ一本化',
+    items: ['自動収集を周辺8店舗へ限定', '長野の取得済みデータは削除せず保管', '全画面の地域を四條畷駅周辺に固定'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -70,6 +70,8 @@ let toastTimer = null;
 let targetSearchData = null;
 let jugglerCatalog = [];
 let jugglerTargetData = null;
+let settingMachineNames = [];
+let settingMachineData = null;
 let activeModule = 'home';
 let targetMapData = null;
 let targetHeatMap = null;
@@ -655,6 +657,85 @@ function signedCoins(value) {
   return `${number >= 0 ? '+' : ''}${number.toLocaleString('ja-JP')}枚`;
 }
 
+function renderBacktestAnswers(validation) {
+  const answers = (validation?.recent_trials || []).filter(item => item.recommended).slice(-5);
+  if (!answers.length) return '<span class="backtest-empty">直近に安全基準を通過した予測はありません</span>';
+  return answers.map(item => `<span class="backtest-answer ${item.recommended_success ? 'hit' : 'miss'}"><small>${esc(item.date?.slice(5) || '')}</small><b>${item.recommended_success ? '○' : '×'}</b><em>予測 ${signedCoins(item.risk_adjusted_predicted ?? item.predicted)} → 実績 ${signedCoins(item.actual)}</em></span>`).join('');
+}
+
+function renderTargetContext(hall) {
+  const model = hall.prediction_model || {};
+  const activity = hall.data_quality?.activity_filter || {};
+  const event = hall.event_context || {};
+  const seats = hall.seat_patterns || {};
+  const profit = hall.personal_profit_validation?.all || {};
+  return `<div class="target-context-grid">
+    <span><small>店舗別モデル</small><b>${esc(model.selected_label || 'バランス型')}</b><em>過去成績から自動選択</em></span>
+    <span><small>低稼働除外</small><b>${activity.excluded_low_activity_rows ?? 0}行</b><em>${activity.reduced_weight_rows ?? 0}行を減量</em></span>
+    <span><small>イベント</small><b>${event.is_event_day ? `${event.events?.length || 0}件あり` : '登録なし'}</b><em>${event.is_event_day ? `安全側補正 ${signedCoins(event.adjustment_coins)}` : `過去${event.historic_event_days || 0}日`}</em></span>
+    <span><small>自分の朝一収支</small><b>${profit.count ? `${profit.count}件` : '未蓄積'}</b><em>${profit.count ? `平均 ${money(profit.avg_yen, true)}` : '実戦記録から育ちます'}</em></span>
+  </div>
+  <div class="seat-pattern-strip">
+    <span><small>台番号データ</small><b>${seats.usable_rows || 0}件</b></span>
+    <span><small>強い末尾</small><b>${seats.best_tail ? `${seats.best_tail.tail}（${seats.best_tail.positive_rate_pct}%）` : '検証中'}</b></span>
+    <span><small>角傾向</small><b>${seats.corner ? `${seats.corner.positive_rate_pct}%` : '検証中'}</b></span>
+  </div>`;
+}
+
+function renderSeatCandidates(machine) {
+  const rows = machine.seat_candidates || [];
+  if (!rows.length) return '';
+  return `<span class="machine-seat-candidates">台候補 ${rows.map(row => `${row.seat_number}番・${row.positive_rate_pct}%・${row.sample_days}日`).join(' ／ ')}</span>`;
+}
+
+function selectTargetConclusion(data) {
+  const halls = data?.halls || [];
+  const hall = halls.find(item => item.action?.startsWith('狙う'))
+    || halls.find(item => item.action === '要確認')
+    || halls[0];
+  if (!hall) return null;
+  const machines = hall.target_machines || [];
+  const machine = machines.find(item => item.action?.startsWith('狙う'))
+    || machines.find(item => item.action === '要確認')
+    || machines[0]
+    || null;
+  const seats = machine?.seat_candidates || [];
+  const seat = seats.find(item => item.status === '検証対象') || seats[0] || null;
+  const action = hall.action === '見送り'
+    ? '見送り'
+    : hall.action?.startsWith('狙う') && machine?.action?.startsWith('狙う')
+      ? '狙う'
+      : '要確認';
+  const tone = action === '狙う' ? 'go' : action === '見送り' ? 'stop' : 'check';
+  return { hall, machine, seat, action, tone };
+}
+
+function renderTargetConclusion(data) {
+  const result = selectTargetConclusion(data);
+  if (!result) return '';
+  const { hall, machine, seat, action, tone } = result;
+  const dateParts = String(data.visit_date || '').split('-');
+  const dateLabel = dateParts.length === 3 ? `${Number(dateParts[1])}/${Number(dateParts[2])}の結論` : '行く日の結論';
+  const seatLabel = seat ? `${seat.seat_number}番台${seat.status === '検証対象' ? '' : '候補'}` : '現地で未確定';
+  const reason = action === '見送り'
+    ? '安全基準を通る店舗・機種がありません'
+    : action === '狙う'
+      ? '店舗と機種の両方が安全基準を通過'
+      : hall.action_reason || machine?.action_reason || 'データを確認してから着席';
+  const trust = hall.validation?.trust_level || 'データ不足';
+  return `<section class="target-conclusion target-conclusion-${tone}" aria-label="${esc(dateLabel)}">
+    <div class="target-conclusion-head"><span>${esc(dateLabel)}</span><b>${esc(action)}</b><em>信頼度 ${esc(trust)}</em></div>
+    <div class="target-conclusion-route">
+      <span><small>店舗</small><strong>${esc(hall.hall_name || '候補なし')}</strong></span>
+      <i aria-hidden="true">›</i>
+      <span><small>機種</small><strong>${esc(machine?.machine_name || '候補なし')}</strong></span>
+      <i aria-hidden="true">›</i>
+      <span><small>台番号</small><strong>${esc(seatLabel)}</strong></span>
+    </div>
+    <p>${esc(reason)}</p>
+  </section>`;
+}
+
 function renderTargetSearch() {
   const container = byId('target-search-results');
   if (!targetSearchData) {
@@ -669,6 +750,7 @@ function renderTargetSearch() {
     return;
   }
   container.innerHTML = `
+    ${renderTargetConclusion(targetSearchData)}
     <div class="target-result-heading"><div><span class="page-step">${esc(targetSearchData.region_label || '')}・${esc(targetSearchData.visit_date)} ${esc(targetSearchData.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="count-badge">${halls.length}店</span></div>
     ${halls.map((hall, hallIndex) => `<article class="target-hall-card">
       <div class="target-action target-action-${hall.action?.startsWith('狙う') ? 'go' : hall.action === '見送り' ? 'stop' : 'check'}"><b>${esc(hall.action || '要確認')}</b><span>${esc(hall.action_reason || '')}</span></div>
@@ -677,12 +759,14 @@ function renderTargetSearch() {
         <div><strong>${esc(hall.hall_name)}</strong><small>${esc(hall.basis)}・最終 ${esc(hall.latest_date)}</small></div>
         <div class="target-score"><b>${hall.score}</b><small>点</small></div>
       </div>
-      <div class="target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${signedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
-      <div class="target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}・品質${hall.validation?.quality_score ?? 0}点</b><span>方向的中 ${hall.validation?.direction_accuracy_pct ?? 0}% ／ 推奨 ${hall.validation?.recommended_days ?? 0}回 ／ 95%下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}% ／ 直近 ${hall.validation?.recent_recommendation_success_pct ?? '--'}% ／ 根拠一致 ${hall.prediction_diagnostics?.signal_agreement_pct ?? '--'}% ／ ブレ幅 ${Number(hall.prediction_diagnostics?.volatility_coins || 0).toLocaleString('ja-JP')}枚</span></div>
+      <div class="target-metrics"><span><small>安全側推定</small><b class="${(hall.prediction_diagnostics?.risk_adjusted_projected ?? hall.avg_diff) >= 0 ? 'money-up' : 'money-down'}">${signedCoins(hall.prediction_diagnostics?.risk_adjusted_projected ?? hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
+      <div class="target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}・品質${hall.validation?.quality_score ?? 0}点</b><span>推奨 ${hall.validation?.recommended_days ?? 0}回（見送り ${hall.validation?.skipped_days ?? 0}日）／ 95%下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}% ／ 直近 ${hall.validation?.recent_recommendation_success_pct ?? '--'}% ／ 根拠一致 ${hall.prediction_diagnostics?.signal_agreement_pct ?? '--'}% ／ 下側25% ${signedCoins(hall.prediction_diagnostics?.downside_q25_coins ?? 0)}</span></div>
+      ${renderTargetContext(hall)}
+      <details class="target-backtest"><summary>直近の自動答え合わせを見る</summary><div>${renderBacktestAnswers(hall.validation)}</div></details>
       <div class="target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="target-machine-list">
         ${(hall.target_machines || []).slice(0, 3).map((machine, machineIndex) => `<div class="target-machine-row">
-          <div><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${machine.sample_days}日・${esc(machine.installation_status || '設置未確認')}・補正${signedCoins(machine.avg_diff)}</small></div>
+          <div><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${machine.sample_days}日・${esc(machine.installation_status || '設置未確認')}・安全側${signedCoins(machine.risk_adjusted_avg_diff ?? machine.avg_diff)}</small>${renderSeatCandidates(machine)}</div>
           <span>${machine.score}点</span>
           <button type="button" data-target-hall-index="${hallIndex}" data-target-machine-index="${machineIndex}" ${machine.action?.startsWith('狙う') ? '' : 'disabled'}>${machine.action?.startsWith('狙う') ? '朝一候補に保存' : '保存不可'}</button>
         </div>`).join('') || '<p class="fine-print">機種別候補はまだ材料不足です。</p>'}
@@ -806,15 +890,150 @@ async function loadTargetHallOptions() {
     ];
   }
   const options = targetHallOptions.map(row => `<option value="${esc(row.hall_name)}">${esc(row.hall_name)}</option>`).join('');
-  ['trend-hall', 'floor-hall', 'scan-hall', 'quick-hall'].forEach(id => {
+  ['trend-hall', 'floor-hall', 'scan-hall', 'quick-hall', 'setting-hall'].forEach(id => {
     const select = byId(id);
+    if (!select) return;
     const current = select.value;
-    select.innerHTML = options;
+    select.innerHTML = id === 'setting-hall' ? `<option value="">店舗傾向を使わない</option>${options}` : options;
     if ([...select.options].some(option => option.value === current)) select.value = current;
   });
   const scanHall = byId('scan-hall');
   if ([...scanHall.options].some(option => option.value === state.settings.scan_hall)) scanHall.value = state.settings.scan_hall;
   return targetHallOptions;
+}
+
+const SETTING_DRAFT_KEY = 'pachi-setting-live-draft-v1';
+
+function readSettingDraft() {
+  try { return JSON.parse(localStorage.getItem(SETTING_DRAFT_KEY) || '{}'); } catch { return {}; }
+}
+
+function saveSettingDraft() {
+  const counts = {};
+  const trials = {};
+  document.querySelectorAll('[data-setting-count]').forEach(input => { counts[input.dataset.settingCount] = input.value; });
+  document.querySelectorAll('[data-setting-trials]').forEach(input => { trials[input.dataset.settingTrials] = input.value; });
+  try {
+    localStorage.setItem(SETTING_DRAFT_KEY, JSON.stringify({
+      machine_name: byId('setting-machine')?.value || '', hall_name: byId('setting-hall')?.value || '',
+      seat_number: byId('setting-seat')?.value || '', games: byId('setting-games')?.value || '',
+      min_setting: byId('setting-min')?.value || '', counts, trials,
+    }));
+  } catch { /* ignore */ }
+}
+
+async function loadSettingCatalog() {
+  if (!settingMachineNames.length) {
+    const response = await fetch(apiUrl('/api/machines?scope=live_setting'));
+    if (!response.ok) throw new Error('スマスロ機種一覧を読み込めません');
+    settingMachineNames = await response.json();
+    const select = byId('setting-machine');
+    select.innerHTML = `<option value="">機種を選択</option>${settingMachineNames.map(name => `<option value="${esc(name)}">${esc(name)}</option>`).join('')}`;
+    const draft = readSettingDraft();
+    if (settingMachineNames.includes(draft.machine_name)) select.value = draft.machine_name;
+    if (draft.games !== undefined) byId('setting-games').value = draft.games;
+    if (draft.seat_number !== undefined) byId('setting-seat').value = draft.seat_number;
+    if (draft.min_setting !== undefined) byId('setting-min').value = draft.min_setting;
+    if (draft.hall_name && [...byId('setting-hall').options].some(option => option.value === draft.hall_name)) byId('setting-hall').value = draft.hall_name;
+  }
+  if (byId('setting-machine').value) await loadSettingMachine(byId('setting-machine').value, true);
+  return settingMachineNames;
+}
+
+function isOpportunityBasedElement(element) {
+  const values = Object.values(element.p || element.probabilities || {}).map(Number).filter(Number.isFinite);
+  return values.length > 0 && Math.max(...values) >= 0.12;
+}
+
+function renderSettingElements(data, restore = false) {
+  const draft = restore ? readSettingDraft() : {};
+  const counts = draft.counts || {};
+  const trials = draft.trials || {};
+  const elements = data?.elements || [];
+  byId('setting-elements').innerHTML = elements.length ? elements.map(element => {
+    const name = element.name;
+    const opportunityBased = isOpportunityBasedElement(element);
+    return `<div class="setting-element-row">
+      <strong>${esc(name)}</strong>
+      <div class="setting-element-inputs ${opportunityBased ? '' : 'single'}">
+        <label>出現回数<input type="number" min="0" max="100000" inputmode="numeric" placeholder="未計測なら空欄" value="${esc(counts[name] ?? '')}" data-setting-count="${esc(name)}"></label>
+        ${opportunityBased ? `<label>試行回数<input type="number" min="0" max="100000" inputmode="numeric" placeholder="例：10" value="${esc(trials[name] ?? '')}" data-setting-trials="${esc(name)}"></label>` : ''}
+      </div>
+      <small class="setting-element-help">${opportunityBased ? 'CZ・モード移行などの割合項目。成功回数と確認できた総回数を入力。' : '総回転を試行回数として計算します。0回を確認した場合は0を入力。'}</small>
+    </div>`;
+  }).join('') : '<p class="fine-print">この機種には設定判別項目がまだ登録されていません。</p>';
+}
+
+async function loadSettingMachine(machineName, restore = false) {
+  if (!machineName) {
+    settingMachineData = null;
+    byId('setting-elements').innerHTML = '<p class="fine-print">機種を選ぶと入力項目が表示されます。</p>';
+    return;
+  }
+  const response = await fetch(apiUrl(`/api/machines/${encodeURIComponent(machineName)}`));
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.detail || '機種データを読み込めません');
+  settingMachineData = data;
+  renderSettingElements(data, restore);
+}
+
+function renderSettingAssessment(result) {
+  const tone = result.action === '続行候補' ? 'continue' : result.action === '撤退候補' ? 'stop' : result.action === '情報不足' ? 'insufficient' : 'watch';
+  const high = result.high_setting_probabilities || {};
+  const pct = value => `${Math.round(Number(value || 0) * 100)}%`;
+  const probabilities = Object.entries(result.posterior || {}).sort((a, b) => Number(a[0]) - Number(b[0])).map(([setting, value]) => `
+    <div class="setting-setting-bar"><span>設定${esc(setting)}</span><i style="--probability:${Math.min(100, Number(value || 0) * 100)}%"></i><b>${pct(value)}</b></div>`).join('');
+  const review = result.next_review_games && result.next_review_games > result.observed_games
+    ? `次は${Number(result.next_review_games).toLocaleString('ja-JP')}G（あと${Number(result.next_review_games - result.observed_games).toLocaleString('ja-JP')}G）で再判定`
+    : '新しい設定差要素が増えた時点で再判定';
+  byId('setting-assess-result').innerHTML = `<article class="setting-result-card ${tone}">
+    <div class="setting-decision-head"><div><span class="page-step">LIVE SETTING CHECK</span><h2>${esc(result.action)}</h2></div><b>期待設定 ${Number(result.expected_setting || 0).toFixed(2)}</b></div>
+    <div class="setting-prob-grid"><div><small>設定4以上</small><strong>${pct(high.setting4_or_higher)}</strong></div><div><small>設定5以上</small><strong>${pct(high.setting5_or_higher)}</strong></div><div><small>設定6</small><strong>${pct(high.setting6)}</strong></div></div>
+    <p class="setting-result-reason">${esc(result.action_reason)}</p>
+    <div class="setting-progress" title="サンプル充足度"><i style="--adequacy:${Math.min(100, Number(result.sample_adequacy_pct || 0))}%"></i></div>
+    <p class="setting-review-note">サンプル充足 ${result.sample_adequacy_pct || 0}%・${esc(result.prediction_grade || '判定材料不足')}<br>${esc(review)}<br>${esc(result.input_notice || '')}</p>
+    <div class="setting-setting-bars">${probabilities}</div>
+    ${result.profile_source_url ? `<a class="juggler-source" href="${esc(result.profile_source_url)}" target="_blank" rel="noopener">登録した理論値の出典を確認 ↗</a>` : ''}
+  </article>`;
+  byId('setting-assess-result').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function runSettingAssessment() {
+  const button = byId('setting-assess-button');
+  const counts = {};
+  const trials = {};
+  document.querySelectorAll('[data-setting-count]').forEach(input => {
+    if (input.value !== '') counts[input.dataset.settingCount] = Number(input.value);
+  });
+  document.querySelectorAll('[data-setting-trials]').forEach(input => {
+    if (input.value !== '') trials[input.dataset.settingTrials] = Number(input.value);
+  });
+  if (!Object.keys(counts).length) throw new Error('設定差のある項目を1つ以上入力してください');
+  for (const [name, count] of Object.entries(counts)) {
+    const trialInput = document.querySelector(`[data-setting-trials="${CSS.escape(name)}"]`);
+    if (trialInput && trials[name] === undefined) throw new Error(`${name}の試行回数も入力してください`);
+    if (trials[name] !== undefined && count > trials[name]) throw new Error(`${name}は出現回数を試行回数以下にしてください`);
+  }
+  button.disabled = true;
+  button.textContent = '計算中…';
+  try {
+    const now = new Date();
+    const body = {
+      machine_name: byId('setting-machine').value,
+      games_total: Number(byId('setting-games').value), element_counts: counts, element_trials: trials,
+      hall_name: byId('setting-hall').value, weekday: (now.getDay() + 6) % 7,
+      day_of_month: now.getDate(), seat_number: Number(byId('setting-seat').value) || null,
+      min_setting: Number(byId('setting-min').value) || null,
+    };
+    const response = await fetch(apiUrl('/api/estimate'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || '判定できません');
+    saveSettingDraft();
+    renderSettingAssessment(result);
+  } finally {
+    button.disabled = false;
+    button.textContent = '続行判断を更新';
+  }
 }
 
 function currentTimeValue() {
@@ -1532,8 +1751,9 @@ function renderJugglerAssessment(result) {
     <article class="juggler-result-card ${tone}">
       <div class="juggler-result-head"><div><span class="page-step">LIVE ASSESSMENT</span><h2>${esc(result.machine_name)}</h2></div><span class="juggler-action">${esc(result.action)}</span></div>
       <div class="juggler-metrics"><span>BIG<b>${denominator(result.bb_denominator)}</b></span><span>REG<b>${denominator(result.rb_denominator)}</b></span><span>合算<b>${denominator(result.combined_denominator)}</b></span></div>
-      <p class="juggler-high">設定4以上の相対確率 ${Number(result.high_setting_probability_pct || 0)}%・信頼度 ${esc(result.confidence)}・${esc(result.prediction_grade || '参考判定')}・尤度比 ${result.high_low_likelihood_ratio ?? '--'}倍<br><small>${esc(result.grade_scope || '')}</small></p>
+      <p class="juggler-high">設定4以上 ${Number(result.high_setting_probability_pct || 0)}%・設定5以上 ${Number(result.setting5_or_higher_probability_pct || 0)}%・設定6 ${Number(result.setting6_probability_pct || 0)}%<br><small>期待設定 ${Number(result.expected_setting || 0).toFixed(2)}・推定機械割 ${Number(result.expected_payout_pct || 0).toFixed(1)}%・サンプル充足 ${result.sample_adequacy_pct || 0}%</small></p>
       <p class="juggler-result-reason">${esc(result.reason)}</p>
+      <p class="juggler-result-note">${result.games_until_review ? `次は${Number(result.next_review_games).toLocaleString('ja-JP')}G（あと${Number(result.games_until_review).toLocaleString('ja-JP')}G）で再判定` : '1000Gごと、またはBIG・REGが増えた時点で再判定'}。現在の差枚は設定判別に使いません。</p>
       <div class="juggler-probabilities">${probabilities}</div>
       <a class="juggler-source" href="${esc(result.source_url)}" target="_blank" rel="noopener">北電子の公式スペックを確認 ↗</a>
       <p class="juggler-result-note">${esc(result.notice)}</p>
@@ -1622,6 +1842,7 @@ function showScreen(name) {
   if (name === 'home') activeModule = 'home';
   else if (['check', 'scan', 'guide'].includes(name)) activeModule = 'hyena';
   else if (name === 'juggler') activeModule = 'juggler';
+  else if (name === 'setting') activeModule = 'setting';
   else if (['planner', 'trend', 'target-map', 'floor-map', 'strategy'].includes(name)) activeModule = 'target';
   const navName = name;
   document.querySelectorAll('.screen').forEach(screen => screen.classList.toggle('active', screen.id === `screen-${name}`));
@@ -1643,7 +1864,7 @@ function showScreen(name) {
     button.classList.toggle('active', button.dataset.screenTarget === name);
   });
   document.body.dataset.module = activeModule;
-  byId('brand-mode-label').textContent = activeModule === 'hyena' ? 'ハイエナ専用' : activeModule === 'target' ? '狙い台捜索専用' : activeModule === 'juggler' ? 'ジャグラー専用' : 'スロット攻略ホーム';
+  byId('brand-mode-label').textContent = activeModule === 'hyena' ? 'ハイエナ専用' : activeModule === 'target' ? '狙い台捜索専用' : activeModule === 'juggler' ? 'ジャグラー専用' : activeModule === 'setting' ? 'スマスロ設定判別' : 'スロット攻略ホーム';
   scrollTo({ top: 0, behavior: 'smooth' });
   if (name === 'scan' && !scanSnapshot) setTimeout(loadScanHall, 80);
   if (name === 'scan' && !occupancyPriorityData) setTimeout(loadOccupancyPriorityList, 80);
@@ -1654,6 +1875,9 @@ function showScreen(name) {
   if (name === 'juggler') {
     loadJugglerCatalog().catch(error => { byId('juggler-target-status').textContent = error.message; });
     if (!jugglerTargetData) setTimeout(runJugglerTargets, 80);
+  }
+  if (name === 'setting') {
+    loadSettingCatalog().catch(error => { byId('setting-assess-result').innerHTML = `<p class="juggler-empty">${esc(error.message)}</p>`; });
   }
   if (name === 'settings') {
     setTimeout(loadCollectionHealth, 40);
@@ -1864,6 +2088,41 @@ byId('target-search-form').addEventListener('submit', async event => {
 byId('juggler-assess-form').addEventListener('submit', async event => {
   event.preventDefault();
   await runJugglerAssessment();
+});
+
+byId('setting-assess-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  try { await runSettingAssessment(); }
+  catch (error) {
+    byId('setting-assess-result').innerHTML = `<p class="juggler-empty">${esc(error.message)}</p>`;
+  }
+});
+
+byId('setting-machine').addEventListener('change', async event => {
+  try {
+    await loadSettingMachine(event.target.value, false);
+    saveSettingDraft();
+  } catch (error) {
+    byId('setting-elements').innerHTML = `<p class="juggler-empty">${esc(error.message)}</p>`;
+  }
+});
+
+byId('setting-assess-form').addEventListener('input', saveSettingDraft);
+document.querySelector('.setting-quick-row[aria-label="ゲーム数クイック入力"]').addEventListener('click', event => {
+  const button = event.target.closest('[data-setting-games-add]');
+  if (!button) return;
+  byId('setting-games').value = Math.max(0, Number(byId('setting-games').value || 0) + Number(button.dataset.settingGamesAdd));
+  saveSettingDraft();
+});
+
+document.querySelector('.setting-quick-row[aria-label="ジャグラークイック入力"]').addEventListener('click', event => {
+  const button = event.target.closest('[data-juggler-add]');
+  if (!button) return;
+  const type = button.dataset.jugglerAdd;
+  if (type === 'games') byId('juggler-games').value = Number(byId('juggler-games').value || 0) + 100;
+  if (type === 'bb') byId('juggler-bb').value = Number(byId('juggler-bb').value || 0) + 1;
+  if (type === 'rb') byId('juggler-rb').value = Number(byId('juggler-rb').value || 0) + 1;
+  if (type === 'reset') ['juggler-games', 'juggler-bb', 'juggler-rb'].forEach(id => { byId(id).value = ''; });
 });
 
 byId('juggler-target-form').addEventListener('submit', async event => {
@@ -2271,7 +2530,7 @@ async function loadMobileArchiveCollector() {
     const running = job && ['queued', 'collecting'].includes(job.status);
     byId('mobile-archive-start').disabled = Boolean(running || job?.status === 'paused');
     byId('mobile-archive-pause').disabled = !running;
-    byId('mobile-archive-resume').disabled = job?.status !== 'paused';
+    byId('mobile-archive-resume').disabled = job?.status !== 'paused' && !(Number(job?.failed_count || 0) > 0 && ['completed', 'failed'].includes(job?.status));
     clearTimeout(mobileArchivePoll);
     if (running && document.visibilityState === 'visible') mobileArchivePoll = setTimeout(loadMobileArchiveCollector, 3000);
   } catch (error) {
@@ -2407,6 +2666,8 @@ async function initialize() {
     byId('scan-strategy-time').value = currentTimeValue();
     renderTimeStrategy();
     await loadTargetHallOptions();
+    const settingDraft = readSettingDraft();
+    if (settingDraft.hall_name && [...byId('setting-hall').options].some(option => option.value === settingDraft.hall_name)) byId('setting-hall').value = settingDraft.hall_name;
     populateMachines();
     loadReplayUsageInputs();
     renderAll();

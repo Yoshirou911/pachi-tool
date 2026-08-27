@@ -35,6 +35,7 @@ KNOWN_SEEDS = {
 
 _RUN_LOCK = threading.Lock()
 _WORKER: threading.Thread | None = None
+ITEM_ATTEMPTS = 3
 
 
 def _connect() -> sqlite3.Connection:
@@ -318,16 +319,24 @@ def run_job(job_id: int) -> None:
                     )
             except Exception as exc:
                 with _connect() as conn:
-                    conn.execute(
-                        """UPDATE archive_collection_queue SET status='failed',error=?,updated_at=datetime('now','localtime')
-                           WHERE id=?""",
-                        (str(exc)[:300], item["id"]),
-                    )
-                    conn.execute(
-                        """UPDATE archive_collection_job SET processed=processed+1,failed_count=failed_count+1,error=?,
-                           updated_at=datetime('now','localtime') WHERE id=?""",
-                        (str(exc)[:300], job_id),
-                    )
+                    attempts = int(item["attempts"] or 0) + 1
+                    if attempts < ITEM_ATTEMPTS:
+                        conn.execute(
+                            """UPDATE archive_collection_queue SET status='pending',error=?,updated_at=datetime('now','localtime')
+                               WHERE id=?""",
+                            (f"再試行 {attempts}/{ITEM_ATTEMPTS}: {str(exc)[:250]}", item["id"]),
+                        )
+                    else:
+                        conn.execute(
+                            """UPDATE archive_collection_queue SET status='failed',error=?,updated_at=datetime('now','localtime')
+                               WHERE id=?""",
+                            (str(exc)[:300], item["id"]),
+                        )
+                        conn.execute(
+                            """UPDATE archive_collection_job SET processed=processed+1,failed_count=failed_count+1,error=?,
+                               updated_at=datetime('now','localtime') WHERE id=?""",
+                            (str(exc)[:300], job_id),
+                        )
             time.sleep(minrepo.REQUEST_DELAY)
     finally:
         _RUN_LOCK.release()
@@ -371,19 +380,65 @@ def pause_latest() -> bool:
 
 def resume_latest() -> int | None:
     init_db()
+    retry_job_id: int | None = None
     with _connect() as conn:
         row = conn.execute(
             "SELECT id FROM archive_collection_job WHERE status='paused' ORDER BY id DESC LIMIT 1"
         ).fetchone()
         if not row:
-            return None
-        job_id = int(row["id"])
-        conn.execute(
-            "UPDATE archive_collection_job SET status='queued',pause_requested=0,error='',updated_at=datetime('now','localtime') WHERE id=?",
-            (job_id,),
-        )
+            failed = conn.execute(
+                """SELECT id FROM archive_collection_job
+                   WHERE failed_count>0 AND status IN ('completed','failed')
+                   ORDER BY id DESC LIMIT 1"""
+            ).fetchone()
+            retry_job_id = int(failed["id"]) if failed else None
+        else:
+            job_id = int(row["id"])
+            conn.execute(
+                "UPDATE archive_collection_job SET status='queued',pause_requested=0,error='',updated_at=datetime('now','localtime') WHERE id=?",
+                (job_id,),
+            )
+    if retry_job_id is not None:
+        retry_failed_job(retry_job_id)
+        return retry_job_id
+    if not row:
+        return None
     launch_job(job_id)
     return job_id
+
+
+def retry_failed_job(job_id: int) -> int:
+    """通信復旧後に、完了済みジョブの失敗ページだけを再度キューへ戻す。"""
+    init_db()
+    with _connect() as conn:
+        job = conn.execute("SELECT * FROM archive_collection_job WHERE id=?", (job_id,)).fetchone()
+        if not job:
+            raise ValueError("収集ジョブが見つかりません")
+        active = conn.execute(
+            "SELECT id FROM archive_collection_job WHERE id!=? AND status IN ('queued','collecting','paused') LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        if active:
+            raise RuntimeError("別の収集ジョブが進行中です")
+        failed = conn.execute(
+            "SELECT COUNT(*) FROM archive_collection_queue WHERE job_id=? AND status='failed'",
+            (job_id,),
+        ).fetchone()[0]
+        if not failed:
+            return 0
+        conn.execute(
+            """UPDATE archive_collection_queue SET status='pending',attempts=0,error='',
+               updated_at=datetime('now','localtime') WHERE job_id=? AND status='failed'""",
+            (job_id,),
+        )
+        conn.execute(
+            """UPDATE archive_collection_job SET status='queued',processed=MAX(0,processed-?),
+               failed_count=MAX(0,failed_count-?),error='',finished_at=NULL,pause_requested=0,
+               updated_at=datetime('now','localtime') WHERE id=?""",
+            (failed, failed, job_id),
+        )
+    launch_job(job_id)
+    return int(failed)
 
 
 def recover_interrupted_jobs() -> None:

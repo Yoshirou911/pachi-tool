@@ -39,6 +39,16 @@ def test_machines():
     assert not any("ジャグラー" in machine for machine in machines)
 
 
+def test_smartslot_machine_scope():
+    r = client.get("/api/machines?scope=smartslot")
+    assert r.status_code == 200
+    machines = r.json()
+    assert "スマスロ北斗の拳" in machines
+    assert "パチスロ甲鉄城のカバネリ" not in machines
+    verified = client.get("/api/machines?scope=live_setting").json()
+    assert {"スマスロ北斗の拳", "スマスロモンキーターン5", "スマスロ東京喰種", "スマスロかぐや様は告らせたい"} <= set(verified)
+
+
 def test_mobile_slot_app_is_served():
     r = client.get("/mobile/")
     assert r.status_code == 200
@@ -67,6 +77,22 @@ def test_estimate():
     assert data["confidence_scope"].endswith("的中率ではありません）")
     assert data["prediction_grade"] in {"統計モデル90%級", "統計モデル80%級", "判定材料不足"}
     assert 0 <= data["sample_adequacy_pct"] <= 100
+    assert data["action"] in {"続行候補", "様子見", "撤退候補", "情報不足"}
+    assert set(data["high_setting_probabilities"]) == {"setting4_or_higher", "setting5_or_higher", "setting6"}
+    assert "profile_verified" in data
+
+
+def test_estimate_accepts_per_element_trials():
+    r = client.post("/api/estimate", json={
+        "machine_name": "スマスロ モンキーターン5",
+        "games_total": 3000,
+        "element_counts": {"水神突入率": 8},
+        "element_trials": {"水神突入率": 10},
+    })
+    assert r.status_code == 200, r.text
+    analysis = {row["name"]: row for row in r.json()["element_analysis"]}
+    assert analysis["水神突入率"]["trials"] == 10
+    assert analysis["水神突入率"]["count"] == 8
 
 
 def test_estimate_with_hall():

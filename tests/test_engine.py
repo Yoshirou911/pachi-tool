@@ -172,6 +172,19 @@ class TestSettingEstimator:
         with pytest.raises(ValueError):
             estimator.estimate(Observation(1000, {"ベル": 1001}))  # count > total_games
 
+    def test_per_element_trials_are_used_for_rate_events(self):
+        profile = MachineProfile.from_dict({
+            "machine_name": "割合テスト", "settings": ["1", "6"],
+            "elements": [{"name": "CZ成功", "p": {"1": 0.2, "6": 0.8}}],
+        })
+        estimator = SettingEstimator(profile)
+        posterior = estimator.estimate(Observation(3000, {"CZ成功": 8}, {"CZ成功": 10}))
+        assert posterior["6"] > 0.95
+
+    def test_per_element_trials_reject_count_over_trials(self):
+        with pytest.raises(ValueError, match="試行回数"):
+            Observation(3000, {"CZ成功": 11}, {"CZ成功": 10})
+
     def test_invalid_observation_and_prior_raise(self, estimator):
         with pytest.raises(ValueError, match="総ゲーム数"):
             Observation(-1, {})

@@ -173,7 +173,7 @@
         <div class="card desktop-juggler-panel desktop-juggler-target-panel">
           <div class="desktop-juggler-heading"><span>◎</span><div><h2>朝一候補を探す</h2><p>店舗・曜日・日付・台番号の履歴から抽出</p></div></div>
           <form id="desktop-juggler-target-form" class="desktop-juggler-target-form">
-            <label>対象地域<select id="desktop-juggler-region" class="form-select"><option value="shijonawate" selected>四條畷駅周辺</option><option value="osaka">大阪府全体</option><option value="matsumoto_shiojiri">松本・塩尻</option><option value="nagano">長野県全体</option><option value="all">全地域</option></select></label>
+            <label>対象地域<select id="desktop-juggler-region" class="form-select"><option value="shijonawate" selected>四條畷駅周辺</option></select></label>
             <label>行く日<input id="desktop-juggler-date" class="form-input" type="date" required></label>
             <label>分析期間<select id="desktop-juggler-days" class="form-select"><option value="90">90日</option><option value="180" selected>180日</option><option value="365">1年</option></select></label>
             <button id="desktop-juggler-target-button" class="btn btn-primary" type="submit">朝一候補を分析</button>
@@ -193,7 +193,7 @@
         </div>
         <div class="card target-search-controls">
           <form id="desktop-target-search-form">
-            <div><label class="form-label" for="desktop-target-region">対象地域</label><select id="desktop-target-region" class="form-select"><option value="shijonawate" selected>四條畷駅周辺</option><option value="osaka">大阪府全体</option><option value="matsumoto_shiojiri">松本・塩尻</option><option value="nagano">長野県全体</option><option value="all">全地域</option></select></div>
+            <div><label class="form-label" for="desktop-target-region">対象地域</label><select id="desktop-target-region" class="form-select"><option value="shijonawate" selected>四條畷駅周辺</option></select></div>
             <div class="form-row-2col">
               <div><label class="form-label" for="desktop-target-date">行く日</label><input id="desktop-target-date" class="form-input" type="date" required></div>
               <div><label class="form-label" for="desktop-target-days">分析期間</label><select id="desktop-target-days" class="form-select"><option value="60">直近60日</option><option value="120" selected>直近120日</option><option value="180">直近180日</option></select></div>
@@ -1294,7 +1294,7 @@
         </div>
         <div class="desktop-heat-controls">
           <form id="desktop-heat-form" class="desktop-heat-form">
-            <label>対象地域<select id="desktop-heat-region" class="form-select"><option value="shijonawate" selected>四條畷駅周辺</option><option value="osaka">大阪府全体</option><option value="matsumoto_shiojiri">松本・塩尻</option><option value="nagano">長野県全体</option><option value="all">全地域</option></select></label>
+            <label>対象地域<select id="desktop-heat-region" class="form-select"><option value="shijonawate" selected>四條畷駅周辺</option></select></label>
             <label>行く日<input id="desktop-heat-date" class="form-input" type="date" required></label>
             <label>長期表示<select id="desktop-heat-long-days" class="form-select"><option value="90">直近3か月</option><option value="365" selected>直近1年</option><option value="730">直近2年</option></select></label>
             <button id="desktop-heat-button" class="btn btn-primary" type="submit">この日の熱量を表示</button>
@@ -1342,7 +1342,7 @@
           </div>
           <p class="hint">対応スマスロ・過去稼働・曜日時間帯の混雑・データ鮮度を合成し、巡回候補を自動で絞ります。</p>
           <div class="opp-store-ranking-controls">
-            <div><label class="form-label">地域</label><select id="opp-store-ranking-prefecture" class="form-select"><option value="">すべて</option><option value="大阪府">大阪府</option><option value="長野県">長野県（松本・塩尻）</option></select></div>
+            <div><label class="form-label">地域</label><select id="opp-store-ranking-prefecture" class="form-select"><option value="大阪府" selected>四條畷駅周辺</option></select></div>
             <div><label class="form-label">行く日時</label><input id="opp-store-ranking-at" class="form-input" type="datetime-local"></div>
             <div><label class="form-label">現地の混雑記録用店舗</label><select id="opp-occupancy-hall" class="form-select"><option value="">店舗を選択</option></select></div>
             <div><label class="form-label">平均回転数（任意）</label><input id="opp-occupancy-rotation" class="form-input" type="number" min="0" max="10000" step="10" placeholder="例：3200"></div>

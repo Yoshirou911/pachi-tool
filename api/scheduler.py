@@ -40,20 +40,6 @@ _DEFAULT_HALLS = [
     {"hall_name": "マルハン大東店",                 "prefecture": "大阪府"},
     {"hall_name": "スーパーコスモプレミアム大東店", "prefecture": "大阪府"},
     {"hall_name": "ベガスベガス大東店",             "prefecture": "大阪府"},
-    # 長野県・松本市
-    {"hall_name": "ラッシュMATSUMOTO#59",          "prefecture": "長野県"},
-    {"hall_name": "チャンピオンOZ",                 "prefecture": "長野県"},
-    {"hall_name": "マルハン松本店",                 "prefecture": "長野県"},
-    {"hall_name": "チャンピオンANNEX",              "prefecture": "長野県"},
-    {"hall_name": "KEIZ松本店",                    "prefecture": "長野県"},
-    {"hall_name": "ABC松本白板店",                  "prefecture": "長野県"},
-    {"hall_name": "No.1松本筑摩店",                 "prefecture": "長野県"},
-    {"hall_name": "EX松本店",                      "prefecture": "長野県"},
-    # 長野県・塩尻市（マルハン塩尻店は2025-02-02閉店のため除外）
-    {"hall_name": "APULO塩尻北インター店",           "prefecture": "長野県"},
-    {"hall_name": "APULO811",                      "prefecture": "長野県"},
-    {"hall_name": "キング塩尻店",                   "prefecture": "長野県"},
-    {"hall_name": "キング会館ネクスト塩尻店",        "prefecture": "長野県"},
 ]
 
 
@@ -61,7 +47,11 @@ def _get_active_halls() -> list[dict]:
     """DBからenable=1のホール一覧を取得。失敗時はデフォルト返却"""
     try:
         from scraper.anaslo import get_hall_configs
-        halls = get_hall_configs(enabled_only=True)
+        collection_scope = {item["hall_name"] for item in _DEFAULT_HALLS}
+        halls = [
+            hall for hall in get_hall_configs(enabled_only=True)
+            if hall.get("hall_name") in collection_scope
+        ]
         if not halls:
             return _DEFAULT_HALLS
         local_order = {h["hall_name"]: index for index, h in enumerate(_DEFAULT_HALLS)}
@@ -99,6 +89,7 @@ def _run_nightly_scrape() -> None:
         from api.routers.hall import _run_minrepo_nightly
         run_logged("minrepo_daily", lambda: _run_minrepo_nightly(halls, days=3))
         _run_public_machine_scrape()
+        _run_pachireview_scrape()
         _run_pekasen_juggler_scrape()
         # ③ P-WORLD（現在の設置スマスロ）。差枚データがない店舗も対象機種を蓄積する。
         _run_snapshot_scrape()
@@ -131,6 +122,20 @@ def _run_public_machine_scrape() -> None:
         logger.info(f"[公開機種データ] 更新完了: {saved}機種日")
     except Exception as e:
         logger.warning(f"[公開機種データ] 更新エラー: {e}")
+
+
+def _run_pachireview_scrape() -> None:
+    """マルハン大東店の公開月別・機種別履歴を18時間に1回まで補完する。"""
+    try:
+        from scraper.pachireview import is_refresh_due, scrape_all
+        if not is_refresh_due(max_age_hours=18):
+            logger.info("[評論計画] 18時間以内に更新済みのためスキップ")
+            return
+        results = run_logged("pachireview_machine_daily", scrape_all)
+        saved = sum(int(item.get("analysis_saved", 0)) for item in results)
+        logger.info(f"[評論計画] 更新完了: {saved}機種日を分析DBへ補完")
+    except Exception as e:
+        logger.warning(f"[評論計画] 更新エラー: {e}")
 
 
 def _run_pekasen_juggler_scrape() -> None:
@@ -177,6 +182,7 @@ def _run_startup_refresh() -> None:
         from api.routers.hall import _run_minrepo_nightly
         run_logged("minrepo_startup", lambda: _run_minrepo_nightly(halls, days=3))
         _run_public_machine_scrape()
+        _run_pachireview_scrape()
         _run_pekasen_juggler_scrape()
         _run_snapshot_scrape()
         _run_dmm_snapshot_scrape()

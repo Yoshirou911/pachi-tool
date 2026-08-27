@@ -98,3 +98,69 @@ def test_recover_interrupted_job_makes_it_resumable(archive_db):
     status = minrepo_archive.get_status()
     assert status["job"]["status"] == "paused"
     assert status["job"]["queue"]["pending"] == 1
+
+
+def test_archive_item_retries_temporary_failure(archive_db, monkeypatch):
+    hall = "ニコニコ住道店"
+
+    class Response:
+        status_code = 200
+
+        def __init__(self, text):
+            self.text = text
+
+    calls = {"count": 0}
+
+    def flaky_page(_url):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise RuntimeError("temporary")
+        return Response(_report_html(hall, "2026-06-05"))
+
+    monkeypatch.setattr(minrepo, "_get_page", flaky_page)
+    job_id = minrepo_archive.create_job(
+        hall, "2026-06-05", "2026-06-05", "https://min-repo.com/100/", max_pages=1
+    )
+
+    minrepo_archive.run_job(job_id)
+
+    status = minrepo_archive.get_status()["job"]
+    assert calls["count"] == 3
+    assert status["status"] == "completed"
+    assert status["failed_count"] == 0
+    assert status["processed"] == 1
+
+
+def test_resume_requeues_failed_completed_job(archive_db, monkeypatch):
+    job_id = minrepo_archive.create_job(
+        "ニコニコ住道店",
+        "2026-06-05",
+        "2026-06-05",
+        "https://min-repo.com/100/",
+        max_pages=1,
+    )
+    with sqlite3.connect(archive_db) as conn:
+        conn.execute(
+            "UPDATE archive_collection_job SET status='completed',processed=1,failed_count=1 WHERE id=?",
+            (job_id,),
+        )
+        conn.execute(
+            "UPDATE archive_collection_queue SET status='failed',attempts=3,error='temporary' WHERE job_id=?",
+            (job_id,),
+        )
+    launched = []
+    monkeypatch.setattr(minrepo_archive, "launch_job", lambda value: launched.append(value) or True)
+
+    resumed = minrepo_archive.resume_latest()
+
+    assert resumed == job_id
+    assert launched == [job_id]
+    with sqlite3.connect(archive_db) as conn:
+        job = conn.execute(
+            "SELECT status,processed,failed_count FROM archive_collection_job WHERE id=?", (job_id,)
+        ).fetchone()
+        queue = conn.execute(
+            "SELECT status,attempts,error FROM archive_collection_queue WHERE job_id=?", (job_id,)
+        ).fetchone()
+    assert job == ("queued", 0, 0)
+    assert queue == ("pending", 0, "")

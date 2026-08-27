@@ -5,15 +5,19 @@ const html = readFileSync(new URL('../mobile/index.html', import.meta.url), 'utf
 const css = readFileSync(new URL('../mobile/app.css', import.meta.url), 'utf8');
 const app = readFileSync(new URL('../mobile/app.js', import.meta.url), 'utf8');
 
-for (const id of ['screen-home', 'screen-juggler', 'screen-check', 'screen-scan', 'screen-guide', 'screen-planner', 'screen-trend', 'screen-target-map', 'screen-floor-map', 'screen-strategy', 'screen-results', 'screen-settings']) {
+for (const id of ['screen-home', 'screen-setting', 'screen-juggler', 'screen-check', 'screen-scan', 'screen-guide', 'screen-planner', 'screen-trend', 'screen-target-map', 'screen-floor-map', 'screen-strategy', 'screen-results', 'screen-settings']) {
   assert.match(html, new RegExp(`id="${id}"`), `${id} が必要`);
 }
 
 assert.match(html, /id="screen-home" class="screen active"/, 'ホーム画面を最初に表示する');
-assert.equal((html.match(/class="nav-button/g) || []).length, 12, 'モード別に切り替える専用メニューを持つ');
+assert.equal((html.match(/class="nav-button/g) || []).length, 13, 'モード別に切り替える専用メニューを持つ');
 assert.match(html, /data-screen-target="check"/, 'ホームからハイエナ判定へ移動できる');
 assert.match(html, /data-screen-target="planner"/, 'ホームから狙い台捜索へ移動できる');
 assert.match(html, /data-screen-target="juggler"/, 'ホームからジャグラー判定へ移動できる');
+assert.match(html, /data-screen-target="setting"/, 'ホームからスマスロ設定判別へ移動できる');
+assert.match(html, /id="setting-assess-form"/, 'スマスロの営業中設定判別フォームが必要');
+assert.match(html, /id="setting-elements"/, '機種固有の設定差項目を入力できる');
+assert.match(app, /element_trials/, '割合項目は試行回数を分けて送信する');
 assert.doesNotMatch(html, /data-screen="candidates"/, '候補台は狙い目画面へ統合する');
 assert.match(html, /data-screen="planner"/, '明日の狙い台を独立メニューにする');
 assert.match(html, /id="planner-form"/, '狙い台を登録できる');
@@ -36,7 +40,7 @@ assert.match(html, /data-screen-target="guide"/, '判定画面から狙い目へ
 assert.match(html, /id="scan-hall-form"/, '店舗を選ぶ巡回モードが必要');
 assert.match(html, /id="hyena-store-ranking"/, '今から向かう候補店の自動ランキングが必要');
 assert.match(html, /id="hyena-store-at"[^>]*datetime-local/, '巡回日時を指定して再計算できる');
-assert.match(html, /id="hyena-store-prefecture"/, '大阪と松本・塩尻のランキングを切り替えられる');
+assert.match(html, /id="hyena-store-prefecture"/, '四條畷周辺の店舗ランキング地域を表示する');
 assert.match(html, /id="occupancy-avg-rotation"/, '店舗の平均回転数を現場で記録できる');
 assert.match(app, /api\/occupancy\/hyena-stores/, '自動店舗ランキングAPIを利用する');
 assert.match(app, /pachi-hyena-prefecture/, '選択した地域を端末に保持する');
@@ -52,8 +56,8 @@ assert.match(app, /api\/juggler\/assess/, '公式確率を使うジャグラー�
 assert.match(app, /api\/juggler\/targets/, 'ジャグラー朝一候補APIを利用する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=3\.1\.0/);
-assert.match(html, /app\.js\?v=3\.1\.0/);
+assert.match(html, /app\.css\?v=3\.5\.1/);
+assert.match(html, /app\.js\?v=3\.5\.1/);
 assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
 assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
 assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
@@ -66,7 +70,9 @@ assert.match(app, /データ信頼度/, '判定結果からデータの信頼度
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');
 assert.match(app, /catalog\.json\?v=\$\{APP_VERSION\}/, '機種追加時に古いカタログキャッシュを使わない');
-assert.match(app, /core\.mjs\?v=3\.1\.0/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /core\.mjs\?v=3\.5\.1/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /renderTargetConclusion/, '狙い台検索の最上部に行く日の結論を表示する');
+assert.match(css, /\.target-conclusion\s*\{[^}]*position:\s*sticky/s, '行く日の結論はスクロール中も確認できる');
 assert.match(app, /recommendation_success_pct/, '狙い台の過去検証成績を表示する');
 assert.match(app, /保存できません：/, '検証基準に満たない候補は作戦保存を止める');
 assert.match(app, /installation_snapshot/, '店舗の設置機種を使って巡回対象を絞る');
@@ -91,7 +97,7 @@ assert.match(html, /id="result-hit-game"/, '当選ゲーム数を詳細記録で
 assert.match(html, /id="brand-home"[^>]*data-screen-target="home"/, '左上ブランドからホームへ戻れる');
 assert.match(html, /id="mobile-menu-button"/, '全画面共通のメニューボタンが必要');
 assert.match(html, /id="mobile-menu-overlay"/, '開閉できる全機能メニューが必要');
-for (const target of ['home', 'juggler', 'check', 'scan', 'guide', 'planner', 'trend', 'target-map', 'floor-map', 'strategy', 'results', 'settings']) {
+for (const target of ['home', 'setting', 'juggler', 'check', 'scan', 'guide', 'planner', 'trend', 'target-map', 'floor-map', 'strategy', 'results', 'settings']) {
   assert.match(html, new RegExp(`data-menu-screen[^>]*data-screen-target="${target}"`), `共通メニューに ${target} が必要`);
 }
 assert.match(app, /hostname === 'yoshirou911\.github\.io'/, '公開PWAではAPI接続先を切り替える');

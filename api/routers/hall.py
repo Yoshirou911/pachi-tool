@@ -36,6 +36,8 @@ from hall.prior import (
 from hall.machine_scope import is_smartslot_machine, machine_names_match
 from hall.regions import region_label, region_matches
 from hall.target_validation import (
+    activity_filter_summary,
+    compare_prediction_models,
     date_weighted_estimate,
     decide_action,
     grade_policy,
@@ -49,6 +51,138 @@ _scrape_status: dict[str, str] = {}  # hall_name -> "idle"|"running"|"done"|"err
 _anaslo_scrape_status: dict[str, str] = {}
 
 
+def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
+    """対象日より前の台番号実績から、再現性のある配置傾向だけを返す。"""
+    usable = [
+        row for row in rows
+        if int(row["seat_number"] or 0) > 0
+        and row["diff_coins"] is not None
+        and (row["games"] is None or int(row["games"] or 0) >= 1500)
+        and is_smartslot_machine(row["machine_name"])
+    ]
+    by_seat: dict[tuple[str, int], list] = {}
+    by_tail: dict[int, list] = {}
+    for row in usable:
+        seat_number = int(row["seat_number"])
+        by_seat.setdefault((row["machine_name"], seat_number), []).append(row)
+        by_tail.setdefault(seat_number % 10, []).append(row)
+
+    top_seats = []
+    for (machine_name, seat_number), history in by_seat.items():
+        days = len({row["report_date"] for row in history})
+        if days < 5:
+            continue
+        diffs = [float(row["diff_coins"]) for row in history]
+        wins = sum(value > 0 for value in diffs)
+        positive_rate = round((wins + 2) / (len(diffs) + 4) * 100)
+        avg_diff = round(sum(diffs) / len(diffs))
+        score = round(
+            positive_rate * 0.55
+            + max(0, min(25, 12.5 + avg_diff / 80))
+            + min(20, days / 20 * 20)
+        )
+        top_seats.append({
+            "machine_name": machine_name,
+            "seat_number": seat_number,
+            "sample_days": days,
+            "positive_rate_pct": positive_rate,
+            "avg_diff_coins": avg_diff,
+            "score": max(0, min(100, score)),
+            "status": "検証対象" if days >= 20 else "蓄積中",
+        })
+    top_seats.sort(
+        key=lambda item: (item["status"] == "検証対象", item["score"], item["sample_days"]),
+        reverse=True,
+    )
+
+    tails = []
+    for tail, history in by_tail.items():
+        days = len({row["report_date"] for row in history})
+        if len(history) < 20 or days < 8:
+            continue
+        diffs = [float(row["diff_coins"]) for row in history]
+        tails.append({
+            "tail": tail,
+            "records": len(history),
+            "sample_days": days,
+            "positive_rate_pct": round(sum(value > 0 for value in diffs) / len(diffs) * 100),
+            "avg_diff_coins": round(sum(diffs) / len(diffs)),
+        })
+    tails.sort(
+        key=lambda item: (item["positive_rate_pct"], item["avg_diff_coins"], item["records"]),
+        reverse=True,
+    )
+
+    by_island: dict[str, list[int]] = {}
+    for seat in layout_seats:
+        island = str(seat["island_name"] or seat["machine_name"] or "")
+        by_island.setdefault(island, []).append(int(seat["seat_number"]))
+    corner_numbers = {
+        number
+        for numbers in by_island.values() if len(numbers) >= 2
+        for number in (min(numbers), max(numbers))
+    }
+    corner_rows = [row for row in usable if int(row["seat_number"]) in corner_numbers]
+    corner_summary = None
+    if len(corner_rows) >= 20:
+        diffs = [float(row["diff_coins"]) for row in corner_rows]
+        corner_summary = {
+            "records": len(corner_rows),
+            "sample_days": len({row["report_date"] for row in corner_rows}),
+            "positive_rate_pct": round(sum(value > 0 for value in diffs) / len(diffs) * 100),
+            "avg_diff_coins": round(sum(diffs) / len(diffs)),
+            "verified_layout": bool(layout_seats),
+        }
+    return {
+        "usable_rows": len(usable),
+        "seat_count": len({int(row["seat_number"]) for row in usable}),
+        "top_seats": top_seats[:12],
+        "best_tail": tails[0] if tails else None,
+        "tail_ranking": tails[:5],
+        "corner": corner_summary,
+        "notice": "台別20日以上を検証対象、5～19日は蓄積中として表示",
+    }
+
+
+def _personal_profit_summary(sessions: list, hall_name: str, target_date: date) -> dict:
+    """店舗予測とは別に、本人の設定狙い収支が再現しているかを確認する。"""
+    history = [
+        session for session in sessions
+        if session.hall_name == hall_name
+        and session.date < target_date.isoformat()
+        and int(session.started_from or 0) == 0
+    ]
+    history.sort(key=lambda session: (session.date, session.id or 0))
+    recent = history[-20:]
+
+    def metrics(source: list) -> dict:
+        net = [int(session.diff_yen or 0) for session in source]
+        return {
+            "count": len(source),
+            "wins": sum(value > 0 for value in net),
+            "win_rate_pct": round(sum(value > 0 for value in net) / len(net) * 100) if net else None,
+            "total_yen": sum(net),
+            "avg_yen": round(sum(net) / len(net)) if net else None,
+        }
+
+    all_metrics = metrics(history)
+    recent_metrics = metrics(recent)
+    if len(history) >= 30:
+        status = "検証済み"
+    elif len(history) >= 10:
+        status = "参考"
+    else:
+        status = "蓄積中"
+    return {
+        "status": status,
+        "scope": "開始G数0の本人実戦",
+        "all": all_metrics,
+        "recent": recent_metrics,
+        "can_raise_prediction": False,
+        "notice": "短期収支で予測を上方修正せず、10件以上の連続マイナス時だけ安全側へ降格",
+    }
+
+
 def _run_scrape(hall_name: str, days: int):
     """バックグラウンドスクレイプ処理（みんレポ）。"""
     global _scrape_status
@@ -59,26 +193,65 @@ def _run_scrape(hall_name: str, days: int):
             init_db, parse_date_from_text, scrape_report
         )
         conn = init_db()
-        tag_url = build_tag_url(hall_name)
-        max_pages = max(1, (days + 9) // 10)  # ~10件/ページ
-        links = fetch_report_links(tag_url, max_pages=max_pages, expected_hall_name=hall_name)
-        year = date.today().year
-        for date_text, report_url in links[:days]:
-            date_str = parse_date_from_text(date_text, year)
-            if not date_str:
-                continue
-            existing = conn.execute(
-                "SELECT COUNT(*) FROM hall_day_machine WHERE hall_name=? AND report_date=?",
-                (hall_name, date_str)
-            ).fetchone()[0]
-            if existing > 0:
-                continue
-            scrape_report(report_url, hall_name, date_str, conn)
-            import time; time.sleep(1.5)
-        conn.close()
+        discovered = saved_days = saved_rows = skipped_days = 0
+        try:
+            tag_url = build_tag_url(hall_name)
+            max_pages = max(1, (days + 9) // 10)  # ~10件/ページ
+            links = fetch_report_links(tag_url, max_pages=max_pages, expected_hall_name=hall_name)
+            discovered = len(links)
+            year = date.today().year
+            for date_text, report_url in links[:days]:
+                date_str = parse_date_from_text(date_text, year)
+                if not date_str:
+                    continue
+                existing = conn.execute(
+                    "SELECT COUNT(*) FROM hall_day_machine WHERE hall_name=? AND report_date=?",
+                    (hall_name, date_str)
+                ).fetchone()[0]
+                if existing > 0:
+                    skipped_days += 1
+                    continue
+                saved = scrape_report(report_url, hall_name, date_str, conn)
+                if saved:
+                    saved_days += 1
+                    saved_rows += saved
+                import time; time.sleep(1.5)
+        finally:
+            conn.close()
         _scrape_status[hall_name] = "done"
+        return {
+            "hall_name": hall_name, "status": "done", "requested_days": days,
+            "discovered": discovered, "saved_days": saved_days,
+            "rows": saved_rows, "skipped_days": skipped_days,
+        }
     except Exception as e:
         _scrape_status[hall_name] = f"error: {e}"
+        return {"hall_name": hall_name, "status": "error", "requested_days": days, "rows": 0, "error": str(e)}
+
+
+def _recommended_collection_days(hall_name: str, requested_days: int, max_days: int = 30) -> int:
+    """最終取得日からの空白に応じて、次回起動時の取得範囲を自動で広げる。"""
+    conn = _get_reports_conn()
+    if conn is None:
+        return max(1, requested_days)
+    try:
+        row = conn.execute(
+            """SELECT MAX(report_date) FROM (
+                   SELECT report_date FROM hall_day_machine WHERE hall_name=?
+                   UNION ALL
+                   SELECT report_date FROM hall_day_seat WHERE hall_name=?
+               )""",
+            (hall_name, hall_name),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or not row[0]:
+        return max_days
+    try:
+        missing_days = max(0, (date.today() - date.fromisoformat(row[0])).days)
+    except ValueError:
+        return max_days
+    return min(max_days, max(1, requested_days, missing_days + 2))
 
 
 def _run_minrepo_nightly(hall_list: list, days: int = 2) -> list[dict]:
@@ -88,14 +261,15 @@ def _run_minrepo_nightly(hall_list: list, days: int = 2) -> list[dict]:
     for h in hall_list:
         hname = h["hall_name"] if isinstance(h, dict) else h
         try:
-            _run_scrape(hname, days=days)
+            collection_days = _recommended_collection_days(hname, days)
+            scrape_result = _run_scrape(hname, days=collection_days)
             raw_status = _scrape_status.get(hname, "done")
             if raw_status.startswith("error"):
-                results.append({"hall_name": hname, "status": "error", "error": raw_status})
+                results.append({**scrape_result, "status": "error", "error": raw_status})
                 logger.warning(f"[みんレポ] {hname} {raw_status}")
             else:
-                results.append({"hall_name": hname, "status": "done"})
-                logger.info(f"[みんレポ] {hname} 完了")
+                results.append(scrape_result)
+                logger.info(f"[みんレポ] {hname} 完了: 直近{collection_days}日を確認")
         except Exception as e:
             results.append({"hall_name": hname, "status": "error", "error": str(e)})
             logger.warning(f"[みんレポ] {hname} エラー: {e}")
@@ -643,6 +817,42 @@ def get_target_search(
                 item["machines"].append(snapshot_row[2])
         except sqlite3.OperationalError:
             installation_by_hall = {}
+        event_rows = []
+        try:
+            event_rows = conn.execute(
+                """SELECT hall_name,event_date,event_type,event_title,source,source_url
+                     FROM hall_event
+                    WHERE event_date >= ? AND event_date <= ?""",
+                (start_date.isoformat(), target_date.isoformat()),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            event_rows = []
+        seat_history_rows = []
+        try:
+            seat_history_rows = conn.execute(
+                """SELECT hall_name,report_date,machine_name,seat_number,diff_coins,games
+                     FROM hall_day_seat
+                    WHERE report_date >= ? AND report_date < ?
+                      AND seat_number > 0 AND diff_coins IS NOT NULL""",
+                (start_date.isoformat(), target_date.isoformat()),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            seat_history_rows = []
+        latest_layout_seats = []
+        try:
+            latest_layout_seats = conn.execute(
+                """SELECT layout.hall_name,seat.seat_number,seat.machine_name,seat.island_name
+                     FROM hall_layout AS layout
+                     JOIN hall_layout_seat AS seat ON seat.layout_id=layout.id
+                     JOIN (
+                       SELECT hall_name,MAX(valid_from) AS latest_date
+                         FROM hall_layout GROUP BY hall_name
+                     ) AS latest
+                       ON latest.hall_name=layout.hall_name
+                      AND latest.latest_date=layout.valid_from"""
+            ).fetchall()
+        except sqlite3.OperationalError:
+            latest_layout_seats = []
     finally:
         conn.close()
 
@@ -664,6 +874,26 @@ def get_target_search(
     for row in rows:
         by_hall.setdefault(row["hall_name"], []).append(row)
 
+    events_by_hall: dict[str, list] = {}
+    for event_row in event_rows:
+        if region_matches(
+            event_row["hall_name"],
+            active_hall_prefectures.get(event_row["hall_name"]),
+            region,
+        ):
+            events_by_hall.setdefault(event_row["hall_name"], []).append(event_row)
+    seats_by_hall: dict[str, list] = {}
+    for seat_row in seat_history_rows:
+        if region_matches(
+            seat_row["hall_name"],
+            active_hall_prefectures.get(seat_row["hall_name"]),
+            region,
+        ):
+            seats_by_hall.setdefault(seat_row["hall_name"], []).append(seat_row)
+    layouts_by_hall: dict[str, list] = {}
+    for layout_seat in latest_layout_seats:
+        layouts_by_hall.setdefault(layout_seat["hall_name"], []).append(layout_seat)
+
     ranked_halls: list[dict] = []
     insufficient: list[dict] = []
     candidate_halls = active_halls or set(by_hall)
@@ -675,9 +905,28 @@ def get_target_search(
             region,
         )
     )
+    try:
+        personal_sessions = list_sessions(
+            date_to=(target_date - timedelta(days=1)).isoformat(), limit=5000
+        )
+    except Exception:
+        personal_sessions = []
 
     for hall_name in all_hall_names:
         hall_rows = by_hall.get(hall_name, [])
+        hall_events = events_by_hall.get(hall_name, [])
+        seat_patterns = _seat_pattern_summary(
+            seats_by_hall.get(hall_name, []), layouts_by_hall.get(hall_name, [])
+        )
+        personal_profit = _personal_profit_summary(
+            personal_sessions, hall_name, target_date
+        )
+        event_dates = {
+            date.fromisoformat(row["event_date"]) for row in hall_events
+        }
+        target_events = [
+            row for row in hall_events if row["event_date"] == target_date.isoformat()
+        ]
         rows_with_games = [row for row in hall_rows if row["avg_games"] is not None and row["avg_games"] > 0]
         zero_diff_played = sum(row["avg_diff_coins"] == 0 for row in rows_with_games)
         suspicious_zero_rate = (
@@ -693,7 +942,17 @@ def get_target_search(
                 ),
             })
             continue
-        estimate = date_weighted_estimate(hall_rows, target_date)
+        model_selection = compare_prediction_models(
+            hall_rows, target_date, event_dates=event_dates
+        )
+        selected_model = model_selection["selected_model"]
+        estimate = date_weighted_estimate(
+            hall_rows,
+            target_date,
+            model=selected_model,
+            event_dates=event_dates,
+        )
+        activity_quality = activity_filter_summary(hall_rows)
         if estimate["sample_days"] < 3:
             insufficient.append({
                 "hall_name": hall_name,
@@ -722,10 +981,25 @@ def get_target_search(
             else "中" if estimate["sample_days"] >= 30 and estimate["weekday_days"] >= 4 and stale_days <= 30
             else "低"
         )
-        validation = walk_forward_backtest(hall_rows)
-        action, action_reason = decide_action(
-            avg_diff, stale_days, validation, positive_rate
+        validation = walk_forward_backtest(
+            hall_rows, model="auto", event_dates=event_dates
         )
+        action, action_reason = decide_action(
+            avg_diff, stale_days, validation, positive_rate, estimate
+        )
+        personal_all = personal_profit["all"]
+        personal_recent = personal_profit["recent"]
+        if (
+            action.startswith("狙う")
+            and personal_all["count"] >= 10
+            and (personal_all["avg_yen"] or 0) < 0
+            and (personal_recent["avg_yen"] or 0) < 0
+        ):
+            action = "要確認"
+            action_reason = (
+                f"本人実戦{personal_all['count']}件の平均収支"
+                f"{personal_all['avg_yen']:+,}円がマイナス"
+            )
 
         by_machine: dict[str, list] = {}
         for row in hall_rows:
@@ -758,9 +1032,16 @@ def get_target_search(
             if machine_stale_days > 60:
                 excluded_stale += 1
                 continue
-            diffs = [float(row["avg_diff_coins"]) for row in machine_rows]
-            machine_estimate = date_weighted_estimate(machine_rows, target_date)
-            reliability = min(1.0, len(machine_dates) / 20)
+            machine_estimate = date_weighted_estimate(
+                machine_rows,
+                target_date,
+                model=selected_model,
+                event_dates=event_dates,
+            )
+            machine_sample_days = machine_estimate["sample_days"]
+            if machine_sample_days < 2:
+                continue
+            reliability = min(1.0, machine_sample_days / 20)
             machine_avg = round(
                 machine_estimate["projected"] * reliability
                 + estimate["base_avg"] * (1 - reliability)
@@ -769,14 +1050,28 @@ def get_target_search(
                 machine_estimate["positive_rate"] * reliability
                 + estimate["positive_rate"] * (1 - reliability)
             )
-            machine_score = round(
-                max(0, min(55, 27.5 + machine_avg / 30))
-                + max(0, min(25, machine_positive * 0.25))
-                + min(20, len(machine_dates) / 20 * 20)
+            machine_risk_adjusted = round(
+                machine_estimate["risk_adjusted_projected"] * reliability
+                + estimate["base_avg"] * (1 - reliability)
             )
-            machine_validation = walk_forward_backtest(machine_rows)
+            machine_diagnostics = {
+                **machine_estimate,
+                "risk_adjusted_projected": machine_risk_adjusted,
+            }
+            machine_score = round(
+                max(0, min(55, 27.5 + machine_risk_adjusted / 30))
+                + max(0, min(25, machine_positive * 0.25))
+                + min(20, machine_sample_days / 20 * 20)
+            )
+            machine_validation = walk_forward_backtest(
+                machine_rows, model=selected_model, event_dates=event_dates
+            )
             machine_action, machine_action_reason = decide_action(
-                machine_avg, machine_stale_days, machine_validation, machine_positive
+                machine_avg,
+                machine_stale_days,
+                machine_validation,
+                machine_positive,
+                machine_diagnostics,
             )
             if action == "見送り":
                 machine_action = "見送り"
@@ -787,14 +1082,19 @@ def get_target_search(
             elif not installation_is_fresh and machine_action.startswith("狙う"):
                 machine_action = "要確認"
                 machine_action_reason = "現在の設置確認が取れていない"
+            seat_candidates = [
+                item for item in seat_patterns["top_seats"]
+                if machine_names_match(machine_name, item["machine_name"])
+            ][:3]
             machine_candidates.append({
                 "machine_name": machine_name,
                 "score": max(0, min(100, machine_score)),
                 "avg_diff": machine_avg,
+                "risk_adjusted_avg_diff": machine_risk_adjusted,
                 "raw_avg_diff": machine_estimate["projected"],
                 "positive_rate": machine_positive,
                 "reliability_pct": round(reliability * 100),
-                "sample_days": len(machine_dates),
+                "sample_days": machine_sample_days,
                 "latest_date": machine_latest_date,
                 "stale_days": machine_stale_days,
                 "installation_status": (
@@ -807,11 +1107,19 @@ def get_target_search(
                 "prediction_diagnostics": {
                     "signal_agreement_pct": machine_estimate["signal_agreement_pct"],
                     "volatility_coins": machine_estimate["volatility_coins"],
+                    "downside_q25_coins": machine_estimate["downside_q25_coins"],
+                    "severe_loss_rate_pct": machine_estimate["severe_loss_rate_pct"],
+                    "risk_adjusted_projected": machine_risk_adjusted,
                     "components": machine_estimate["components"],
                 },
                 "action": machine_action,
                 "action_reason": machine_action_reason,
                 "validation": machine_validation,
+                "prediction_model": {
+                    "model": selected_model,
+                    "label": model_selection["selected_label"],
+                },
+                "seat_candidates": seat_candidates,
             })
         machine_candidates.sort(
             key=lambda item: (
@@ -825,8 +1133,24 @@ def get_target_search(
 
         reasons = [
             f"{basis}を重み付け",
+            f"店舗別モデルは{model_selection['selected_label']}を自動選択",
             f"指定日の推定差枚 {avg_diff:+,}枚・プラス日率{positive_rate}%",
         ]
+        if activity_quality["games_known_rows"]:
+            reasons.append(
+                f"低稼働{activity_quality['excluded_low_activity_rows']}行を除外、"
+                f"{activity_quality['reduced_weight_rows']}行を減量"
+            )
+        if target_events:
+            reasons.append(
+                f"登録イベント{len(target_events)}件・過去イベント"
+                f"{estimate['historic_event_days']}日と照合（補正{estimate['event_adjustment_coins']:+,}枚）"
+            )
+        if personal_all["count"]:
+            reasons.append(
+                f"本人の朝一実戦{personal_all['count']}件・平均"
+                f"{personal_all['avg_yen']:+,}円・勝率{personal_all['win_rate_pct']}%"
+            )
         if installation_is_fresh:
             reasons.append(
                 f"{installation['snapshot_date']}の設置機種と照合済み"
@@ -855,6 +1179,24 @@ def get_target_search(
             "action": action,
             "action_reason": action_reason,
             "validation": validation,
+            "prediction_model": model_selection,
+            "event_context": {
+                "is_event_day": bool(target_events),
+                "events": [
+                    {
+                        "type": row["event_type"] or "その他",
+                        "title": row["event_title"] or "",
+                        "source": row["source"] or "",
+                        "source_url": row["source_url"] or "",
+                    }
+                    for row in target_events
+                ],
+                "historic_event_days": estimate["historic_event_days"],
+                "historic_event_avg_coins": estimate["historic_event_avg_coins"],
+                "adjustment_coins": estimate["event_adjustment_coins"],
+            },
+            "seat_patterns": seat_patterns,
+            "personal_profit_validation": personal_profit,
             "basis": basis,
             "sample_days": estimate["sample_days"],
             "avg_diff": avg_diff,
@@ -867,6 +1209,9 @@ def get_target_search(
             "prediction_diagnostics": {
                 "signal_agreement_pct": estimate["signal_agreement_pct"],
                 "volatility_coins": estimate["volatility_coins"],
+                "downside_q25_coins": estimate["downside_q25_coins"],
+                "severe_loss_rate_pct": estimate["severe_loss_rate_pct"],
+                "risk_adjusted_projected": estimate["risk_adjusted_projected"],
                 "components": estimate["components"],
             },
             "latest_date": latest_date,
@@ -878,6 +1223,7 @@ def get_target_search(
                 "installation_snapshot_fresh": installation_is_fresh,
                 "excluded_not_installed": excluded_not_installed,
                 "excluded_stale": excluded_stale,
+                "activity_filter": activity_quality,
             },
             "reasons": reasons,
             "target_machines": machine_candidates[:5],

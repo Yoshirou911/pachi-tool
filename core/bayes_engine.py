@@ -114,6 +114,11 @@ class Observation:
     """
     total_games: int
     counts: Mapping[str, int] = field(default_factory=dict)
+    # 要素ごとの試行回数。省略時は total_games を使う。
+    # 例: 「CZ成功 3回 / CZ突入 8回」のように毎ゲーム抽選ではない要素は
+    # trials={"CZ成功": 8} を渡す。これがないと8回の観測を3000Gの
+    # 0回扱いにしてしまい、設定推測が大きく歪む。
+    trials: Mapping[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if isinstance(self.total_games, bool) or not isinstance(self.total_games, int):
@@ -125,6 +130,15 @@ class Observation:
                 raise ValueError(f"要素 '{name}' の回数は整数で指定してください")
             if count < 0:
                 raise ValueError(f"要素 '{name}' の回数は0以上で指定してください")
+            trial_count = self.trials.get(name, self.total_games)
+            if isinstance(trial_count, bool) or not isinstance(trial_count, int):
+                raise ValueError(f"要素 '{name}' の試行回数は整数で指定してください")
+            if trial_count < 0:
+                raise ValueError(f"要素 '{name}' の試行回数は0以上で指定してください")
+            if count > trial_count:
+                raise ValueError(
+                    f"要素 '{name}' の出現回数 {count} は試行回数 {trial_count} 以下にしてください"
+                )
 
 
 # --------------------------------------------------------------------------
@@ -177,11 +191,11 @@ class SettingEstimator:
         powers = self.element_discrimination_power() if use_discrimination_weights else {}
         max_power = max(powers.values(), default=1.0) if powers else 1.0
 
-        N = obs.total_games
         for name, k in obs.counts.items():
             el = self._elem_by_name.get(name)
             if el is None:
                 continue
+            N = obs.trials.get(name, obs.total_games)
             if k < 0 or k > N:
                 raise ValueError(f"要素 '{name}' の回数 {k} が 0..{N} の範囲外です")
 

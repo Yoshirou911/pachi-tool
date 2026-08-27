@@ -1,4 +1,5 @@
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -236,3 +237,51 @@ def test_target_search_excludes_suspicious_zero_diff_hall(tmp_path, monkeypatch)
     assert result["halls"] == []
     assert result["insufficient_halls"][0]["hall_name"] == "APULO811"
     assert "差枚欠損" in result["insufficient_halls"][0]["reason"]
+
+
+def test_seat_patterns_require_history_and_personal_profit_never_raises_prediction():
+    rows = []
+    for day in range(1, 21):
+        rows.extend([
+            {"report_date": f"2026-07-{day:02d}", "machine_name": "L北斗", "seat_number": 101, "diff_coins": 500, "games": 3000},
+            {"report_date": f"2026-07-{day:02d}", "machine_name": "L北斗", "seat_number": 102, "diff_coins": -300, "games": 3000},
+        ])
+    layouts = [
+        {"seat_number": 101, "machine_name": "L北斗", "island_name": "A"},
+        {"seat_number": 102, "machine_name": "L北斗", "island_name": "A"},
+    ]
+    sessions = [
+        SimpleNamespace(
+            hall_name="検証店", date=f"2026-07-{day:02d}", started_from=0,
+            diff_yen=-1000, id=day,
+        )
+        for day in range(1, 11)
+    ]
+
+    seat_summary = hall_router._seat_pattern_summary(rows, layouts)
+    profit = hall_router._personal_profit_summary(sessions, "検証店", hall_router.date(2026, 8, 1))
+
+    assert seat_summary["top_seats"][0]["seat_number"] == 101
+    assert seat_summary["top_seats"][0]["status"] == "検証対象"
+    assert seat_summary["corner"]["verified_layout"] is True
+    assert profit["all"]["count"] == 10
+    assert profit["all"]["avg_yen"] == -1000
+    assert profit["can_raise_prediction"] is False
+
+
+def test_collection_days_expand_to_cover_missed_dates(tmp_path, monkeypatch):
+    db_path = tmp_path / "reports.db"
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE hall_day_machine(hall_name TEXT, report_date TEXT);
+        CREATE TABLE hall_day_seat(hall_name TEXT, report_date TEXT);
+    """)
+    latest = (hall_router.date.today() - hall_router.timedelta(days=8)).isoformat()
+    conn.execute("INSERT INTO hall_day_machine VALUES (?,?)", ("テスト店", latest))
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(hall_router, "_get_reports_conn", lambda: sqlite3.connect(db_path))
+
+    assert hall_router._recommended_collection_days("テスト店", 3) == 10
+    assert hall_router._recommended_collection_days("未収集店", 3) == 30

@@ -7,12 +7,14 @@ update can replace the program without deleting records.
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import shutil
 import socket
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -113,19 +115,41 @@ def main() -> int:
         wait_until_ready(url)
 
         if "--smoke-test" in sys.argv:
+            from app_version import APP_VERSION
+
+            with urllib.request.urlopen(f"{url}api/version", timeout=5) as response:
+                version_payload = json.loads(response.read().decode("utf-8"))
+                if response.status != 200 or version_payload.get("version") != APP_VERSION:
+                    raise RuntimeError(
+                        "Desktop build contains inconsistent version data: "
+                        f"expected {APP_VERSION}, got {version_payload.get('version')}"
+                    )
+            with urllib.request.urlopen(f"{url}api/machines?scope=live_setting", timeout=5) as response:
+                live_setting_machines = json.loads(response.read().decode("utf-8"))
+                if response.status != 200 or not live_setting_machines:
+                    raise RuntimeError("Verified live-setting machine data is missing")
+            for machine_name in live_setting_machines:
+                encoded_name = urllib.parse.quote(machine_name, safe="")
+                with urllib.request.urlopen(f"{url}api/machines/{encoded_name}", timeout=5) as response:
+                    machine_payload = json.loads(response.read().decode("utf-8"))
+                    if response.status != 200 or not machine_payload.get("verified_for_live_setting"):
+                        raise RuntimeError("Unverified machine leaked into the live-setting list")
             with urllib.request.urlopen(f"{url}api/opportunity/dashboard?month=2026-08", timeout=5) as response:
                 if response.status != 200:
                     raise RuntimeError(f"Desktop API smoke test failed: HTTP {response.status}")
             with urllib.request.urlopen(
                 f"{url}api/map/target_heat?visit_date=2026-08-10&days=120&long_days=365",
-                timeout=5,
+                # 長期履歴を数万行蓄積した端末でも、起動検証が
+                # 通信失敗と誤判定しない待ち時間を確保する。
+                timeout=30,
             ) as response:
                 if response.status != 200:
                     raise RuntimeError(f"Target heat map smoke test failed: HTTP {response.status}")
             with urllib.request.urlopen(f"{url}mobile/", timeout=5) as response:
                 mobile_html = response.read().decode("utf-8")
-                if response.status != 200 or 'id="target-map-form"' not in mobile_html:
-                    raise RuntimeError("Mobile heat map assets are missing from desktop build")
+                required_markers = ('id="target-map-form"', 'id="setting-assess-form"')
+                if response.status != 200 or not all(marker in mobile_html for marker in required_markers):
+                    raise RuntimeError("Required mobile assets are missing from desktop build")
             server.should_exit = True
             server_thread.join(timeout=5)
             return 0

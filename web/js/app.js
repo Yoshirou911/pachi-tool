@@ -19,10 +19,10 @@ function setStoredToken(token) {
   try { localStorage.setItem(TOKEN_KEY, token); } catch { /* ignore */ }
 }
 function getTargetRegion() {
-  try { return localStorage.getItem(TARGET_REGION_KEY) || 'shijonawate'; } catch { return 'shijonawate'; }
+  return 'shijonawate';
 }
 function syncTargetRegion(region) {
-  const value = region || 'shijonawate';
+  const value = 'shijonawate';
   try { localStorage.setItem(TARGET_REGION_KEY, value); } catch { /* ignore */ }
   ['desktop-target-region', 'desktop-heat-region', 'desktop-juggler-region'].forEach(id => {
     const element = document.getElementById(id);
@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.1.0';
+    document.getElementById('desktop-version-label').textContent = 'v3.5.1';
   }
 }
 
@@ -475,6 +475,67 @@ function desktopSignedCoins(value) {
   return `${number >= 0 ? '+' : ''}${number.toLocaleString('ja-JP')}枚`;
 }
 
+function renderDesktopBacktestAnswers(validation) {
+  const answers = (validation?.recent_trials || []).filter(item => item.recommended).slice(-5);
+  if (!answers.length) return '<span class="desktop-backtest-empty">直近に安全基準を通過した予測はありません</span>';
+  return answers.map(item => `<span class="desktop-backtest-answer ${item.recommended_success ? 'hit' : 'miss'}"><small>${esc(item.date?.slice(5) || '')}</small><b>${item.recommended_success ? '○' : '×'}</b><em>予測 ${desktopSignedCoins(item.risk_adjusted_predicted ?? item.predicted)} → 実績 ${desktopSignedCoins(item.actual)}</em></span>`).join('');
+}
+
+function renderDesktopTargetContext(hall) {
+  const model = hall.prediction_model || {};
+  const activity = hall.data_quality?.activity_filter || {};
+  const event = hall.event_context || {};
+  const seats = hall.seat_patterns || {};
+  const profit = hall.personal_profit_validation?.all || {};
+  return `<div class="desktop-target-context">
+    <span><small>店舗別モデル</small><b>${esc(model.selected_label || 'バランス型')}</b><em>過去成績から自動選択</em></span>
+    <span><small>低稼働除外</small><b>${activity.excluded_low_activity_rows ?? 0}行</b><em>${activity.reduced_weight_rows ?? 0}行を減量</em></span>
+    <span><small>イベント</small><b>${event.is_event_day ? `${event.events?.length || 0}件あり` : '登録なし'}</b><em>${event.is_event_day ? `補正 ${desktopSignedCoins(event.adjustment_coins)}` : `過去${event.historic_event_days || 0}日`}</em></span>
+    <span><small>台番号傾向</small><b>${seats.best_tail ? `末尾${seats.best_tail.tail}・${seats.best_tail.positive_rate_pct}%` : '検証中'}</b><em>${seats.usable_rows || 0}件を分析</em></span>
+    <span><small>自分の朝一収支</small><b>${profit.count ? `${profit.count}件` : '未蓄積'}</b><em>${profit.count ? `平均 ${(profit.avg_yen >= 0 ? '+' : '')}${Number(profit.avg_yen).toLocaleString('ja-JP')}円` : '実戦記録から育ちます'}</em></span>
+  </div>`;
+}
+
+function selectDesktopTargetConclusion(data) {
+  const halls = data?.halls || [];
+  const hall = halls.find(item => item.action?.startsWith('狙う'))
+    || halls.find(item => item.action === '要確認')
+    || halls[0];
+  if (!hall) return null;
+  const machines = hall.target_machines || [];
+  const machine = machines.find(item => item.action?.startsWith('狙う'))
+    || machines.find(item => item.action === '要確認')
+    || machines[0]
+    || null;
+  const seats = machine?.seat_candidates || [];
+  const seat = seats.find(item => item.status === '検証対象') || seats[0] || null;
+  const action = hall.action === '見送り'
+    ? '見送り'
+    : hall.action?.startsWith('狙う') && machine?.action?.startsWith('狙う')
+      ? '狙う'
+      : '要確認';
+  return { hall, machine, seat, action, tone: action === '狙う' ? 'go' : action === '見送り' ? 'stop' : 'check' };
+}
+
+function renderDesktopTargetConclusion(data) {
+  const result = selectDesktopTargetConclusion(data);
+  if (!result) return '';
+  const { hall, machine, seat, action, tone } = result;
+  const parts = String(data.visit_date || '').split('-');
+  const dateLabel = parts.length === 3 ? `${Number(parts[1])}/${Number(parts[2])}の結論` : '行く日の結論';
+  const seatLabel = seat ? `${seat.seat_number}番台${seat.status === '検証対象' ? '' : '候補'}` : '現地で未確定';
+  const reason = action === '見送り'
+    ? '安全基準を通る店舗・機種がありません'
+    : action === '狙う'
+      ? '店舗と機種の両方が安全基準を通過'
+      : hall.action_reason || machine?.action_reason || 'データを確認してから着席';
+  return `<section class="desktop-target-conclusion desktop-target-conclusion-${tone}" aria-label="${esc(dateLabel)}">
+    <div class="desktop-target-conclusion-head"><span>${esc(dateLabel)}</span><b>${esc(action)}</b><em>信頼度 ${esc(hall.validation?.trust_level || 'データ不足')}</em></div>
+    <div class="desktop-target-conclusion-route"><span><small>店舗</small><strong>${esc(hall.hall_name || '候補なし')}</strong></span><i aria-hidden="true">›</i><span><small>機種</small><strong>${esc(machine?.machine_name || '候補なし')}</strong></span><i aria-hidden="true">›</i><span><small>台番号</small><strong>${esc(seatLabel)}</strong></span></div>
+    <p>${esc(reason)}</p>
+  </section>`;
+}
+
 function renderDesktopTargetSearch(data) {
   const container = document.getElementById('desktop-target-results');
   const halls = data.halls || [];
@@ -485,15 +546,18 @@ function renderDesktopTargetSearch(data) {
     return;
   }
   container.innerHTML = `
+    ${renderDesktopTargetConclusion(data)}
     <div class="desktop-target-heading"><div><span class="page-eyebrow">${esc(data.region_label || '')}・${esc(data.visit_date)} ${esc(data.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="badge">${halls.length}店舗</span></div>
     ${halls.map(hall => `<article class="card desktop-target-hall">
       <div class="desktop-target-action target-action-${hall.action?.startsWith('狙う') ? 'go' : hall.action === '見送り' ? 'stop' : 'check'}"><b>${esc(hall.action || '要確認')}</b><span>${esc(hall.action_reason || '')}</span></div>
       <div class="desktop-target-hall-head"><span class="desktop-target-rank">${hall.rank}</span><div><h3>${esc(hall.hall_name)}</h3><p>${esc(hall.basis)}・最終データ ${esc(hall.latest_date)}</p></div><div class="desktop-target-score"><b>${hall.score}</b><small>点</small></div></div>
-      <div class="desktop-target-metrics"><span><small>店舗平均</small><b class="${hall.avg_diff >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
-      <div class="desktop-target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}・品質${hall.validation?.quality_score ?? 0}点</b><span>方向的中 ${hall.validation?.direction_accuracy_pct ?? 0}% ／ 推奨 ${hall.validation?.recommended_days ?? 0}回 ／ 95%下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}% ／ 直近 ${hall.validation?.recent_recommendation_success_pct ?? '--'}% ／ 根拠一致 ${hall.prediction_diagnostics?.signal_agreement_pct ?? '--'}% ／ ブレ幅 ${Number(hall.prediction_diagnostics?.volatility_coins || 0).toLocaleString('ja-JP')}枚</span></div>
+      <div class="desktop-target-metrics"><span><small>安全側推定</small><b class="${(hall.prediction_diagnostics?.risk_adjusted_projected ?? hall.avg_diff) >= 0 ? 'text-up' : 'text-down'}">${desktopSignedCoins(hall.prediction_diagnostics?.risk_adjusted_projected ?? hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
+      <div class="desktop-target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}・品質${hall.validation?.quality_score ?? 0}点</b><span>推奨 ${hall.validation?.recommended_days ?? 0}回（見送り ${hall.validation?.skipped_days ?? 0}日）／ 95%下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}% ／ 直近 ${hall.validation?.recent_recommendation_success_pct ?? '--'}% ／ 根拠一致 ${hall.prediction_diagnostics?.signal_agreement_pct ?? '--'}% ／ 下側25% ${desktopSignedCoins(hall.prediction_diagnostics?.downside_q25_coins ?? 0)}</span></div>
+      ${renderDesktopTargetContext(hall)}
+      <details class="desktop-target-backtest"><summary>直近の自動答え合わせを見る</summary><div>${renderDesktopBacktestAnswers(hall.validation)}</div></details>
       <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="desktop-target-machines">
-        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${esc(machine.installation_status || '設置未確認')}</small><b class="${machine.avg_diff >= 0 ? 'text-up' : 'text-down'}">補正 ${desktopSignedCoins(machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
+        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}${machine.seat_candidates?.length ? `<i>台候補 ${machine.seat_candidates.map(row => `${row.seat_number}番(${row.positive_rate_pct}%)`).join('・')}</i>` : ''}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${esc(machine.installation_status || '設置未確認')}</small><b class="${(machine.risk_adjusted_avg_diff ?? machine.avg_diff) >= 0 ? 'text-up' : 'text-down'}">安全側 ${desktopSignedCoins(machine.risk_adjusted_avg_diff ?? machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
       </div>
     </article>`).join('')}
     ${insufficient.length ? `<details class="desktop-insufficient"><summary>データ不足の店舗 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}
@@ -1297,7 +1361,10 @@ async function loadRecentSessions(machineName) {
 }
 
 function renderCountInputs(profile) {
-  estCountsList.innerHTML = profile.elements.map(el => `
+  estCountsList.innerHTML = profile.elements.map(el => {
+    const probabilities = Object.values(el.p || {}).map(Number).filter(Number.isFinite);
+    const needsTrials = probabilities.length > 0 && Math.max(...probabilities) >= 0.12;
+    return `
     <div class="count-row" data-element="${esc(el.name)}">
       <span class="count-name">${esc(el.name)}${el.name.includes('合算') ? '<small>BB/RB入力時は自動除外</small>' : ''}</span>
       <div class="count-stepper">
@@ -1306,8 +1373,9 @@ function renderCountInputs(profile) {
                inputmode="numeric" data-el="${esc(el.name)}">
         <button class="count-btn" data-dir="+1">＋</button>
       </div>
+      ${needsTrials ? `<label style="display:flex;align-items:center;gap:6px;margin-top:7px;color:var(--text3);font-size:.68rem">確認した総回数<input class="trial-input form-input" type="number" min="0" inputmode="numeric" data-el="${esc(el.name)}" placeholder="例: 10" style="max-width:110px;padding:6px 8px"></label><small style="display:block;color:var(--text3);font-size:.62rem;margin-top:4px">割合項目は成功回数／試行回数で計算</small>` : ''}
     </div>
-  `).join('');
+  `; }).join('');
 
   // ステッパーボタン
   estCountsList.querySelectorAll('.count-btn').forEach(btn => {
@@ -1332,6 +1400,9 @@ function renderCountInputs(profile) {
       updateEstimateReadiness();
       autoEstimate();
     });
+  });
+  estCountsList.querySelectorAll('.trial-input').forEach(input => {
+    input.addEventListener('input', () => { updateEstimateReadiness(); autoEstimate(); });
   });
 }
 
@@ -1458,6 +1529,7 @@ async function runEstimate() {
       games_total: games,
       started_from: startedFrom,
       element_counts: counts,
+      element_trials: getTrialValues(),
       hall_name: estHall.value || '',
       weekday,
       is_event_day: estEvent.checked,
@@ -1487,9 +1559,19 @@ function getCountValues() {
   const counts = {};
   estCountsList.querySelectorAll('.count-input').forEach(input => {
     const v = parseInt(input.value);
-    if (v > 0) counts[input.dataset.el] = v;
+    const trial = estCountsList.querySelector(`.trial-input[data-el="${CSS.escape(input.dataset.el)}"]`);
+    if (v > 0 || (v === 0 && trial && Number(trial.value) > 0)) counts[input.dataset.el] = v;
   });
   return counts;
+}
+
+function getTrialValues() {
+  const trials = {};
+  estCountsList.querySelectorAll('.trial-input').forEach(input => {
+    const value = Number.parseInt(input.value, 10);
+    if (Number.isFinite(value) && value >= 0) trials[input.dataset.el] = value;
+  });
+  return trials;
 }
 
 function renderEstimateResult(r) {
@@ -1810,6 +1892,24 @@ function renderAdvice(r) {
   const highProb = r.high_setting_prob || 0;
   const games = parseInt(estGames?.value) || 0;
   const conf = r.confidence || 0;
+
+  if (r.action) {
+    const styles = {
+      '続行候補': ['✅', 'var(--success)', 'rgba(16,185,129,.1)', 'rgba(16,185,129,.25)'],
+      '撤退候補': ['🚨', 'var(--danger)', 'rgba(244,63,94,.1)', 'rgba(244,63,94,.25)'],
+      '様子見': ['⚠️', 'var(--warning)', 'rgba(245,158,11,.08)', 'rgba(245,158,11,.25)'],
+      '情報不足': ['⏳', 'var(--text2)', 'rgba(100,116,139,.1)', 'rgba(100,116,139,.2)'],
+    };
+    const style = styles[r.action] || styles['様子見'];
+    el.style.display = 'block';
+    el.style.background = style[2];
+    el.style.border = `1px solid ${style[3]}`;
+    icon.textContent = style[0];
+    text.textContent = r.action;
+    text.style.color = style[1];
+    detail.textContent = r.action_reason || '';
+    return;
+  }
 
   // データ不足（信頼度低すぎ）
   if (games < 1000 || conf < 0.15) {
@@ -4945,7 +5045,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.1.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.5.1');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);
@@ -6981,7 +7081,7 @@ async function loadArchiveCollector() {
     const running = job && ['queued', 'collecting'].includes(job.status);
     document.getElementById('archive-start-btn').disabled = Boolean(running || job?.status === 'paused');
     document.getElementById('archive-pause-btn').disabled = !running;
-    document.getElementById('archive-resume-btn').disabled = job?.status !== 'paused';
+    document.getElementById('archive-resume-btn').disabled = job?.status !== 'paused' && !(Number(job?.failed_count || 0) > 0 && ['completed', 'failed'].includes(job?.status));
     clearTimeout(_archivePollTimer);
     if (running) _archivePollTimer = setTimeout(loadArchiveCollector, 3000);
   } catch (error) {

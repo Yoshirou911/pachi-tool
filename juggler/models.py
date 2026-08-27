@@ -140,6 +140,13 @@ def assess_juggler(profile_id: str, games: int, bb_count: int, rb_count: int) ->
     low_probability = sum(probabilities[str(setting)] for setting in (1, 2, 3))
     high_low_ratio = high_probability / max(1e-12, low_probability)
     best_probability = probabilities[best_setting]
+    setting5_probability = sum(probabilities[str(setting)] for setting in (5, 6))
+    setting6_probability = probabilities["6"]
+    expected_setting = sum(int(setting) * probability for setting, probability in probabilities.items())
+    expected_payout = sum(
+        profile["settings"][setting]["payout"] * probability
+        for setting, probability in probabilities.items()
+    )
 
     sample_factor = min(1.0, games / 6000)
     reference_reliability = round(best_probability * sample_factor * 100)
@@ -186,6 +193,8 @@ def assess_juggler(profile_id: str, games: int, bb_count: int, rb_count: int) ->
         reason = "高設定・低設定のどちらにも十分寄っていません"
 
     combined_count = bb_count + rb_count
+    review_points = (2000, 3000, 4000, 5000, 6000, 7000, 8000)
+    next_review_games = next((point for point in review_points if point > games), None)
     return {
         "profile_id": profile_id,
         "machine_name": profile["name"],
@@ -202,11 +211,18 @@ def assess_juggler(profile_id: str, games: int, bb_count: int, rb_count: int) ->
         "best_setting": int(best_setting),
         "best_setting_probability_pct": round(best_probability * 100),
         "high_setting_probability_pct": round(high_probability * 100),
+        "setting5_or_higher_probability_pct": round(setting5_probability * 100),
+        "setting6_probability_pct": round(setting6_probability * 100),
+        "expected_setting": round(expected_setting, 2),
+        "expected_payout_pct": round(expected_payout, 2),
         "high_low_likelihood_ratio": round(high_low_ratio, 2),
         "prediction_grade": prediction_grade,
         "grade_scope": "入力したBIG・REGの統計モデル内",
         "reference_reliability_pct": reference_reliability,
         "confidence": confidence,
+        "sample_adequacy_pct": min(100, round(games / 6000 * 100)),
+        "next_review_games": next_review_games,
+        "games_until_review": max(0, next_review_games - games) if next_review_games else 0,
         "action": action,
         "reason": reason,
         "source_url": profile["source_url"],

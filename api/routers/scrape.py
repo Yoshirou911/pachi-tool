@@ -338,6 +338,30 @@ def trigger_nightly_scrape(
                     )
                 time.sleep(3)
 
+                # 評論計画で公開されている店舗は、月別・日別の
+                # 機種集計も不足日の補完に使う。
+                if not minrepo_only:
+                    try:
+                        from scraper.pachireview import HALL_SOURCES, scrape_hall as scrape_pachireview
+                        if hname in HALL_SOURCES:
+                            result = scrape_pachireview(hname)
+                            review_status = "done" if result.get("status") == "ok" else "partial"
+                            _set_hall(
+                                hname,
+                                "running",
+                                source="pachireview",
+                                source_status=review_status,
+                                source_records=int(result.get("analysis_saved", 0)),
+                            )
+                    except Exception as e:
+                        _set_hall(
+                            hname,
+                            "running",
+                            error=str(e)[:120],
+                            source="pachireview",
+                            source_status="failed",
+                        )
+
                 # ③ P-WORLDの公開店舗ページから現在の設置スマスロを保存。
                 # 差枚ページがない店舗でも、分析対象となる機種構成は蓄積する。
                 snapshot_count = 0

@@ -41,21 +41,42 @@ try:
 except ImportError:
     DB_PATH = Path(__file__).parent.parent / "data" / "hall_reports.db"
 REQUEST_DELAY = 1.5  # 秒 (サーバー負荷軽減)
+GET_ATTEMPTS = 3
+RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
-def _get_page(url: str, timeout: int = 15):
-    """みんレポのJavaScript Cookieチャレンジを処理してページを取得する。"""
-    resp = _SESSION.get(url, timeout=timeout)
-    for _ in range(2):
-        match = re.search(
-            r"\$\.cookie\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]",
-            resp.text,
-        )
-        if not match:
-            break
-        _SESSION.cookies.set(match.group(1), match.group(2), domain=".min-repo.com", path="/")
-        resp = _SESSION.get(url, timeout=timeout)
-    return resp
+def _get_page(url: str, timeout: int = 15, attempts: int = GET_ATTEMPTS):
+    """一時的な通信失敗を再試行し、Cookieチャレンジ後のページを取得する。"""
+    last_error: Exception | None = None
+    response = None
+    for attempt in range(max(1, attempts)):
+        try:
+            response = _SESSION.get(url, timeout=timeout)
+            for _ in range(2):
+                match = re.search(
+                    r"\$\.cookie\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]",
+                    response.text,
+                )
+                if not match:
+                    break
+                _SESSION.cookies.set(match.group(1), match.group(2), domain=".min-repo.com", path="/")
+                response = _SESSION.get(url, timeout=timeout)
+            if response.status_code not in RETRY_STATUS_CODES:
+                return response
+            last_error = RuntimeError(f"HTTP {response.status_code}")
+        except requests.RequestException as exc:
+            last_error = exc
+        if attempt + 1 < max(1, attempts):
+            retry_after = 0
+            if response is not None:
+                try:
+                    retry_after = int(response.headers.get("Retry-After", "0"))
+                except (AttributeError, TypeError, ValueError):
+                    retry_after = 0
+            time.sleep(min(20, max(retry_after, 2 ** attempt)))
+    if last_error is not None:
+        raise last_error
+    return response
 
 
 def _normalize_hall_name(name: str) -> str:

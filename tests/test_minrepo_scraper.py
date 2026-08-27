@@ -1,3 +1,5 @@
+import requests
+
 from scraper import minrepo
 
 
@@ -38,6 +40,28 @@ def test_cookie_challenge_is_retried(monkeypatch):
     assert "取得成功" in response.text
     assert session.calls == 2
     assert session.cookies.values["_d2"] == "token123"
+
+
+def test_temporary_connection_error_is_retried(monkeypatch):
+    class FlakySession:
+        def __init__(self):
+            self.calls = 0
+            self.cookies = _Cookies()
+
+        def get(self, _url, timeout=15):
+            self.calls += 1
+            if self.calls < 3:
+                raise requests.ConnectionError("temporary")
+            return _Response("<html><h1>復旧</h1></html>")
+
+    session = FlakySession()
+    monkeypatch.setattr(minrepo, "_SESSION", session)
+    monkeypatch.setattr(minrepo.time, "sleep", lambda _seconds: None)
+
+    response = minrepo._get_page("https://min-repo.com/example/")
+
+    assert "復旧" in response.text
+    assert session.calls == 3
 
 
 def test_report_links_are_unique_by_date(monkeypatch):

@@ -1,4 +1,4 @@
-"""松本・塩尻エリアのデフォルト店舗設定を検証する。"""
+"""停止中の長野データを保持しつつ、既定収集対象から外すことを検証する。"""
 import json
 
 from api.scheduler import _DEFAULT_HALLS
@@ -18,12 +18,12 @@ SHIOJIRI_HALLS = {
 }
 
 
-def test_nagano_halls_are_seeded_with_coordinates():
+def test_nagano_halls_are_not_in_default_collection_scope():
     configs = {row["hall_name"]: row for row in _DEFAULT_HALLS}
     expected = MATSUMOTO_HALLS | SHIOJIRI_HALLS
-    assert expected <= set(configs)
-    assert all(configs[name]["prefecture"] == "長野県" for name in expected)
-    assert "マルハン塩尻店" not in configs  # 2025-02-02閉店
+    assert expected.isdisjoint(configs)
+    assert {row["prefecture"] for row in configs.values()} == {"大阪府"}
+    # 取得済みデータを後日再利用できるよう座標マスタは保持する。
     coordinates = json.loads((ROOT / "data" / "hall_coords.json").read_text(encoding="utf-8"))
     assert expected <= set(coordinates)
 

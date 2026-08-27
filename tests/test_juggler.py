@@ -29,6 +29,9 @@ def test_assessment_separates_strong_and_weak_bonus_counts():
     assert strong["prediction_grade"] == "90%級"
     assert strong["high_setting_probability_pct"] >= 90
     assert strong["high_low_likelihood_ratio"] >= 6
+    assert strong["setting5_or_higher_probability_pct"] >= strong["setting6_probability_pct"]
+    assert strong["expected_setting"] >= 4
+    assert strong["sample_adequacy_pct"] == 100
     assert weak["action"].startswith("見送り候補")
     assert weak["high_setting_probability_pct"] <= 25
 

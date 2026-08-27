@@ -9,6 +9,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 from hall.machine_scope import is_supported_analysis_machine
+from scraper.http_support import curl_ca_bundle
 
 try:
     from config import HALL_REPORTS_DB as DB_PATH
@@ -98,7 +99,12 @@ def fetch_page(url: str) -> str:
         from curl_cffi import requests as cf_requests
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("curl-cffi が必要です") from exc
-    response = cf_requests.get(url, impersonate="chrome120", timeout=25)
+    response = cf_requests.get(
+        url,
+        impersonate="chrome120",
+        timeout=25,
+        verify=curl_ca_bundle(),
+    )
     response.raise_for_status()
     return response.text
 

@@ -27,20 +27,31 @@ from api.deps import (
     logger,
 )
 from core.bayes_engine import MachineProfile
+from hall.machine_scope import is_smartslot_machine
 
 router = APIRouter()
 
 @router.get("/api/machines", tags=["machines"])
-def list_machines() -> list[str]:
+def list_machines(scope: Literal["all", "smartslot", "live_setting"] = "all") -> list[str]:
     """保存済み機種の一覧を返す。"""
-    ckey = f"machines_list:{date.today()}"
+    ckey = f"machines_list:{scope}:{date.today()}"
     cached = _cache_get(ckey)
     if cached is not None:
         return cached
-    result = sorted(
-        p.stem for p in MACHINES_DIR.glob("*.json")
-        if p.stem and p.stem != ""
-    )
+    result = []
+    for path in MACHINES_DIR.glob("*.json"):
+        if not path.stem:
+            continue
+        if scope in {"smartslot", "live_setting"} and not is_smartslot_machine(path.stem):
+            continue
+        if scope == "live_setting":
+            try:
+                if not json.loads(path.read_text(encoding="utf-8-sig")).get("verified_for_live_setting"):
+                    continue
+            except (OSError, json.JSONDecodeError):
+                continue
+        result.append(path.stem)
+    result.sort()
     _cache_set(ckey, result)
     return result
 

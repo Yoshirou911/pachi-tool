@@ -760,6 +760,12 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .store-strength-grid header strong { font-size: .68rem; }
 .store-strength-grid header small { margin-top: 2px; color: var(--muted-2); font-size: .48rem; }
 .store-strength-grid header > b { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; color: #c4b5fd; background: rgba(124,58,237,.16); font-size: .49rem; }
+.store-strength-grid .hall-market-summary { margin: 0; padding: 6px 10px; color: var(--muted-2); background: rgba(15,23,42,.42); font-size: .48rem; }
+.store-strength-grid header > b.market-excellent { color: #86efac; background: rgba(34,197,94,.16); }
+.store-strength-grid header > b.market-good { color: #67e8f9; background: rgba(6,182,212,.16); }
+.store-strength-grid header > b.market-neutral { color: #fde68a; background: rgba(234,179,8,.15); }
+.store-strength-grid header > b.market-caution,.store-strength-grid header > b.market-danger { color: #fda4af; background: rgba(244,63,94,.14); }
+.store-strength-grid header > b.market-hold { color: #cbd5e1; background: rgba(100,116,139,.17); }
 .store-strength-grid section > div > span { display: grid; grid-template-columns: 22px minmax(0,1fr) 38px; align-items: center; gap: 7px; padding: 8px 10px; border-top: 1px solid rgba(148,163,184,.09); }
 .store-strength-grid section > div i { display: grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; color: #93c5fd; background: rgba(59,130,246,.12); font-size: .48rem; font-style: normal; font-weight: 900; }
 .store-strength-grid section > div em { min-width: 0; font-style: normal; }
@@ -767,6 +773,11 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .store-strength-grid section > div strong { overflow: hidden; font-size: .59rem; text-overflow: ellipsis; white-space: nowrap; }
 .store-strength-grid section > div small { margin-top: 2px; color: var(--muted-2); font-size: .45rem; }
 .store-strength-grid section > div > span > b { color: #fbbf24; text-align: right; font-size: .58rem; }
+.hall-market-card { border-left: 3px solid #64748b; }
+.hall-market-card.market-excellent { border-left-color: #22c55e; background: linear-gradient(135deg, rgba(34,197,94,.08), rgba(4,11,22,.64)); }
+.hall-market-card.market-good { border-left-color: #06b6d4; }
+.hall-market-card.market-neutral { border-left-color: #eab308; }
+.hall-market-card.market-caution,.hall-market-card.market-danger { border-left-color: #f43f5e; }
 .insufficient-halls a { color: var(--blue); font-size: .55rem; }
 .floor-map-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 9px; margin: 0 2px 8px; }
 .floor-map-meta span { color: var(--text); font-size: .64rem; font-weight: 850; }

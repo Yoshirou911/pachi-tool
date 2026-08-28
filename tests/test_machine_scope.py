@@ -1,4 +1,9 @@
-from hall.machine_scope import is_juggler_machine, is_smartslot_machine, machine_names_match
+from hall.machine_scope import (
+    clean_machine_display_name,
+    is_juggler_machine,
+    is_smartslot_machine,
+    machine_names_match,
+)
 
 
 def test_accepts_common_smartslot_labels():
@@ -26,3 +31,5 @@ def test_juggler_scope_is_separate_from_smartslot():
 
 def test_monkey_turn_roman_and_number_labels_share_history():
     assert machine_names_match("スマスロモンキーターンV", "Lモンキーターン5")
+    assert machine_names_match("スマスロモンキーターンV(7)", "Lモンキーターン5")
+    assert clean_machine_display_name("スマスロモンキーターンV (7)") == "スマスロモンキーターンV"

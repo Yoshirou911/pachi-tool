@@ -55,6 +55,8 @@ def is_supported_analysis_machine(machine_name: str) -> bool:
 def normalize_machine_key(machine_name: str) -> str:
     """媒体ごとの接頭辞・空白・記号差を除いた保守的な照合キー。"""
     name = unicodedata.normalize("NFKC", machine_name or "").lower()
+    # 一部媒体が末尾へ付ける設置台数（例: モンキーターンV(7)）は機種名ではない。
+    name = re.sub(r"\s*\(\d+\)\s*$", "", name)
     name = re.sub(r"[\s　・･~〜～:：!！?？_\-‐()（）\[\]【】]", "", name)
     previous = None
     while name and name != previous:
@@ -63,6 +65,12 @@ def normalize_machine_key(machine_name: str) -> str:
     # 媒体による「V」「5」の表記差を代表機種だけ安全に統合する。
     name = re.sub(r"^モンキーターンv$", "モンキーターン5", name)
     return "".join(character for character in name if character.isalnum())
+
+
+def clean_machine_display_name(machine_name: str) -> str:
+    """画面表示用に、媒体が付加した末尾の設置台数だけを除去する。"""
+    name = unicodedata.normalize("NFKC", machine_name or "").strip()
+    return re.sub(r"\s*\(\d+\)\s*$", "", name).strip()
 
 
 def machine_names_match(left: str, right: str) -> bool:

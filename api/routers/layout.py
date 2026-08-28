@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from api.deps import HALL_REPORTS_DB, _get_reports_conn
-from hall.machine_scope import is_smartslot_machine, normalize_machine_key
+from hall.machine_scope import clean_machine_display_name, is_smartslot_machine, normalize_machine_key
 from hall.regions import region_label, region_matches
 from hall.target_validation import grade_policy, walk_forward_backtest
 
@@ -268,6 +268,73 @@ def _profile_score(values: list[float], baseline: float, scale: float) -> int:
     return max(0, min(100, round(50 + (_average(values) - baseline) / max(scale, 80) * 18)))
 
 
+def _bounded(value: float, low: float = 0.0, high: float = 100.0) -> float:
+    return max(low, min(high, value))
+
+
+def _hall_market_assessment(daily: list[dict], reference: date) -> dict:
+    """公開実績から店舗全体の還元・回収傾向を保守的に評価する。"""
+    if not daily:
+        return {
+            "label": "判定保留", "score": 0, "tone": "hold", "sample_days": 0,
+            "notice": "公開実績がないため判定できません。",
+        }
+    recent = daily[-min(30, len(daily)):]
+    long_values = [float(item["avg_diff"]) for item in daily]
+    recent_values = [float(item["avg_diff"]) for item in recent]
+    long_avg = _average(long_values)
+    recent_avg = _average(recent_values)
+    long_positive = sum(value > 0 for value in long_values) / len(long_values) * 100
+    recent_positive = sum(value > 0 for value in recent_values) / len(recent_values) * 100
+    latest = date.fromisoformat(daily[-1]["date"])
+    age_days = max(0, (reference - latest).days)
+    long_score = _bounded(50 + long_avg / 4)
+    recent_score = _bounded(50 + recent_avg / 4)
+    sample_score = _bounded(len(daily) / 90 * 100)
+    freshness_score = _bounded(100 - age_days * 3)
+    score = round(
+        long_score * 0.30
+        + long_positive * 0.20
+        + recent_score * 0.20
+        + recent_positive * 0.15
+        + sample_score * 0.10
+        + freshness_score * 0.05
+    )
+    if len(daily) < 30 or age_days > 45:
+        label, tone = "判定保留", "hold"
+    elif score >= 70 and long_avg >= 50 and recent_avg > 0 and long_positive >= 55:
+        label, tone = "優良傾向", "excellent"
+    elif score >= 58 and long_avg >= 0 and recent_avg >= 0:
+        label, tone = "還元寄り", "good"
+    elif long_avg <= -60 and recent_avg <= -60 and long_positive < 30:
+        label, tone = "回収傾向", "danger"
+    elif long_avg < 0 and recent_avg < 0 and long_positive < 40:
+        label, tone = "回収寄り", "caution"
+    elif score >= 45:
+        label, tone = "標準・日付選び", "neutral"
+    elif score >= 35:
+        label, tone = "回収寄り", "caution"
+    else:
+        label, tone = "回収傾向", "danger"
+    reasons = [
+        f"長期{len(daily)}日：平均{long_avg:+.0f}枚・プラス日率{long_positive:.1f}%",
+        f"直近{len(recent)}日：平均{recent_avg:+.0f}枚・プラス日率{recent_positive:.1f}%",
+    ]
+    if age_days > 14:
+        reasons.append(f"最新実績から{age_days}日経過")
+    return {
+        "label": label,
+        "score": score,
+        "tone": tone,
+        "sample_days": len(daily),
+        "data_age_days": age_days,
+        "long_term": {"avg_diff": round(long_avg), "positive_day_rate": round(long_positive, 1)},
+        "recent30": {"avg_diff": round(recent_avg), "positive_day_rate": round(recent_positive, 1), "sample_days": len(recent)},
+        "reasons": reasons,
+        "notice": "公開実績上の傾向評価であり、店舗の営業方針や将来結果を断定するものではありません。",
+    }
+
+
 def _machine_strength_validation(machine_rows: list[dict], target: date) -> dict:
     """同一機種の日別実績をまとめ、対象日を先読みしない成績を返す。"""
     by_date: dict[str, list[tuple[float, int]]] = defaultdict(list)
@@ -376,10 +443,10 @@ def get_hall_trend_profile(
     cutoff_recent = reference - timedelta(days=13)
     machine_profile = []
     for machine_key, machine_rows in by_machine.items():
-        machine_name = max(
+        machine_name = clean_machine_display_name(max(
             machine_rows,
             key=lambda row: (str(row["report_date"]), str(row["machine_name"])),
-        )["machine_name"]
+        )["machine_name"])
         values = [float(row["diff"] or 0) for row in machine_rows]
         weighted_values = [
             (float(row["diff"] or 0), max(1, int(row.get("unit_count") or 1)))
@@ -468,6 +535,7 @@ def get_hall_trend_profile(
     next_dates.sort(key=lambda item: (item["score"], item["date"]), reverse=True)
 
     confidence = "高" if len(daily) >= 60 else "中" if len(daily) >= 20 else "低"
+    hall_assessment = _hall_market_assessment(daily, reference)
     insights = []
     if best_weekday:
         insights.append(f"{best_weekday['weekday']}曜日が相対的に強め（{best_weekday['sample_days']}日・平均{best_weekday['avg_diff']:+,}枚）")
@@ -489,6 +557,7 @@ def get_hall_trend_profile(
         "first_date": daily[0]["date"],
         "latest_date": daily[-1]["date"],
         "overall": {"avg_diff": round(baseline), "positive_day_rate": round(sum(value > 0 for value in day_values) / len(day_values) * 100, 1)},
+        "hall_assessment": hall_assessment,
         "calendar": daily[-180:],
         "weekday_profile": weekday_profile,
         "digit_profile": digit_profile,
@@ -563,6 +632,7 @@ def get_machine_strength_matrix(
             "sample_days": profile.get("sample_days", 0),
             "confidence": profile.get("confidence", "低"),
             "overall": profile.get("overall", {}),
+            "hall_assessment": profile.get("hall_assessment", {}),
             "verified_machine_count": sum(
                 machine.get("handling_label") == "70%検証済み" for machine in all_machines
             ),
@@ -573,7 +643,8 @@ def get_machine_strength_matrix(
         })
     halls.sort(
         key=lambda item: (
-            item["verified_machine_count"], item["strong_machine_count"],
+            item["verified_machine_count"], item.get("hall_assessment", {}).get("score", 0),
+            item["strong_machine_count"],
             item["top_machines"][0]["score"] if item["top_machines"] else 0,
         ),
         reverse=True,

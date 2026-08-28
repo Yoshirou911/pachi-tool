@@ -69,7 +69,7 @@ def test_store_machine_strength_exposes_backtest_and_region_matrix(layout_databa
     for offset in range(75, 0, -1):
         report_date = (visit - timedelta(days=offset)).isoformat()
         rows.extend([
-            ("テスト店", report_date, "スマスロモンキーターンV", 900, 70, "https://example.com/strong"),
+            ("テスト店", report_date, "スマスロモンキーターンV(7)" if offset % 2 else "スマスロモンキーターンV", 900, 70, "https://example.com/strong"),
             ("テスト店", report_date, "L弱い機種", -300, 30, "https://example.com/weak"),
         ])
     conn.executemany("INSERT INTO hall_day_machine VALUES (?,?,?,?,?,?)", rows)
@@ -82,10 +82,13 @@ def test_store_machine_strength_exposes_backtest_and_region_matrix(layout_databa
     ).json()
     strong = profile["machine_profile"][0]
     assert strong["machine_name"] == "スマスロモンキーターンV"
+    assert strong["sample_days"] == 75
     assert strong["handling_label"] == "70%検証済み"
     assert strong["validation"]["recommendation_success_pct"] == 100
     assert strong["strength_margin"] > 0
     assert strong["visit_weekday_days"] > 0
+    assert profile["hall_assessment"]["label"] == "優良傾向"
+    assert profile["hall_assessment"]["recent30"]["avg_diff"] > 0
 
     matrix = client.get(
         "/api/hall/machine_strength_matrix",
@@ -94,6 +97,26 @@ def test_store_machine_strength_exposes_backtest_and_region_matrix(layout_databa
     assert matrix.status_code == 200, matrix.text
     assert matrix.json()["halls"][0]["hall_name"] == "テスト店"
     assert matrix.json()["halls"][0]["verified_machine_count"] == 1
+    assert matrix.json()["halls"][0]["hall_assessment"]["label"] == "優良傾向"
+
+
+def test_hall_market_assessment_is_strict_and_holds_stale_data():
+    reference = date.today()
+    recovery_days = [
+        {"date": (reference - timedelta(days=offset)).isoformat(), "avg_diff": -120}
+        for offset in range(60, 0, -1)
+    ]
+    assessment = layout._hall_market_assessment(recovery_days, reference)
+    assert assessment["label"] == "回収傾向"
+    assert assessment["recent30"]["avg_diff"] == -120
+
+    stale_days = [
+        {"date": (reference - timedelta(days=offset)).isoformat(), "avg_diff": 500}
+        for offset in range(120, 60, -1)
+    ]
+    stale = layout._hall_market_assessment(stale_days, reference)
+    assert stale["label"] == "判定保留"
+    assert stale["data_age_days"] > 45
 
 
 def test_layout_save_and_seat_heat(layout_database):

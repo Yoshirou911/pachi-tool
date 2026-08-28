@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.7.0';
+    document.getElementById('desktop-version-label').textContent = 'v3.8.0';
   }
 }
 
@@ -659,7 +659,7 @@ function renderDesktopStoreStrengthMatrix(matrix) {
   return `<article class="card desktop-store-strength">
     <div class="card-title card-title-row"><span>店舗別・強い機種早見表</span><small>${esc(matrix.region_label || '選択地域')}・${halls.length}店</small></div>
     <p>70%検証済みは、成功率・95%下限・直近成績・品質をすべて通過した店舗×機種です。</p>
-    <div>${halls.map(hall => `<section><header><div><strong>${esc(hall.hall_name)}</strong><small>${hall.sample_days}日・信頼度${esc(hall.confidence)}</small></div><b>${hall.verified_machine_count ? `検証済み${hall.verified_machine_count}` : '検証中'}</b></header>${(hall.top_machines || []).slice(0, 3).map((machine, index) => `<span><i>${index + 1}</i><em><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.handling_label)}・店平均との差${desktopSignedCoins(machine.strength_margin)}・${machine.visit_weekday_days || 0}${esc(machine.visit_weekday || '')}曜</small><small>95%下限${machine.validation?.recommendation_lower_bound_pct ?? '--'}%・品質${machine.validation?.quality_score ?? 0}点</small></em><b>${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}</b></span>`).join('') || '<p>機種データ不足</p>'}</section>`).join('')}</div>
+    <div>${halls.map(hall => `<section><header><div><strong>${esc(hall.hall_name)}</strong><small>${hall.sample_days}日・信頼度${esc(hall.confidence)}・機種${hall.verified_machine_count ? `検証済み${hall.verified_machine_count}` : '検証中'}</small></div><b class="market-${esc(hall.hall_assessment?.tone || 'hold')}">${esc(hall.hall_assessment?.label || '判定保留')} ${hall.hall_assessment?.score ?? '--'}点</b></header><p class="hall-market-summary">直近${hall.hall_assessment?.recent30?.sample_days || 0}日 ${desktopSignedCoins(hall.hall_assessment?.recent30?.avg_diff || 0)}・プラス日率${hall.hall_assessment?.recent30?.positive_day_rate ?? '--'}%</p>${(hall.top_machines || []).slice(0, 3).map((machine, index) => `<span><i>${index + 1}</i><em><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.handling_label)}・店平均との差${desktopSignedCoins(machine.strength_margin)}・${machine.visit_weekday_days || 0}${esc(machine.visit_weekday || '')}曜</small><small>95%下限${machine.validation?.recommendation_lower_bound_pct ?? '--'}%・品質${machine.validation?.quality_score ?? 0}点</small></em><b>${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}</b></span>`).join('') || '<p>機種データ不足</p>'}</section>`).join('')}</div>
     <small>${esc(matrix.notice || '')}</small>
   </article>`;
 }
@@ -672,6 +672,7 @@ function renderDesktopTrendProfile(aiResult = null, strengthMatrix = null) {
     return;
   }
   const aiText = aiResult?.summary || (data.insights || []).map(item => `・${item}`).join('\n');
+  const market = data.hall_assessment || {};
   const sources = (data.source_urls || []).map((url, index) => {
     const safe = safeExternalUrl(url);
     return safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">出典${index + 1}</a>` : '';
@@ -681,6 +682,7 @@ function renderDesktopTrendProfile(aiResult = null, strengthMatrix = null) {
       <div><span class="page-eyebrow">${esc(data.reference_date)}までの実績</span><h2>${esc(data.hall_name)}</h2><p>${data.sample_days}日分・信頼度 ${esc(data.confidence)}</p></div>
       <div class="desktop-profile-score"><small>全体平均</small><b class="${data.overall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${desktopSignedCoins(data.overall.avg_diff)}</b><span>プラス日率 ${data.overall.positive_day_rate}%</span></div>
     </article>
+    <article class="card desktop-market-card market-${esc(market.tone || 'hold')}"><div class="card-title card-title-row"><span>公開実績から見た店舗評価</span><em>${esc(market.label || '判定保留')}・${market.score ?? '--'}点</em></div><div class="desktop-market-metrics"><div><small>長期平均</small><strong>${desktopSignedCoins(market.long_term?.avg_diff || 0)}</strong></div><div><small>長期プラス日</small><strong>${market.long_term?.positive_day_rate ?? '--'}%</strong></div><div><small>直近30日</small><strong>${desktopSignedCoins(market.recent30?.avg_diff || 0)}</strong></div><div><small>データ鮮度</small><strong>${market.data_age_days ?? '--'}日前</strong></div></div><p>${(market.reasons || []).map(reason => esc(reason)).join('／')}</p><small>${esc(market.notice || '')}</small></article>
     <article class="card desktop-ai-brief"><div class="card-title card-title-row"><span>分析の要点</span><em>${esc(aiResult?.engine || '統計エンジン')}</em></div><p>${esc(aiText).replace(/\n/g, '<br>')}</p><small>断定ではなく、取得済み実績から見た傾向です。</small></article>
     ${renderDesktopStoreStrengthMatrix(strengthMatrix)}
     <div class="desktop-analysis-grid">
@@ -5074,7 +5076,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.7.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.8.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

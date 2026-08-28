@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.7.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.7.0';
+} from './core.mjs?v=3.8.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.8.0';
 
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.8.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -1396,7 +1396,8 @@ function renderStoreStrengthMatrix(matrix) {
     <div class="section-bar"><div><span class="page-step">${esc(matrix.region_label || '選択地域')}</span><h2>店舗別・強い機種早見表</h2></div><span class="count-badge">${halls.length}店</span></div>
     <p class="store-strength-guide">70%検証済みは、過去成功率だけでなく95%下限・直近成績・品質まで通過した組み合わせです。</p>
     <div class="store-strength-grid">${halls.map(hall => `<section>
-      <header><div><strong>${esc(hall.hall_name)}</strong><small>${hall.sample_days}日・信頼度${esc(hall.confidence)}</small></div><b>${hall.verified_machine_count ? `検証済み${hall.verified_machine_count}` : '検証中'}</b></header>
+      <header><div><strong>${esc(hall.hall_name)}</strong><small>${hall.sample_days}日・信頼度${esc(hall.confidence)}・機種${hall.verified_machine_count ? `検証済み${hall.verified_machine_count}` : '検証中'}</small></div><b class="market-${esc(hall.hall_assessment?.tone || 'hold')}">${esc(hall.hall_assessment?.label || '判定保留')} ${hall.hall_assessment?.score ?? '--'}点</b></header>
+      <p class="hall-market-summary">直近${hall.hall_assessment?.recent30?.sample_days || 0}日 ${signedCoins(hall.hall_assessment?.recent30?.avg_diff || 0)}・プラス日率${hall.hall_assessment?.recent30?.positive_day_rate ?? '--'}%</p>
       <div>${(hall.top_machines || []).slice(0, 3).map((machine, index) => `<span><i>${index + 1}</i><em><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.handling_label)}・店平均との差${signedCoins(machine.strength_margin)}・${machine.visit_weekday_days || 0}${esc(machine.visit_weekday || '')}曜</small><small>95%下限${machine.validation?.recommendation_lower_bound_pct ?? '--'}%・品質${machine.validation?.quality_score ?? 0}点</small></em><b>${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}</b></span>`).join('') || '<p class="empty">機種データ不足</p>'}</div>
     </section>`).join('')}</div>
     <p class="fine-print">${esc(matrix.notice || '')}</p>
@@ -1410,6 +1411,7 @@ function renderTrendProfile(aiResult = null, strengthMatrix = null) {
     return;
   }
   const topMachines = trendData.machine_profile || [];
+  const market = trendData.hall_assessment || {};
   const aiSummary = aiResult?.summary || '';
   const engineLabel = aiResult?.engine || '統計エンジン';
   container.innerHTML = `
@@ -1418,6 +1420,7 @@ function renderTrendProfile(aiResult = null, strengthMatrix = null) {
       <div class="target-metrics"><span><small>収集日数</small><b>${trendData.sample_days}日</b></span><span><small>全体平均</small><b class="${trendData.overall.avg_diff >= 0 ? 'money-up' : 'money-down'}">${signedCoins(trendData.overall.avg_diff)}</b></span><span><small>プラス日率</small><b>${trendData.overall.positive_day_rate}%</b></span><span><small>基準日</small><b>${esc(trendData.reference_date.slice(5))}</b></span></div>
       <div class="target-reasons">${trendData.insights.map(item => `<span>${esc(item)}</span>`).join('')}</div>
     </article>
+    <article class="panel hall-market-card market-${esc(market.tone || 'hold')}"><div class="section-bar"><div><span class="page-step">公開実績評価</span><h2>${esc(market.label || '判定保留')}</h2></div><span class="count-badge">${market.score ?? '--'}点</span></div><div class="target-metrics"><span><small>長期平均</small><b>${signedCoins(market.long_term?.avg_diff || 0)}</b></span><span><small>長期プラス日</small><b>${market.long_term?.positive_day_rate ?? '--'}%</b></span><span><small>直近30日</small><b>${signedCoins(market.recent30?.avg_diff || 0)}</b></span><span><small>データ鮮度</small><b>${market.data_age_days ?? '--'}日前</b></span></div><div class="target-reasons">${(market.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div><p class="fine-print">${esc(market.notice || '')}</p></article>
     <article class="panel ai-insight-card"><div class="section-bar"><div><span class="page-step">AI / 統計</span><h2>この店のクセ</h2></div><span class="count-badge">${esc(engineLabel)}</span></div><p>${esc(aiSummary || trendData.insights.join('\n')).replace(/\n/g, '<br>')}</p></article>
     ${renderStoreStrengthMatrix(strengthMatrix)}
     <article class="panel"><div class="section-bar"><h2>直近42日のカレンダー</h2><span class="count-badge">色が強さ</span></div>${renderTrendCalendar(trendData.calendar)}</article>

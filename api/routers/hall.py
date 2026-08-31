@@ -782,13 +782,15 @@ def get_target_search(
     days: int = Query(120, ge=14, le=365),
     limit: int = Query(8, ge=1, le=20),
     region: Literal["all", "shijonawate", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
-    target_accuracy: Literal[70, 80] = 70,
+    target_accuracy: int = 70,
 ) -> dict:
     """蓄積済みデータから、指定日に狙う店舗と機種の候補を根拠付きで返す。"""
     try:
         target_date = date.fromisoformat(visit_date)
     except ValueError as exc:
         raise HTTPException(400, "visit_date は YYYY-MM-DD で指定してください") from exc
+    if target_accuracy not in (70, 80):
+        raise HTTPException(400, "target_accuracy は 70 または 80 を指定してください")
 
     conn = _get_reports_conn()
     weekday_names = ["月", "火", "水", "木", "金", "土", "日"]

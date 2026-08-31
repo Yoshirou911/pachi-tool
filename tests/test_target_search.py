@@ -69,6 +69,12 @@ def test_target_search_rejects_invalid_date():
     assert exc.value.status_code == 400
 
 
+def test_target_search_rejects_unsupported_accuracy():
+    with pytest.raises(HTTPException) as exc:
+        hall_router.get_target_search("2026-08-10", target_accuracy=75)
+    assert exc.value.status_code == 400
+
+
 def test_target_search_weights_daily_average_by_installed_units(tmp_path, monkeypatch):
     db_path = tmp_path / "weighted.db"
     conn = _connect(db_path)

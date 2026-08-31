@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.9.0';
+    document.getElementById('desktop-version-label').textContent = 'v3.10.0';
   }
 }
 
@@ -504,6 +504,17 @@ function hasDesktopVerifiedSeat(machine) {
   return (machine?.seat_candidates || []).some(item => item.status === '検証済み');
 }
 
+function renderDesktopSeatCandidates(machine) {
+  if (!(machine?.seat_candidates || []).length) {
+    return `<i class="desktop-seat-candidate-watch"><b>台番号未特定</b> ${esc(machine?.seat_prediction?.notice || '現在配置と台別履歴がありません')}</i>`;
+  }
+  return (machine?.seat_candidates || []).map(row => {
+    const role = row.seat_role || '比較対象';
+    const tone = role === '避ける' ? 'avoid' : role === '第一候補' ? 'first' : role === '第二候補' ? 'second' : 'watch';
+    return `<i class="desktop-seat-candidate-${tone}"><b>${esc(role)}</b> ${row.seat_number}番・${esc(row.status)}・過去${row.validation?.recommendation_success_pct ?? '--'}%・安全側${desktopSignedCoins(row.risk_adjusted_diff_coins ?? row.avg_diff_coins)}</i>`;
+  }).join('');
+}
+
 function selectDesktopTargetMachine(hall, requireSeat = false) {
   const machines = hall?.target_machines || [];
   if (!machines.length) return null;
@@ -524,7 +535,8 @@ function selectDesktopTargetConclusion(data) {
   if (!hall) return null;
   const machine = selectDesktopTargetMachine(hall, true) || selectDesktopTargetMachine(hall);
   const seats = machine?.seat_candidates || [];
-  const seat = seats.find(item => item.status === '検証済み') || null;
+  const seat = seats.find(item => item.seat_role === '第一候補' && item.status === '検証済み')
+    || seats.find(item => item.status === '検証済み') || null;
   const action = hall.action === '見送り'
     ? '見送り'
     : hall.action?.startsWith('狙う') && machine?.action?.startsWith('狙う')
@@ -576,7 +588,7 @@ function renderDesktopTargetSearch(data) {
       <details class="desktop-target-backtest"><summary>直近の自動答え合わせを見る</summary><div>${renderDesktopBacktestAnswers(hall.validation)}</div></details>
       <div class="desktop-target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="desktop-target-machines">
-        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}${machine.seat_candidates?.length ? `<i>台候補 ${machine.seat_candidates.map(row => `${row.seat_number}番(${esc(row.status)}・狙い時${row.validation?.recommendation_success_pct ?? '--'}%)`).join('・')}</i>` : ''}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${esc(machine.installation_status || '設置未確認')}</small><b class="${(machine.risk_adjusted_avg_diff ?? machine.avg_diff) >= 0 ? 'text-up' : 'text-down'}">安全側 ${desktopSignedCoins(machine.risk_adjusted_avg_diff ?? machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
+        ${(hall.target_machines || []).slice(0, 5).map((machine, index) => `<div><span class="machine-order">${index + 1}</span><strong>${esc(machine.machine_name)}${renderDesktopSeatCandidates(machine)}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${esc(machine.installation_status || '設置未確認')}</small><b class="${(machine.risk_adjusted_avg_diff ?? machine.avg_diff) >= 0 ? 'text-up' : 'text-down'}">安全側 ${desktopSignedCoins(machine.risk_adjusted_avg_diff ?? machine.avg_diff)}</b><em>${machine.score}点</em></div>`).join('') || '<p>機種別候補はまだ材料不足です。</p>'}
       </div>
     </article>`).join('')}
     ${insufficient.length ? `<details class="desktop-insufficient"><summary>データ不足の店舗 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}
@@ -5080,7 +5092,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.9.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.10.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

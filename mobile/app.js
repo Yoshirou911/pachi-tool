@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.9.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.9.0';
+} from './core.mjs?v=3.10.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.10.0';
 
-const APP_VERSION = '3.9.0';
+const APP_VERSION = '3.10.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -684,8 +684,12 @@ function renderTargetContext(hall) {
 
 function renderSeatCandidates(machine) {
   const rows = machine.seat_candidates || [];
-  if (!rows.length) return '';
-  return `<span class="machine-seat-candidates">台候補 ${rows.map(row => `${row.seat_number}番・${row.status}・狙い時${row.validation?.recommendation_success_pct ?? '--'}%`).join(' ／ ')}</span>`;
+  if (!rows.length) return `<span class="machine-seat-candidates"><i class="seat-candidate-watch"><b>台番号未特定</b>${esc(machine.seat_prediction?.notice || '現在配置と台別履歴がありません')}</i></span>`;
+  return `<span class="machine-seat-candidates">${rows.map(row => {
+    const role = row.seat_role || '比較対象';
+    const tone = role === '避ける' ? 'avoid' : role === '第一候補' ? 'first' : role === '第二候補' ? 'second' : 'watch';
+    return `<i class="seat-candidate-${tone}"><b>${esc(role)}</b>${row.seat_number}番・${esc(row.status)}・過去${row.validation?.recommendation_success_pct ?? '--'}%・安全側${signedCoins(row.risk_adjusted_diff_coins ?? row.avg_diff_coins)}</i>`;
+  }).join('')}</span>`;
 }
 
 function hasVerifiedSeat(machine) {
@@ -716,7 +720,8 @@ function selectTargetConclusion(data) {
   if (!hall) return null;
   const machine = selectTargetMachine(hall, true) || selectTargetMachine(hall);
   const seats = machine?.seat_candidates || [];
-  const seat = seats.find(item => item.status === '検証済み') || null;
+  const seat = seats.find(item => item.seat_role === '第一候補' && item.status === '検証済み')
+    || seats.find(item => item.status === '検証済み') || null;
   const action = hall.action === '見送り'
     ? '見送り'
     : hall.action?.startsWith('狙う') && machine?.action?.startsWith('狙う')

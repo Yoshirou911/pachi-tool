@@ -48,6 +48,7 @@ def test_target_search_ranks_only_halls_with_enough_evidence(tmp_path, monkeypat
     assert [hall["hall_name"] for hall in result["halls"]] == ["十分店"]
     assert result["halls"][0]["sample_days"] == 4
     assert result["halls"][0]["target_machines"][0]["machine_name"] == "L北斗"
+    assert result["halls"][0]["target_machines"][0]["seat_prediction"]["status"] == "台番号未特定"
     assert result["insufficient_halls"][0]["hall_name"] == "不足店"
     assert result["target_accuracy"] == 70
     assert result["accuracy_summary"]["target_pct"] == 70
@@ -277,6 +278,9 @@ def test_seat_patterns_require_history_and_personal_profit_never_raises_predicti
 
     assert seat_summary["top_seats"][0]["seat_number"] == 101
     assert seat_summary["top_seats"][0]["status"] == "検証対象"
+    assert seat_summary["top_seats"][0]["seat_role"] == "第一候補"
+    assert next(item for item in seat_summary["top_seats"] if item["seat_number"] == 102)["seat_role"] == "避ける"
+    assert "risk_adjusted_diff_coins" in seat_summary["top_seats"][0]
     assert seat_summary["corner"]["verified_layout"] is True
     assert profit["all"]["count"] == 10
     assert profit["all"]["avg_yen"] == -1000

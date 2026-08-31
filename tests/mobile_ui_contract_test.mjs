@@ -27,6 +27,8 @@ assert.match(html, /id="target-search-results"/, '分析ランキングを表示
 assert.match(html, /id="target-search-region"/, '狙い台検索の対象地域を選べる');
 assert.match(html, /id="target-search-accuracy"/, '70%・80%の精度優先モードを選べる');
 assert.match(app, /target_accuracy=/, '選んだ精度基準を分析APIへ送る');
+assert.match(app, /seat_role/, '台番号を第一候補・第二候補・避ける台に分けて表示する');
+assert.match(html, /月プラスを狙う使い方/, '実戦向けの月間運用手順を表示する');
 assert.match(html, /id="target-map-form"/, '指定日で店舗ヒートマップを更新できる');
 assert.match(html, /id="target-heat-map"/, '地図上に店舗の熱量を表示できる');
 assert.match(html, /id="target-map-long-days"/, '長期表示期間を選べる');
@@ -63,8 +65,8 @@ assert.match(app, /api\/juggler\/assess/, '公式確率を使うジャグラー�
 assert.match(app, /api\/juggler\/targets/, 'ジャグラー朝一候補APIを利用する');
 assert.match(html, /id="mobile-version-button"/, 'ヘッダーから更新内容を開ける');
 assert.match(html, /id="patch-notes-group"/, '設定画面にパッチノートを表示する');
-assert.match(html, /app\.css\?v=3\.9\.0/);
-assert.match(html, /app\.js\?v=3\.9\.0/);
+assert.match(html, /app\.css\?v=3\.10\.0/);
+assert.match(html, /app\.js\?v=3\.10\.0/);
 assert.match(html, /id="scan-strategy-time"/, '時間帯別の立ち回りを確認できる');
 assert.match(html, /id="scan-data-coverage"/, '巡回店舗のデータ量を明示する');
 assert.match(html, /id="trend-data-coverage"/, '傾向分析の根拠データ量を明示する');
@@ -77,7 +79,7 @@ assert.match(app, /データ信頼度/, '判定結果からデータの信頼度
 assert.match(html, /上のゲーム数だけでは決めない/, 'データカウンターだけの判断を防ぐ');
 assert.match(app, /この判定で見る数字/, '判定結果に入力指標を再表示する');
 assert.match(app, /catalog\.json\?v=\$\{APP_VERSION\}/, '機種追加時に古いカタログキャッシュを使わない');
-assert.match(app, /core\.mjs\?v=3\.9\.0/, '内部判定ロジックも更新時にキャッシュを破棄する');
+assert.match(app, /core\.mjs\?v=3\.10\.0/, '内部判定ロジックも更新時にキャッシュを破棄する');
 assert.match(app, /renderTargetConclusion/, '狙い台検索の最上部に行く日の結論を表示する');
 assert.match(app, /selectTargetMachine\(item, true\)/, '同じ安全ランクなら台番号履歴のある店舗と機種を優先する');
 assert.match(app, /status === '検証済み'/, '70%実戦基準未達の台番号を確定表示しない');

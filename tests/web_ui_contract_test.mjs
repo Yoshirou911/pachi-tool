@@ -18,6 +18,8 @@ assert.match(desktopHtml, /value="shijonawate" selected>四條畷駅周辺/, 'PC
 assert.match(desktopHtml, /id="page-target-search"/, '分析ランキング専用画面が必要');
 assert.match(desktopHtml, /id="desktop-target-accuracy"/, 'PC・ソフト版でも70%・80%基準を選べる');
 assert.match(desktopJs, /target_accuracy=/, 'PC・ソフト版でも精度基準を分析APIへ送る');
+assert.match(desktopJs, /seat_role/, 'PC・ソフト版でも台番号の優先・回避を分ける');
+assert.match(desktopHtml, /月プラスを狙う5段階/, 'PC・ソフト版にも実戦運用手順を表示する');
 assert.match(desktopHtml, /id="page-trend-profile"/, '店舗傾向カルテを独立画面にする');
 assert.match(desktopHtml, /id="page-floor-map"/, '店内座席ヒートマップを独立画面にする');
 assert.match(desktopHtml, /id="desktop-heat-form"/, '指定日で店舗ヒートマップを更新できる');

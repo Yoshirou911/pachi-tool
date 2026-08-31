@@ -659,7 +659,18 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .seat-pattern-strip { display: flex; gap: 5px; margin: 0 0 8px; overflow-x: auto; }
 .seat-pattern-strip span { min-width: 94px; padding: 7px 8px; background: rgba(99,102,241,.07); border-radius: 8px; }
 .seat-pattern-strip small { display: block; color: var(--muted); font-size: .46rem; }.seat-pattern-strip b { font-size: .56rem; }
-.machine-seat-candidates { display: block; margin-top: 3px; color: #93c5fd; font-size: .48rem; }
+.machine-seat-candidates { display: grid; gap: 3px; margin-top: 5px; color: #93c5fd; font-size: .48rem; }
+.machine-seat-candidates i { display: block; padding: 4px 6px; border-radius: 6px; background: rgba(59,130,246,.08); font-style: normal; white-space: normal; }
+.machine-seat-candidates i b { display: inline-block; margin-right: 5px; font-size: .47rem; }
+.machine-seat-candidates .seat-candidate-first { color: #86efac; background: rgba(34,197,94,.12); }
+.machine-seat-candidates .seat-candidate-second { color: #93c5fd; }
+.machine-seat-candidates .seat-candidate-avoid { color: #fda4af; background: rgba(244,63,94,.12); }
+.monthly-play-guide { border-color: rgba(34,197,94,.22); background: linear-gradient(145deg,rgba(34,197,94,.06),rgba(14,165,233,.05)); }
+.monthly-play-guide ol { display: grid; gap: 7px; margin: 12px 0 8px; padding: 0; list-style: none; counter-reset: play-step; }
+.monthly-play-guide li { display: grid; grid-template-columns: 52px 1fr; gap: 8px; align-items: start; counter-increment: play-step; }
+.monthly-play-guide li b { color: #86efac; font-size: .58rem; }
+.monthly-play-guide li span,.monthly-play-guide > p { color: var(--muted-2); font-size: .55rem; line-height: 1.55; }
+.monthly-play-guide > p { margin: 8px 0 0; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.07); }
 .confidence-high { color: var(--green); }
 .confidence-mid { color: var(--yellow); }
 .confidence-low { color: var(--red); }

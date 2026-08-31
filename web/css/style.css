@@ -372,7 +372,17 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
 .desktop-target-context > span { min-width: 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 8px; background: rgba(255,255,255,.025); }
 .desktop-target-context small,.desktop-target-context em { display: block; overflow: hidden; color: var(--text3); font-size: .53rem; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .desktop-target-context b { display: block; margin: 3px 0; overflow: hidden; font-size: .65rem; text-overflow: ellipsis; white-space: nowrap; }
-.desktop-target-machines strong i { display: block; margin-top: 3px; color: #93c5fd; font-size: .52rem; font-style: normal; font-weight: 600; }
+.desktop-target-machines strong i { display: block; margin-top: 3px; padding: 3px 5px; color: #93c5fd; border-radius: 5px; background: rgba(59,130,246,.08); font-size: .52rem; font-style: normal; font-weight: 600; white-space: normal; }
+.desktop-target-machines strong i b { margin-right: 3px; font-size: .5rem; }
+.desktop-target-machines strong .desktop-seat-candidate-first { color: #86efac; background: rgba(34,197,94,.12); }
+.desktop-target-machines strong .desktop-seat-candidate-avoid { color: #fda4af; background: rgba(244,63,94,.12); }
+.desktop-monthly-play-guide { display: grid; gap: 12px; border-color: rgba(34,197,94,.22); background: linear-gradient(145deg,rgba(34,197,94,.06),rgba(14,165,233,.05)); }
+.desktop-monthly-play-guide h2 { margin-top: 4px; font-size: 1rem; }
+.desktop-monthly-play-guide ol { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.desktop-monthly-play-guide li { display: grid; gap: 5px; padding: 10px; border-radius: 9px; background: rgba(4,10,20,.45); }
+.desktop-monthly-play-guide li b { color: #86efac; font-size: .66rem; }
+.desktop-monthly-play-guide li span,.desktop-monthly-play-guide > p { color: var(--text3); font-size: .59rem; line-height: 1.55; }
+.desktop-monthly-play-guide > p { margin: 0; }
 .target-confidence-high { color: var(--success); }
 .target-confidence-mid { color: var(--warning); }
 .target-confidence-low { color: var(--danger); }
@@ -407,6 +417,7 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
   .desktop-target-metrics { grid-template-columns: 1fr 1fr; }
   .desktop-target-machines > div { grid-template-columns: 24px minmax(0,1fr) auto; }
   .desktop-target-machines small { grid-column: 2; }
+  .desktop-monthly-play-guide ol { grid-template-columns: 1fr; }
 }
 
 /* ===== Page hierarchy ===== */

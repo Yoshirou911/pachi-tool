@@ -55,7 +55,12 @@ _scrape_status: dict[str, str] = {}  # hall_name -> "idle"|"running"|"done"|"err
 _anaslo_scrape_status: dict[str, str] = {}
 
 
-def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
+def _seat_pattern_summary(
+    rows: list,
+    layout_seats: list,
+    target_date: date | None = None,
+    target_accuracy: int = 70,
+) -> dict:
     """対象日より前の台番号実績から、再現性のある配置傾向だけを返す。"""
     latest_by_seat: dict[int, object] = {}
     for row in rows:
@@ -88,14 +93,16 @@ def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
 
     top_seats = []
     empty_validation = walk_forward_backtest([])
+    observed_dates = [date.fromisoformat(str(row["report_date"])) for row in usable]
+    analysis_date = target_date or (
+        max(observed_dates) + timedelta(days=1) if observed_dates else date.today()
+    )
     for (_, seat_number), history in by_seat.items():
         machine_name = max(
             history,
             key=lambda row: (str(row["report_date"]), str(row["machine_name"])),
         )["machine_name"]
         days = len({row["report_date"] for row in history})
-        if days < 5:
-            continue
         latest_row = latest_by_seat.get(seat_number)
         latest_machine_name = (
             str(latest_row["machine_name"] or "") if latest_row is not None else ""
@@ -108,43 +115,96 @@ def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
             continue
         diffs = [float(row["diff_coins"]) for row in history]
         wins = sum(value > 0 for value in diffs)
-        positive_rate = round((wins + 2) / (len(diffs) + 4) * 100)
+        raw_positive_rate = round((wins + 2) / (len(diffs) + 4) * 100)
         avg_diff = round(sum(diffs) / len(diffs))
+        seat_points = [
+            (date.fromisoformat(str(row["report_date"])), float(row["diff_coins"]))
+            for row in history
+        ]
+        estimate = date_weighted_estimate(seat_points, analysis_date)
+        positive_rate = int(estimate["positive_rate"])
+        risk_adjusted = int(estimate["risk_adjusted_projected"])
         score = round(
             positive_rate * 0.55
-            + max(0, min(25, 12.5 + avg_diff / 80))
+            + max(0, min(25, 12.5 + risk_adjusted / 80))
             + min(20, days / 20 * 20)
         )
         validation = (
-            walk_forward_backtest([
-                (date.fromisoformat(str(row["report_date"])), float(row["diff_coins"]))
-                for row in history
-            ], max_test_days=45)
+            walk_forward_backtest(seat_points, max_test_days=45)
             if days >= 30 else dict(empty_validation)
         )
-        verified = (
-            validation["status"] == "validated"
-            and (validation["recommendation_success_pct"] or 0) >= 70
-            and (validation["recommendation_lower_bound_pct"] or 0) >= 55
-            and (validation["recommended_days"] or 0) >= 15
-            and (validation["recent_recommendation_success_pct"] or 0) >= 65
-            and (validation["quality_score"] or 0) >= 70
+        latest_history_date = max(date.fromisoformat(str(row["report_date"])) for row in history)
+        stale_days = max(0, (min(analysis_date, date.today()) - latest_history_date).days)
+        seat_action, seat_action_reason = decide_action(
+            int(estimate["projected"]),
+            stale_days,
+            validation,
+            positive_rate,
+            estimate,
+        )
+        trust_rank = {"データ不足": 0, "検証済み": 1, "70%実戦基準": 70, "80%級": 80, "90%級": 90}
+        verified = seat_action.startswith("狙う") and (
+            trust_rank.get(validation.get("trust_level"), 0) >= target_accuracy
         )
         top_seats.append({
             "machine_name": machine_name,
             "seat_number": seat_number,
             "sample_days": days,
             "positive_rate_pct": positive_rate,
+            "raw_positive_rate_pct": raw_positive_rate,
             "avg_diff_coins": avg_diff,
+            "projected_diff_coins": int(estimate["projected"]),
+            "risk_adjusted_diff_coins": risk_adjusted,
+            "signal_agreement_pct": int(estimate["signal_agreement_pct"]),
             "score": max(0, min(100, score)),
             "status": "検証済み" if verified else "検証対象" if days >= 20 else "蓄積中",
+            "seat_role": "比較対象",
+            "action": seat_action,
+            "action_reason": seat_action_reason,
             "latest_date": str(latest_row["report_date"]) if latest_row is not None else None,
+            "stale_days": stale_days,
             "current_machine_name": current_machine_name or None,
             "placement_source": "最新台別実績" if latest_machine_name else "登録マップ",
             "validation": validation,
         })
+
+    by_machine_candidates: dict[str, list[dict]] = {}
+    for item in top_seats:
+        machine_key = normalize_machine_key(item["machine_name"])
+        if machine_key:
+            by_machine_candidates.setdefault(machine_key, []).append(item)
+    for machine_items in by_machine_candidates.values():
+        machine_items.sort(
+            key=lambda item: (
+                item["status"] == "検証済み",
+                item["score"],
+                item["sample_days"],
+            ),
+            reverse=True,
+        )
+        avoids = [
+            item for item in machine_items
+            if item["sample_days"] >= 20
+            and item["stale_days"] <= 30
+            and item["risk_adjusted_diff_coins"] < 0
+            and item["positive_rate_pct"] <= 45
+        ]
+        for item in sorted(avoids, key=lambda row: (row["score"], row["risk_adjusted_diff_coins"]))[:2]:
+            item["seat_role"] = "避ける"
+        for item in machine_items:
+            if item["sample_days"] < 5 and item["seat_role"] != "避ける":
+                item["seat_role"] = "配置確認"
+        candidates = [
+            item for item in machine_items
+            if item["seat_role"] not in {"避ける", "配置確認"}
+        ]
+        if candidates:
+            candidates[0]["seat_role"] = "第一候補"
+        if len(candidates) >= 2:
+            candidates[1]["seat_role"] = "第二候補"
     top_seats.sort(
         key=lambda item: (
+            4 if item["seat_role"] == "第一候補" else 3 if item["seat_role"] == "第二候補" else 2 if item["seat_role"] == "配置確認" else 0 if item["seat_role"] == "避ける" else 1,
             2 if item["status"] == "検証済み" else 1 if item["status"] == "検証対象" else 0,
             item["score"], item["sample_days"],
         ),
@@ -193,10 +253,11 @@ def _seat_pattern_summary(rows: list, layout_seats: list) -> dict:
         "usable_rows": len(usable),
         "seat_count": len({int(row["seat_number"]) for row in usable}),
         "top_seats": top_seats[:12],
+        "_all_seats": top_seats,
         "best_tail": tails[0] if tails else None,
         "tail_ranking": tails[:5],
         "corner": corner_summary,
-        "notice": "最新配置一致を必須とし、先読みなし成功70%以上だけを検証済み表示",
+        "notice": "最新配置一致を必須とし、第一・第二候補と避ける台を分離。選択中の精度基準通過だけを検証済み表示",
     }
 
 
@@ -986,7 +1047,10 @@ def get_target_search(
         hall_rows = by_hall.get(hall_name, [])
         hall_events = events_by_hall.get(hall_name, [])
         seat_patterns = _seat_pattern_summary(
-            seats_by_hall.get(hall_name, []), layouts_by_hall.get(hall_name, [])
+            seats_by_hall.get(hall_name, []),
+            layouts_by_hall.get(hall_name, []),
+            target_date,
+            target_accuracy,
         )
         personal_profit = _personal_profit_summary(
             personal_sessions, hall_name, target_date
@@ -1172,10 +1236,36 @@ def get_target_search(
             elif not installation_is_fresh and machine_action.startswith("狙う"):
                 machine_action = "要確認"
                 machine_action_reason = "現在の設置確認が取れていない"
-            seat_candidates = [
-                item for item in seat_patterns["top_seats"]
+            matching_seats = [
+                item for item in seat_patterns["_all_seats"]
                 if machine_names_match(machine_name, item["machine_name"])
-            ][:3]
+            ]
+            seat_candidates = (
+                [item for item in matching_seats if item["seat_role"] in {"第一候補", "第二候補"}]
+                + [item for item in matching_seats if item["seat_role"] == "配置確認"][:2]
+                + [item for item in matching_seats if item["seat_role"] == "避ける"][:2]
+            )[:4]
+            seat_prediction = {
+                "status": (
+                    "検証済み候補あり"
+                    if any(item["status"] == "検証済み" for item in seat_candidates)
+                    else "候補を検証中"
+                    if any(item["seat_role"] in {"第一候補", "第二候補"} for item in seat_candidates)
+                    else "現在配置のみ"
+                    if seat_candidates
+                    else "台番号未特定"
+                ),
+                "candidate_count": sum(
+                    item["seat_role"] in {"第一候補", "第二候補"}
+                    for item in seat_candidates
+                ),
+                "avoid_count": sum(item["seat_role"] == "避ける" for item in seat_candidates),
+                "notice": (
+                    "同じ機種・同じ台番号の履歴を現在配置と照合済み"
+                    if seat_candidates
+                    else "この機種の現在台番号、または同一番号の過去履歴が未収集です"
+                ),
+            }
             machine_candidates.append({
                 "machine_name": machine_name,
                 "score": max(0, min(100, machine_score)),
@@ -1207,6 +1297,7 @@ def get_target_search(
                 "validation": machine_validation,
                 "prediction_model": machine_model_selection,
                 "seat_candidates": seat_candidates,
+                "seat_prediction": seat_prediction,
             })
         machine_candidates.sort(
             key=lambda item: (
@@ -1282,7 +1373,10 @@ def get_target_search(
                 "historic_event_avg_coins": estimate["historic_event_avg_coins"],
                 "adjustment_coins": estimate["event_adjustment_coins"],
             },
-            "seat_patterns": seat_patterns,
+            "seat_patterns": {
+                key: value for key, value in seat_patterns.items()
+                if not key.startswith("_")
+            },
             "personal_profit_validation": personal_profit,
             "basis": basis,
             "sample_days": estimate["sample_days"],

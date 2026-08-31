@@ -312,6 +312,18 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
 .target-analysis-shortcut span { margin-top: 4px; color: var(--text3); font-size: .65rem; }
 .target-analysis-shortcut .btn { flex: 0 0 auto; }
 .target-search-help { margin-top: 10px; color: var(--text3); font-size: .68rem; }
+.desktop-analysis-progress { display: grid; gap: 8px; margin-top: 13px; padding: 12px 14px; border: 1px solid rgba(56,189,248,.24); border-radius: 11px; background: rgba(4,12,24,.58); }
+.desktop-analysis-progress[hidden] { display: none; }
+.desktop-analysis-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.desktop-analysis-progress strong { color: #bae6fd; font-size: .7rem; }
+.desktop-analysis-progress span { color: #7dd3fc; font-size: .72rem; font-weight: 900; }
+.desktop-analysis-progress p { height: 8px; margin: 0; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.08); }
+.desktop-analysis-progress p i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#38bdf8,#818cf8); transition: width .45s ease; }
+.desktop-analysis-progress small { color: var(--text3); font-size: .62rem; }
+.desktop-analysis-progress.complete p i { background: linear-gradient(90deg,#22c55e,#86efac); }
+.desktop-analysis-progress.complete strong,.desktop-analysis-progress.complete span { color: #86efac; }
+.desktop-analysis-progress.failed { border-color: rgba(244,63,94,.28); }
+.desktop-analysis-progress.failed strong { color: #fda4af; }
 .desktop-target-results { display: grid; gap: 13px; }
 .desktop-target-conclusion {
   position: sticky; top: calc(var(--header-h) + 10px); z-index: 60;

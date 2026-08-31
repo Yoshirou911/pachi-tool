@@ -17,6 +17,8 @@ assert.match(desktopHtml, /id="desktop-juggler-target-form"/, 'PC・ソフト版
 assert.match(desktopHtml, /value="shijonawate" selected>四條畷駅周辺/, 'PC・ソフト版も四條畷駅周辺を重点地域にする');
 assert.match(desktopHtml, /id="page-target-search"/, '分析ランキング専用画面が必要');
 assert.match(desktopHtml, /id="desktop-target-accuracy"/, 'PC・ソフト版でも70%・80%基準を選べる');
+assert.match(desktopHtml, /id="desktop-target-progress"/, 'PC・ソフト版でも分析進行度を表示する');
+assert.match(desktopJs, /startDesktopTargetProgress/, 'PC・ソフト版でも処理段階と残り時間を更新する');
 assert.match(desktopJs, /target_accuracy=/, 'PC・ソフト版でも精度基準を分析APIへ送る');
 assert.match(desktopJs, /seat_role/, 'PC・ソフト版でも台番号の優先・回避を分ける');
 assert.match(desktopHtml, /月プラスを狙う5段階/, 'PC・ソフト版にも実戦運用手順を表示する');

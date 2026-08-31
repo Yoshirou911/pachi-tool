@@ -1,11 +1,22 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "3.10.0"
+APP_VERSION = "3.10.1"
 RELEASE_DATE = "2026-09-01"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "3.10.1",
+        "released_on": "2026-09-01",
+        "title": "狙い台分析の進行度を表示",
+        "items": [
+            "分析中に進捗率・現在の処理段階・残り秒数の目安を表示",
+            "店舗検証・機種比較・台番号照合・安全確認の処理段階を順番に案内",
+            "完了時は実際にかかった秒数を表示し、通信失敗時は再試行案内へ切替",
+            "スマホ・ブラウザ・Windowsソフト版へ共通反映",
+        ],
+    },
     {
         "version": "3.10.0",
         "released_on": "2026-09-01",

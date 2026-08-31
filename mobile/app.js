@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.10.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.10.0';
+} from './core.mjs?v=3.10.1';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.10.1';
 
-const APP_VERSION = '3.10.0';
+const APP_VERSION = '3.10.1';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -1634,6 +1634,45 @@ async function saveFloorResults(rows, sourceLabel = '') {
   await loadFloorHeat();
 }
 
+function startTargetSearchProgress() {
+  const panel = byId('target-search-progress');
+  const label = byId('target-search-progress-label');
+  const percent = byId('target-search-progress-percent');
+  const track = byId('target-search-progress-track');
+  const fill = byId('target-search-progress-fill');
+  const eta = byId('target-search-progress-eta');
+  const startedAt = performance.now();
+  panel.hidden = false;
+  panel.classList.remove('complete', 'failed');
+  const render = () => {
+    const elapsed = (performance.now() - startedAt) / 1000;
+    const value = Math.min(94, Math.round(6 + 88 * (1 - Math.exp(-elapsed / 10))));
+    const phase = elapsed < 2 ? '公開データを読み込み中' : elapsed < 7 ? '店舗ごとの傾向を検証中' : elapsed < 14 ? '機種別モデルを比較中' : elapsed < 21 ? '台番号と現在配置を照合中' : '安全基準を最終確認中';
+    label.textContent = phase;
+    percent.textContent = `${value}%`;
+    fill.style.width = `${value}%`;
+    track.setAttribute('aria-valuenow', String(value));
+    eta.textContent = elapsed < 24 ? `残り約${Math.max(1, Math.ceil(24 - elapsed))}秒（目安）` : `分析開始から${Math.floor(elapsed)}秒・最終処理中`;
+  };
+  render();
+  const timer = setInterval(render, 500);
+  return {
+    complete() {
+      clearInterval(timer);
+      panel.classList.add('complete');
+      label.textContent = '分析完了'; percent.textContent = '100%'; fill.style.width = '100%';
+      track.setAttribute('aria-valuenow', '100');
+      eta.textContent = `約${Math.max(1, Math.round((performance.now() - startedAt) / 1000))}秒で完了しました`;
+    },
+    fail() {
+      clearInterval(timer);
+      panel.classList.add('failed');
+      label.textContent = '分析を完了できませんでした';
+      eta.textContent = '通信状態を確認して、もう一度お試しください';
+    },
+  };
+}
+
 async function runTargetSearch() {
   const visitDate = byId('target-visit-date').value;
   byId('target-map-date').value = visitDate;
@@ -1641,6 +1680,7 @@ async function runTargetSearch() {
   const days = byId('target-search-days').value;
   const accuracy = byId('target-search-accuracy').value;
   const status = byId('target-search-status');
+  const progress = startTargetSearchProgress();
   status.textContent = '店舗・曜日・機種データを分析中...';
   byId('target-search-button').disabled = true;
   try {
@@ -1648,10 +1688,12 @@ async function runTargetSearch() {
     if (!response.ok) throw new Error(`分析API ${response.status}`);
     targetSearchData = await response.json();
     renderTargetSearch();
+    progress.complete();
     status.textContent = `${targetSearchData.region_label}・${targetSearchData.generated_at}時点の公開データで分析しました。`;
   } catch (error) {
     targetSearchData = null;
     renderTargetSearch();
+    progress.fail();
     status.textContent = `分析サーバーに接続できません：${error.message}`;
   } finally {
     byId('target-search-button').disabled = false;

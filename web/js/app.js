@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.10.0';
+    document.getElementById('desktop-version-label').textContent = 'v3.10.1';
   }
 }
 
@@ -595,6 +595,45 @@ function renderDesktopTargetSearch(data) {
     <p class="target-search-disclaimer">${esc(data.notice)}</p>`;
 }
 
+function startDesktopTargetProgress() {
+  const panel = document.getElementById('desktop-target-progress');
+  const label = document.getElementById('desktop-target-progress-label');
+  const percent = document.getElementById('desktop-target-progress-percent');
+  const track = document.getElementById('desktop-target-progress-track');
+  const fill = document.getElementById('desktop-target-progress-fill');
+  const eta = document.getElementById('desktop-target-progress-eta');
+  const startedAt = performance.now();
+  panel.hidden = false;
+  panel.classList.remove('complete', 'failed');
+  const render = () => {
+    const elapsed = (performance.now() - startedAt) / 1000;
+    const value = Math.min(94, Math.round(6 + 88 * (1 - Math.exp(-elapsed / 10))));
+    const phase = elapsed < 2 ? '公開データを読み込み中' : elapsed < 7 ? '店舗ごとの傾向を検証中' : elapsed < 14 ? '機種別モデルを比較中' : elapsed < 21 ? '台番号と現在配置を照合中' : '安全基準を最終確認中';
+    label.textContent = phase;
+    percent.textContent = `${value}%`;
+    fill.style.width = `${value}%`;
+    track.setAttribute('aria-valuenow', String(value));
+    eta.textContent = elapsed < 24 ? `残り約${Math.max(1, Math.ceil(24 - elapsed))}秒（目安）` : `分析開始から${Math.floor(elapsed)}秒・最終処理中`;
+  };
+  render();
+  const timer = setInterval(render, 500);
+  return {
+    complete() {
+      clearInterval(timer);
+      panel.classList.add('complete');
+      label.textContent = '分析完了'; percent.textContent = '100%'; fill.style.width = '100%';
+      track.setAttribute('aria-valuenow', '100');
+      eta.textContent = `約${Math.max(1, Math.round((performance.now() - startedAt) / 1000))}秒で完了しました`;
+    },
+    fail() {
+      clearInterval(timer);
+      panel.classList.add('failed');
+      label.textContent = '分析を完了できませんでした';
+      eta.textContent = '通信状態を確認して、もう一度お試しください';
+    },
+  };
+}
+
 async function loadDesktopTargetSearch() {
   const dateInput = document.getElementById('desktop-target-date');
   const daysInput = document.getElementById('desktop-target-days');
@@ -602,15 +641,18 @@ async function loadDesktopTargetSearch() {
   const region = syncTargetRegion(document.getElementById('desktop-target-region').value);
   const button = document.getElementById('desktop-target-search-button');
   const status = document.getElementById('desktop-target-status');
+  const progress = startDesktopTargetProgress();
   if (!dateInput.value) dateInput.value = localDateValue(1);
   button.disabled = true;
   status.textContent = '店舗・曜日・機種データを分析中...';
   try {
     desktopTargetSearchData = await apiFetch(`/api/hall/target_search?visit_date=${encodeURIComponent(dateInput.value)}&days=${encodeURIComponent(daysInput.value)}&region=${encodeURIComponent(region)}&target_accuracy=${encodeURIComponent(accuracyInput.value)}`);
     renderDesktopTargetSearch(desktopTargetSearchData);
+    progress.complete();
     status.textContent = `${desktopTargetSearchData.region_label}・${desktopTargetSearchData.generated_at}時点の公開データで分析しました。`;
   } catch (error) {
     desktopTargetSearchData = null;
+    progress.fail();
     document.getElementById('desktop-target-results').innerHTML = `<div class="card desktop-target-empty"><strong>分析できませんでした</strong><span>${esc(error.message)}</span></div>`;
     status.textContent = '分析サーバーとの接続を確認してください。';
   } finally {
@@ -5092,7 +5134,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.10.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.10.1');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

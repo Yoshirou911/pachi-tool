@@ -593,6 +593,18 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .plan-facts b { display: block; font-size: .67rem; }
 .plan-notes { padding: 9px 10px; border-radius: 10px; background: rgba(167, 139, 250, .045); }
 .target-search-panel { margin-bottom: 16px; }
+.analysis-progress { display: grid; gap: 7px; margin-top: 12px; padding: 11px 12px; border: 1px solid rgba(56,189,248,.24); border-radius: 12px; background: rgba(4,12,24,.58); }
+.analysis-progress[hidden] { display: none; }
+.analysis-progress > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.analysis-progress strong { color: #bae6fd; font-size: .62rem; }
+.analysis-progress span { color: #7dd3fc; font-size: .65rem; font-weight: 900; }
+.analysis-progress p { height: 7px; margin: 0; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.08); }
+.analysis-progress p i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#38bdf8,#818cf8); transition: width .45s ease; }
+.analysis-progress small { color: var(--muted-2); font-size: .53rem; }
+.analysis-progress.complete p i { background: linear-gradient(90deg,#22c55e,#86efac); }
+.analysis-progress.complete strong,.analysis-progress.complete span { color: #86efac; }
+.analysis-progress.failed { border-color: rgba(244,63,94,.28); }
+.analysis-progress.failed strong { color: #fda4af; }
 .target-search-button:disabled { opacity: .55; cursor: wait; }
 .target-search-results { display: grid; gap: 11px; }
 .target-conclusion {

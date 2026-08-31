@@ -8,10 +8,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.8.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.8.0';
+} from './core.mjs?v=3.9.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.9.0';
 
-const APP_VERSION = '3.8.0';
+const APP_VERSION = '3.9.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -760,12 +760,15 @@ function renderTargetSearch() {
   }
   const halls = targetSearchData.halls || [];
   const insufficient = targetSearchData.insufficient_halls || [];
+  const accuracy = targetSearchData.accuracy_summary || {};
+  const accuracyCard = `<section class="accuracy-gate-card"><div><span>${accuracy.target_pct || 70}%精度優先</span><strong>実戦候補 店舗${accuracy.actionable_halls || 0}・機種${accuracy.actionable_machines || 0}</strong></div><p>検証通過：70%級 店舗${accuracy.hall_70_count || 0}・機種${accuracy.machine_70_count || 0} ／ 80%級 店舗${accuracy.hall_80_count || 0}・機種${accuracy.machine_80_count || 0}</p><small>${esc(accuracy.message || '基準未達は自動で見送ります。')}</small></section>`;
   if (!halls.length) {
-    container.innerHTML = `<div class="target-empty"><strong>${esc(targetSearchData.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(targetSearchData.notice || '取得日数が増えるまでお待ちください。')}</span></div>
+    container.innerHTML = `${accuracyCard}<div class="target-empty"><strong>${esc(targetSearchData.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(targetSearchData.notice || '取得日数が増えるまでお待ちください。')}</span></div>
       ${insufficient.length ? `<details class="insufficient-halls" open><summary>除外・データ不足 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}`;
     return;
   }
   container.innerHTML = `
+    ${accuracyCard}
     ${renderTargetConclusion(targetSearchData)}
     <div class="target-result-heading"><div><span class="page-step">${esc(targetSearchData.region_label || '')}・${esc(targetSearchData.visit_date)} ${esc(targetSearchData.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="count-badge">${halls.length}店</span></div>
     ${halls.map((hall, hallIndex) => `<article class="target-hall-card">
@@ -1631,11 +1634,12 @@ async function runTargetSearch() {
   byId('target-map-date').value = visitDate;
   const region = setTargetRegion(byId('target-search-region').value);
   const days = byId('target-search-days').value;
+  const accuracy = byId('target-search-accuracy').value;
   const status = byId('target-search-status');
   status.textContent = '店舗・曜日・機種データを分析中...';
   byId('target-search-button').disabled = true;
   try {
-    const response = await fetch(apiUrl(`/api/hall/target_search?visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}&region=${encodeURIComponent(region)}`));
+    const response = await fetch(apiUrl(`/api/hall/target_search?visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}&region=${encodeURIComponent(region)}&target_accuracy=${encodeURIComponent(accuracy)}`));
     if (!response.ok) throw new Error(`分析API ${response.status}`);
     targetSearchData = await response.json();
     renderTargetSearch();

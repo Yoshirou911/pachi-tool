@@ -782,6 +782,7 @@ def get_target_search(
     days: int = Query(120, ge=14, le=365),
     limit: int = Query(8, ge=1, le=20),
     region: Literal["all", "shijonawate", "matsumoto_shiojiri", "nagano", "osaka"] = "all",
+    target_accuracy: Literal[70, 80] = 70,
 ) -> dict:
     """蓄積済みデータから、指定日に狙う店舗と機種の候補を根拠付きで返す。"""
     try:
@@ -797,9 +798,20 @@ def get_target_search(
         "weekday": weekday_name,
         "region": region,
         "region_label": region_label(region),
+        "target_accuracy": target_accuracy,
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "halls": [],
         "insufficient_halls": [],
+        "accuracy_summary": {
+            "target_pct": target_accuracy,
+            "hall_70_count": 0,
+            "hall_80_count": 0,
+            "machine_70_count": 0,
+            "machine_80_count": 0,
+            "actionable_halls": 0,
+            "actionable_machines": 0,
+            "message": "検証できる候補がまだありません。",
+        },
         "validation_policy": grade_policy(),
         "notice": "公開データが不足しているため候補を算出できません。",
     }
@@ -1043,6 +1055,9 @@ def get_target_search(
         action, action_reason = decide_action(
             avg_diff, stale_days, validation, positive_rate, estimate
         )
+        if target_accuracy == 80 and action == "狙う":
+            action = "要確認"
+            action_reason = "70%実戦基準は通過しましたが、選択中の80%級基準には未達"
         personal_all = personal_profit["all"]
         personal_recent = personal_profit["recent"]
         if (
@@ -1096,10 +1111,14 @@ def get_target_search(
             if machine_stale_days > 60:
                 excluded_stale += 1
                 continue
+            machine_model_selection = compare_prediction_models(
+                machine_rows, target_date, max_test_days=60, event_dates=event_dates
+            )
+            machine_selected_model = machine_model_selection["selected_model"]
             machine_estimate = date_weighted_estimate(
                 machine_rows,
                 target_date,
-                model=selected_model,
+                model=machine_selected_model,
                 event_dates=event_dates,
             )
             machine_sample_days = machine_estimate["sample_days"]
@@ -1127,8 +1146,10 @@ def get_target_search(
                 + max(0, min(25, machine_positive * 0.25))
                 + min(20, machine_sample_days / 20 * 20)
             )
+            # 機種ごとの現在予測は過去成績が最良の方式を使い、表示する的中率は
+            # 各検証日時点で方式を選び直す入れ子検証にして、選択後の水増しを防ぐ。
             machine_validation = walk_forward_backtest(
-                machine_rows, model=selected_model, event_dates=event_dates
+                machine_rows, max_test_days=60, model="auto", event_dates=event_dates
             )
             machine_action, machine_action_reason = decide_action(
                 machine_avg,
@@ -1137,6 +1158,9 @@ def get_target_search(
                 machine_positive,
                 machine_diagnostics,
             )
+            if target_accuracy == 80 and machine_action == "狙う":
+                machine_action = "要確認"
+                machine_action_reason = "70%実戦基準は通過しましたが、選択中の80%級基準には未達"
             if action == "見送り":
                 machine_action = "見送り"
                 machine_action_reason = f"店舗判定が見送り（{action_reason}）"
@@ -1179,10 +1203,7 @@ def get_target_search(
                 "action": machine_action,
                 "action_reason": machine_action_reason,
                 "validation": machine_validation,
-                "prediction_model": {
-                    "model": selected_model,
-                    "label": model_selection["selected_label"],
-                },
+                "prediction_model": machine_model_selection,
                 "seat_candidates": seat_candidates,
             })
         machine_candidates.sort(
@@ -1306,18 +1327,68 @@ def get_target_search(
     for index, hall in enumerate(ranked_halls, 1):
         hall["rank"] = index
 
+    trust_rank = {
+        "データ不足": 0,
+        "検証済み": 1,
+        "70%実戦基準": 70,
+        "80%級": 80,
+        "90%級": 90,
+    }
+    machine_rows = [
+        machine
+        for hall in ranked_halls
+        for machine in hall.get("target_machines", [])
+    ]
+    hall_70_count = sum(
+        trust_rank.get(hall["validation"].get("trust_level"), 0) >= 70
+        for hall in ranked_halls
+    )
+    hall_80_count = sum(
+        trust_rank.get(hall["validation"].get("trust_level"), 0) >= 80
+        for hall in ranked_halls
+    )
+    machine_70_count = sum(
+        trust_rank.get(machine["validation"].get("trust_level"), 0) >= 70
+        for machine in machine_rows
+    )
+    machine_80_count = sum(
+        trust_rank.get(machine["validation"].get("trust_level"), 0) >= 80
+        for machine in machine_rows
+    )
+    actionable_halls = sum(hall["action"].startswith("狙う") for hall in ranked_halls)
+    actionable_machines = sum(
+        machine["action"].startswith("狙う") for machine in machine_rows
+    )
+    accuracy_summary = {
+        "target_pct": target_accuracy,
+        "hall_70_count": hall_70_count,
+        "hall_80_count": hall_80_count,
+        "machine_70_count": machine_70_count,
+        "machine_80_count": machine_80_count,
+        "actionable_halls": actionable_halls,
+        "actionable_machines": actionable_machines,
+        "evaluated_halls": len(ranked_halls),
+        "evaluated_machines": len(machine_rows),
+        "message": (
+            f"{target_accuracy}%級基準で実戦候補は店舗{actionable_halls}件・"
+            f"機種{actionable_machines}件です。未達候補は自動で要確認・見送りにしています。"
+        ),
+    }
+
     return {
         "visit_date": visit_date,
         "weekday": weekday_name,
         "region": region,
         "region_label": region_label(region),
+        "target_accuracy": target_accuracy,
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "halls": ranked_halls,
         "insufficient_halls": insufficient,
+        "accuracy_summary": accuracy_summary,
         "validation_policy": grade_policy(),
         "notice": (
             "候補は公開データを先読みなしで過去検証しています。"
-            "80%級・90%級は成功率だけでなく95%下限・直近成績・件数・品質を満たした検証グレードで、勝利や高設定を保証しません。"
+            "70%・80%は全予測の的中保証ではなく、件数・95%下限・直近成績・品質を満たした候補だけを通す精度優先基準です。勝利や高設定を保証しません。"
             if ranked_halls else empty_result["notice"]
         ),
     }

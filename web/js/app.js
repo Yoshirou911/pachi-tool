@@ -118,7 +118,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.8.0';
+    document.getElementById('desktop-version-label').textContent = 'v3.9.0';
   }
 }
 
@@ -556,12 +556,15 @@ function renderDesktopTargetSearch(data) {
   const container = document.getElementById('desktop-target-results');
   const halls = data.halls || [];
   const insufficient = data.insufficient_halls || [];
+  const accuracy = data.accuracy_summary || {};
+  const accuracyCard = `<section class="desktop-accuracy-gate"><div><span>${accuracy.target_pct || 70}%精度優先</span><strong>実戦候補 店舗${accuracy.actionable_halls || 0}・機種${accuracy.actionable_machines || 0}</strong></div><p>検証通過：70%級 店舗${accuracy.hall_70_count || 0}・機種${accuracy.machine_70_count || 0} ／ 80%級 店舗${accuracy.hall_80_count || 0}・機種${accuracy.machine_80_count || 0}</p><small>${esc(accuracy.message || '基準未達は自動で見送ります。')}</small></section>`;
   if (!halls.length) {
-    container.innerHTML = `<div class="card desktop-target-empty"><strong>${esc(data.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(data.notice || '取得日数が増えるまでお待ちください。')}</span></div>
+    container.innerHTML = `${accuracyCard}<div class="card desktop-target-empty"><strong>${esc(data.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(data.notice || '取得日数が増えるまでお待ちください。')}</span></div>
       ${insufficient.length ? `<details class="desktop-insufficient" open><summary>除外・データ不足 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}`;
     return;
   }
   container.innerHTML = `
+    ${accuracyCard}
     ${renderDesktopTargetConclusion(data)}
     <div class="desktop-target-heading"><div><span class="page-eyebrow">${esc(data.region_label || '')}・${esc(data.visit_date)} ${esc(data.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="badge">${halls.length}店舗</span></div>
     ${halls.map(hall => `<article class="card desktop-target-hall">
@@ -583,6 +586,7 @@ function renderDesktopTargetSearch(data) {
 async function loadDesktopTargetSearch() {
   const dateInput = document.getElementById('desktop-target-date');
   const daysInput = document.getElementById('desktop-target-days');
+  const accuracyInput = document.getElementById('desktop-target-accuracy');
   const region = syncTargetRegion(document.getElementById('desktop-target-region').value);
   const button = document.getElementById('desktop-target-search-button');
   const status = document.getElementById('desktop-target-status');
@@ -590,7 +594,7 @@ async function loadDesktopTargetSearch() {
   button.disabled = true;
   status.textContent = '店舗・曜日・機種データを分析中...';
   try {
-    desktopTargetSearchData = await apiFetch(`/api/hall/target_search?visit_date=${encodeURIComponent(dateInput.value)}&days=${encodeURIComponent(daysInput.value)}&region=${encodeURIComponent(region)}`);
+    desktopTargetSearchData = await apiFetch(`/api/hall/target_search?visit_date=${encodeURIComponent(dateInput.value)}&days=${encodeURIComponent(daysInput.value)}&region=${encodeURIComponent(region)}&target_accuracy=${encodeURIComponent(accuracyInput.value)}`);
     renderDesktopTargetSearch(desktopTargetSearchData);
     status.textContent = `${desktopTargetSearchData.region_label}・${desktopTargetSearchData.generated_at}時点の公開データで分析しました。`;
   } catch (error) {
@@ -5076,7 +5080,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.8.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.9.0');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);

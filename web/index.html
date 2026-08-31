@@ -198,6 +198,7 @@
               <div><label class="form-label" for="desktop-target-date">行く日</label><input id="desktop-target-date" class="form-input" type="date" required></div>
               <div><label class="form-label" for="desktop-target-days">分析期間</label><select id="desktop-target-days" class="form-select"><option value="60">直近60日</option><option value="120" selected>直近120日</option><option value="180">直近180日</option></select></div>
             </div>
+            <div><label class="form-label" for="desktop-target-accuracy">精度優先モード</label><select id="desktop-target-accuracy" class="form-select"><option value="70" selected>70%級（候補数とのバランス）</option><option value="80">80%級（候補が減っても厳選）</option></select></div>
             <button id="desktop-target-search-button" class="btn btn-primary btn-full" type="submit">データから狙い台を探す</button>
           </form>
           <p id="desktop-target-status" class="target-search-help">平均差枚・プラス日率・同曜日実績・データ鮮度をまとめて評価します。</p>

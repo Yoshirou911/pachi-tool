@@ -335,6 +335,11 @@ body.sidebar-open .menu-icon i:nth-child(3) { transform: translateY(-6px) rotate
 .desktop-target-conclusion-route i { color: var(--text3); font-size: 1.05rem; font-style: normal; text-align: center; }
 .desktop-target-conclusion p { margin: 0; overflow: hidden; color: var(--text2); font-size: .61rem; text-overflow: ellipsis; white-space: nowrap; }
 .desktop-target-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; padding: 4px 2px 0; }
+.desktop-accuracy-gate { display: grid; gap: 8px; padding: 16px 18px; border: 1px solid rgba(56,189,248,.3); border-radius: 16px; background: linear-gradient(135deg,rgba(14,165,233,.12),rgba(99,102,241,.1)); }
+.desktop-accuracy-gate div { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.desktop-accuracy-gate span { color: #7dd3fc; font-size: .7rem; font-weight: 800; }
+.desktop-accuracy-gate strong { font-size: .9rem; }
+.desktop-accuracy-gate p,.desktop-accuracy-gate small { margin: 0; color: var(--text3); font-size: .66rem; line-height: 1.55; }
 .desktop-target-heading h2 { margin-top: 4px; font-size: 1.05rem; }
 .desktop-target-hall { padding: 17px; border-color: rgba(124,127,245,.21); }
 .desktop-target-action { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 10px; border: 1px solid; border-radius: 9px; }

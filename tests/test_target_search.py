@@ -49,10 +49,18 @@ def test_target_search_ranks_only_halls_with_enough_evidence(tmp_path, monkeypat
     assert result["halls"][0]["sample_days"] == 4
     assert result["halls"][0]["target_machines"][0]["machine_name"] == "L北斗"
     assert result["insufficient_halls"][0]["hall_name"] == "不足店"
+    assert result["target_accuracy"] == 70
+    assert result["accuracy_summary"]["target_pct"] == 70
 
     next_day = hall_router.get_target_search("2026-08-11", days=120, limit=8)
     assert next_day["weekday"] == "火"
     assert next_day["halls"][0]["avg_diff"] != result["halls"][0]["avg_diff"]
+
+    strict = hall_router.get_target_search(
+        "2026-08-10", days=120, limit=8, target_accuracy=80
+    )
+    assert strict["target_accuracy"] == 80
+    assert strict["accuracy_summary"]["target_pct"] == 80
 
 
 def test_target_search_rejects_invalid_date():

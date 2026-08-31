@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.deps import HALL_REPORTS_DB, _get_reports_conn
 from hall.machine_scope import clean_machine_display_name, is_smartslot_machine, normalize_machine_key
 from hall.regions import region_label, region_matches
-from hall.target_validation import grade_policy, walk_forward_backtest
+from hall.target_validation import compare_prediction_models, grade_policy, walk_forward_backtest
 
 router = APIRouter()
 
@@ -351,7 +351,10 @@ def _machine_strength_validation(machine_rows: list[dict], target: date) -> dict
             date.fromisoformat(report_date),
             sum(value * units for value, units in values) / total_units,
         ))
-    return walk_forward_backtest(points, max_test_days=60)
+    selection = compare_prediction_models(points, target, max_test_days=60)
+    validation = walk_forward_backtest(points, max_test_days=60, model="auto")
+    validation["prediction_model"] = selection
+    return validation
 
 
 @router.get("/api/hall/trend_profile", tags=["hall"])

@@ -617,6 +617,11 @@ input:focus, select:focus, textarea:focus { border-color: rgba(120, 169, 255, .7
 .target-conclusion-route i { color: var(--muted-2); font-size: 1.05rem; font-style: normal; text-align: center; }
 .target-conclusion p { margin: 0; overflow: hidden; color: var(--muted); font-size: .52rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .target-result-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin: 6px 2px 2px; }
+.accuracy-gate-card { display: grid; gap: 8px; padding: 14px; border: 1px solid rgba(56,189,248,.3); border-radius: 16px; background: linear-gradient(135deg,rgba(14,165,233,.12),rgba(99,102,241,.1)); }
+.accuracy-gate-card div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.accuracy-gate-card span { color: #7dd3fc; font-size: .62rem; font-weight: 800; }
+.accuracy-gate-card strong { font-size: .78rem; }
+.accuracy-gate-card p,.accuracy-gate-card small { margin: 0; color: var(--muted-2); font-size: .57rem; line-height: 1.55; }
 .target-result-heading h2 { margin: 4px 0 0; font-size: .95rem; }
 .target-hall-card { padding: 14px; border: 1px solid rgba(167, 139, 250, .2); border-radius: 18px; background: linear-gradient(150deg, rgba(24, 34, 57, .92), rgba(8, 18, 32, .96)); }
 .target-action { display: flex; align-items: center; gap: 8px; margin: -3px -3px 11px; padding: 8px 10px; border: 1px solid; border-radius: 11px; }

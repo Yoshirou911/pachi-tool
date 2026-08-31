@@ -323,18 +323,24 @@ def walk_forward_backtest(
     trials = []
     selected_model_counts: dict[str, int] = {}
     start_index = max(min_train_days, len(points) - max_test_days)
-    for index in range(start_index, len(points)):
+    active_auto_model: str | None = None
+    auto_review_interval_days = 7
+    for trial_number, index in enumerate(range(start_index, len(points))):
         test_date, actual = points[index]
         training = points[:index]
         trial_model = model
         if model == "auto":
-            selection = compare_prediction_models(
-                training,
-                test_date,
-                max_test_days=45,
-                event_dates=event_dates,
-            )
-            trial_model = selection["selected_model"]
+            # 日々の偶然のブレに追従し過ぎないよう、方式の再選定は週1回。
+            # 再選定時にも当日以降は使わないため、先読みは発生しない。
+            if active_auto_model is None or trial_number % auto_review_interval_days == 0:
+                selection = compare_prediction_models(
+                    training,
+                    test_date,
+                    max_test_days=45,
+                    event_dates=event_dates,
+                )
+                active_auto_model = selection["selected_model"]
+            trial_model = active_auto_model
             selected_model_counts[trial_model] = selected_model_counts.get(trial_model, 0) + 1
         prediction = date_weighted_estimate(
             training, test_date, model=trial_model, event_dates=event_dates
@@ -428,6 +434,7 @@ def walk_forward_backtest(
             else MODEL_POLICIES.get(model, MODEL_POLICIES["balanced"])["label"]
         ),
         "selected_model_counts": selected_model_counts,
+        "auto_review_interval_days": auto_review_interval_days if model == "auto" else None,
         "test_days": test_days,
         "train_min_days": min_train_days,
         "direction_accuracy_pct": round(direction * 100),

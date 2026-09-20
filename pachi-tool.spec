@@ -8,6 +8,8 @@ datas = [
     (str(project_root / "web"), "web"),
     (str(project_root / "mobile"), "mobile"),
     (str(project_root / "data" / "machines"), "data/machines"),
+    (str(project_root / "data" / "ai_eval"), "data/ai_eval"),
+    (str(project_root / "data" / "knowledge"), "data/knowledge"),
     (str(project_root / "data" / "opportunity_catalog.json"), "data"),
 ]
 
@@ -15,6 +17,10 @@ for optional_name in ("hall_coords.json",):
     optional_path = project_root / "data" / optional_name
     if optional_path.exists():
         datas.append((str(optional_path), "data"))
+
+review_evidence = project_root / "data" / "ai_review"
+if review_evidence.exists():
+    datas.append((str(review_evidence), "data/ai_review"))
 
 a = Analysis(
     [str(project_root / "desktop_app.py")],

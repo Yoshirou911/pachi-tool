@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import sys
 import threading
 from contextlib import asynccontextmanager
 
@@ -32,12 +33,14 @@ from api.routers import (
     estimate,
     events,
     hall,
+    image_analysis,
     juggler,
     layout,
     machines,
     map as map_router,
     occupancy,
     opportunity,
+    predictions,
     scrape,
     sessions,
     version,
@@ -71,6 +74,13 @@ _cors_origins = list(dict.fromkeys([
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """起動時の初期化: キャッシュウォームアップ + 夜間スクレイプスケジューラ起動"""
+
+    # Packaged-app smoke tests validate the bundled API and assets only.  Do
+    # not start scheduled collection or its startup refresh against external
+    # sites while a release artifact is being checked.
+    if "--smoke-test" in sys.argv:
+        yield
+        return
 
     # API受付開始前に、前回終了時の収集だけを確実に「再開待ち」へ戻す。
     try:
@@ -189,6 +199,8 @@ app.include_router(opportunity.router)
 app.include_router(estimate.router)
 app.include_router(sessions.router)
 app.include_router(hall.router)
+app.include_router(image_analysis.router)
+app.include_router(predictions.router)
 app.include_router(juggler.router)
 app.include_router(scrape.router)
 app.include_router(events.router)

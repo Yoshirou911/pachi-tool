@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "protocol": "knowledge-retrieval-regression-1.0",
+  "notice": "固定の検索条件と期待する資料IDを手作業で定義。検索品質の回帰点検であり、資料内容の真偽や店舗予測精度の採点ではない。",
+  "cases": [
+    {"id": "definition", "request": {"question": "期待値とは"}, "expected": ["term:expected-value"]},
+    {"id": "reset", "request": {"question": "リセットとは"}, "expected": ["term:reset"]},
+    {"id": "games", "request": {"question": "AT間とは"}, "expected": ["term:games"]},
+    {"id": "closing", "request": {"question": "閉店欠損とは"}, "expected": ["term:closing"]},
+    {"id": "unknown", "request": {"question": "火星専用の特殊語"}, "expected": []},
+    {"id": "no-condition", "request": {"question": "登録資料", "category": "expectation", "machine_name": "スマスロ北斗の拳"}, "expected": []},
+    {"id": "normal", "request": {"question": "登録資料", "category": "expectation", "machine_name": "L北斗の拳", "condition_id": "ev:hokuto-normal-equivalent-conservative-v1"}, "expected": ["ev:hokuto-normal-equivalent-conservative-v1"]},
+    {"id": "reset-only", "request": {"question": "リセット確定の登録資料", "category": "expectation", "condition_id": "ev:hokuto-reset-equivalent-conservative-v1"}, "expected": ["ev:hokuto-reset-equivalent-conservative-v1"]},
+    {"id": "cash-mismatch", "request": {"question": "現金の登録資料", "category": "expectation", "condition_id": "ev:hokuto-normal-56-current-conservative-v1"}, "expected": []},
+    {"id": "wrong-machine", "request": {"question": "登録資料", "category": "expectation", "machine_name": "スマスロモンキーターン5", "condition_id": "ev:hokuto-normal-equivalent-conservative-v1"}, "expected": []},
+    {"id": "future", "request": {"question": "期待値とは", "target_date": "2026-09-18"}, "expected": []},
+    {"id": "no-seat-permission", "request": {"question": "今打っていい？", "category": "expectation", "condition_id": "ev:hokuto-normal-equivalent-conservative-v1"}, "expected": []}
+  ]
+}

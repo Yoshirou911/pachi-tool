@@ -517,9 +517,13 @@ def list_scrape_halls() -> list[dict]:
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='hall_machine_snapshot'"
             ).fetchone() else {}
             event_stats = {
-                r[0]: {"last_date": r[1], "record_count": r[2]}
+                r[0]: {"last_date": r[1], "record_count": r[2], "excluded_count": r[3]}
                 for r in conn.execute(
-                    "SELECT hall_name, MAX(event_date), COUNT(*) FROM hall_event GROUP BY hall_name"
+                    """SELECT hall_name,
+                              MAX(CASE WHEN prediction_eligible=1 THEN event_date END),
+                              SUM(CASE WHEN prediction_eligible=1 THEN 1 ELSE 0 END),
+                              SUM(CASE WHEN prediction_eligible=0 THEN 1 ELSE 0 END)
+                         FROM hall_event GROUP BY hall_name"""
                 ).fetchall()
             } if conn.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='hall_event'"
@@ -543,7 +547,11 @@ def list_scrape_halls() -> list[dict]:
                     "seat": {"last_date": seat.get("last_date"), "records": seat.get("record_count", 0)},
                     "machine": {"last_date": machine.get("last_date"), "records": machine.get("record_count", 0)},
                     "snapshot": {"last_date": snapshot.get("last_date"), "records": snapshot.get("record_count", 0)},
-                    "event": {"last_date": event.get("last_date"), "records": event.get("record_count", 0)},
+                    "event": {
+                        "last_date": event.get("last_date"),
+                        "records": event.get("record_count", 0),
+                        "excluded_records": event.get("excluded_count", 0),
+                    },
                 }
                 if seat.get("record_count"):
                     h["data_level"] = "台番号あり"

@@ -10,6 +10,12 @@ env/
 data/sessions.db
 data/hall_reports.db
 data/opportunities.db
+data/ai_evaluations.db
+data/ai_evaluations.db-journal
+data/ai_usage.db
+data/ai_usage.db-journal
+data/image_analysis.db
+data/image_analysis.db-journal
 data/logs/
 data/dev-backups/
 *.pachi-backup.zip
@@ -32,3 +38,6 @@ Thumbs.db
 # Local env
 .env
 *.local
+
+# Generated handoff artifact (not part of a release commit)
+SOURCE_SNAPSHOT.txt

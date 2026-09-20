@@ -15,6 +15,48 @@ from api.routers import layout
 client = TestClient(app)
 
 
+def test_history_api_scope_cutoff_and_read_only(layout_database):
+    conn = sqlite3.connect(layout_database)
+    conn.executemany("INSERT INTO hall_day_seat VALUES (?,?,?,?,?,?,?)", [
+        ("テスト店", "2026-08-01", "L北斗", 101, 100, 4000, "a"),
+        ("テスト店", "2026-08-02", "L東京喰種", 101, 100, 4000, "b"),
+        ("テスト店", "2026-08-03", "L北斗", 101, 100, 4000, "c"),
+        ("テスト店", "2026-08-04", "L北斗", 102, 100, 4000, "d"),
+        ("テスト店", "2026-08-05", "L東京喰種", 102, 100, 4000, "e"),
+    ])
+    conn.commit()
+    before = layout_database.read_bytes()
+    params = {"hall_name":"テスト店", "as_of":"2026-08-04", "seat_number":101}
+    response = client.get('/api/layouts/seat_history', params=params)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert len(data['seats']) == 1 and data['excluded_records'] == 2
+    assert data['seats'][0]['training_from'] == '2026-08-03'
+    assert 'rows' not in data
+    assert layout_database.read_bytes() == before
+    response = client.get('/api/layouts/seat_history', params={**params, 'as_of':(date.today()+timedelta(days=3)).isoformat()})
+    assert response.status_code == 400
+    conn.close()
+
+
+def test_seat_heat_does_not_mix_reinstalled_machine_or_hide_conflict(layout_database):
+    conn = sqlite3.connect(layout_database)
+    conn.executemany("INSERT INTO hall_day_seat VALUES (?,?,?,?,?,?,?)", [
+        ("テスト店", "2026-08-01", "L北斗", 101, 9000, 4000, "a"),
+        ("テスト店", "2026-08-02", "L東京喰種", 101, 5000, 4000, "b"),
+        ("テスト店", "2026-08-03", "L北斗", 101, -1000, 4000, "c"),
+        ("テスト店", "2026-08-03", "L北斗", 102, 8000, 4000, "d"),
+        ("テスト店", "2026-08-03", "L東京喰種", 102, 8000, 4000, "e"),
+    ])
+    conn.commit()
+    conn.close()
+    response = client.get('/api/layouts/seat_heat', params={'hall_name':'テスト店','visit_date':'2026-08-04','days':30})
+    assert response.status_code == 200, response.text
+    seats = {s['seat_number']:s for s in response.json()['seats']}
+    assert seats[101]['estimate'] == -1000 and seats[101]['sample_days'] == 1
+    assert seats[102]['score'] is None and seats[102]['seat_identity']['status'] == '情報矛盾'
+
+
 @pytest.fixture()
 def layout_database(tmp_path, monkeypatch):
     database = tmp_path / "hall_reports.db"
@@ -283,3 +325,90 @@ def test_manual_import_does_not_overwrite_public_seat_result(layout_database):
     value = conn.execute("SELECT diff_coins FROM hall_day_seat WHERE seat_number=501").fetchone()[0]
     conn.close()
     assert value == 2200
+
+
+def test_manual_result_status_tracks_progress_and_canonical_hall_name(layout_database):
+    today = date.today()
+    for offset in range(3):
+        response = client.post(
+            "/api/layouts/seat_results",
+            json={
+                "hall_name": "キコーナ四条畷店",
+                "report_date": (today - timedelta(days=offset)).isoformat(),
+                "source_label": "現地確認",
+                "rows": [
+                    {
+                        "seat_number": 501,
+                        "machine_name": "L北斗",
+                        "diff_coins": 500 - offset * 100,
+                        "games": 6000,
+                    }
+                ],
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["hall_name"] == "キコーナ四條畷店"
+
+    status = client.get(
+        "/api/layouts/seat_results/status",
+        params={"hall_name": "キコーナ四條畷店"},
+    )
+    assert status.status_code == 200, status.text
+    data = status.json()
+    assert data["days"] == 3
+    assert data["records"] == 3
+    assert data["manual_records"] == 3
+    assert data["remaining_days"] == 27
+    assert data["progress_pct"] == 10
+    assert len(data["recent_imports"]) == 3
+    assert data["quality_gate"]["analysis_eligible"] is False
+    assert data["quality_gate"]["metrics"]["average_records_per_day"] == 1.0
+    assert any("営業日" in item for item in data["quality_gate"]["blockers"])
+
+
+def test_manual_result_quality_requires_daily_volume_variety_games_and_freshness(layout_database):
+    today = date.today()
+    machines = ["L北斗", "Lモンキーターン", "L東京喰種", "Lからくりサーカス", "Lゴッドイーター"]
+    for offset in range(30):
+        response = client.post(
+            "/api/layouts/seat_results",
+            json={
+                "hall_name": "品質確認店",
+                "report_date": (today - timedelta(days=offset)).isoformat(),
+                "source_label": "現地確認",
+                "rows": [
+                    {
+                        "seat_number": 500 + index,
+                        "machine_name": machines[index % len(machines)],
+                        "diff_coins": 100 * (index - 4),
+                        "games": 6000 + index * 10,
+                    }
+                    for index in range(10)
+                ],
+            },
+        )
+        assert response.status_code == 200, response.text
+
+    data = client.get(
+        "/api/layouts/seat_results/status", params={"hall_name": "品質確認店"}
+    ).json()
+    assert data["quality_gate"]["analysis_eligible"] is True
+    assert data["quality_gate"]["status"] == "分析利用可"
+    assert data["quality_gate"]["score"] >= 70
+    assert data["quality_gate"]["metrics"]["average_records_per_day"] == 10.0
+    assert data["quality_gate"]["metrics"]["games_coverage_pct"] == 100
+    assert data["quality_gate"]["metrics"]["machine_count"] == 5
+
+
+def test_manual_result_rejects_future_date(layout_database):
+    response = client.post(
+        "/api/layouts/seat_results",
+        json={
+            "hall_name": "テスト店",
+            "report_date": (date.today() + timedelta(days=1)).isoformat(),
+            "rows": [
+                {"seat_number": 501, "machine_name": "L北斗", "diff_coins": 500, "games": 6000}
+            ],
+        },
+    )
+    assert response.status_code == 422

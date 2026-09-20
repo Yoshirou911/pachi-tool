@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import sqlite3
 import time
 from datetime import date, datetime, timedelta
@@ -34,17 +35,23 @@ from hall.prior import (
     machine_ranking,
 )
 from hall.machine_scope import (
+    clean_machine_display_name,
     is_smartslot_machine,
     machine_names_match,
     normalize_machine_key,
 )
-from hall.regions import region_label, region_matches
+from hall.names import canonical_hall_name, hall_names_match
+from hall.prediction_quality import audit_rows, coverage
+from hall.collection_sources import collection_source_plan
+from hall.regions import SHIJONAWATE_AREA_HALLS, region_label, region_matches
 from hall.target_validation import (
     activity_filter_summary,
     compare_prediction_models,
     date_weighted_estimate,
     decide_action,
+    finalize_prediction_estimate,
     grade_policy,
+    weighted_ensemble_estimate,
     walk_forward_backtest,
 )
 from records.models import list_sessions, session_to_dict
@@ -55,6 +62,11 @@ _scrape_status: dict[str, str] = {}  # hall_name -> "idle"|"running"|"done"|"err
 _anaslo_scrape_status: dict[str, str] = {}
 
 
+def _event_pattern_key(value: str | None) -> str:
+    """媒体ランク表記を除き、同じイベント名だけを照合する。"""
+    return re.sub(r"\s*[（(][A-ZＡ-Ｚ]ランク[）)]\s*$", "", str(value or "")).strip()
+
+
 def _seat_pattern_summary(
     rows: list,
     layout_seats: list,
@@ -62,6 +74,9 @@ def _seat_pattern_summary(
     target_accuracy: int = 70,
 ) -> dict:
     """対象日より前の台番号実績から、再現性のある配置傾向だけを返す。"""
+    from hall.seat_history import build_seat_history
+    cutoff = target_date - timedelta(days=1) if target_date else max((date.fromisoformat(r["report_date"]) for r in rows), default=date.today())
+    rows = build_seat_history([{**dict(r), "hall_name": dict(r).get("hall_name") or "単店舗"} for r in rows], cutoff=cutoff)["rows"]
     latest_by_seat: dict[int, object] = {}
     for row in rows:
         seat_number = int(row["seat_number"] or 0)
@@ -142,6 +157,10 @@ def _seat_pattern_summary(
             positive_rate,
             estimate,
         )
+        seat_input_quality = coverage([dict(r) for r in history], cutoff=analysis_date - timedelta(days=1), scope="seat")
+        if not seat_input_quality["analysis_eligible"] and seat_action.startswith("狙う"):
+            seat_action = "要確認"
+            seat_action_reason = "入力品質：" + "、".join(seat_input_quality["blockers"])
         trust_rank = {"データ不足": 0, "検証済み": 1, "70%実戦基準": 70, "80%級": 80, "90%級": 90}
         verified = seat_action.startswith("狙う") and (
             trust_rank.get(validation.get("trust_level"), 0) >= target_accuracy
@@ -154,6 +173,7 @@ def _seat_pattern_summary(
             "raw_positive_rate_pct": raw_positive_rate,
             "avg_diff_coins": avg_diff,
             "projected_diff_coins": int(estimate["projected"]),
+            "input_quality": seat_input_quality,
             "risk_adjusted_diff_coins": risk_adjusted,
             "signal_agreement_pct": int(estimate["signal_agreement_pct"]),
             "score": max(0, min(100, score)),
@@ -198,13 +218,24 @@ def _seat_pattern_summary(
             item for item in machine_items
             if item["seat_role"] not in {"避ける", "配置確認"}
         ]
-        if candidates:
-            candidates[0]["seat_role"] = "第一候補"
-        if len(candidates) >= 2:
-            candidates[1]["seat_role"] = "第二候補"
+        verified_candidates = [
+            item for item in candidates
+            if item["status"] == "検証済み" and item["action"].startswith("狙う")
+        ]
+        if verified_candidates:
+            verified_candidates[0]["seat_role"] = "第一候補"
+        if len(verified_candidates) >= 2:
+            verified_candidates[1]["seat_role"] = "第二候補"
+        reference_candidates = [
+            item for item in candidates if item not in verified_candidates[:2]
+        ]
+        if reference_candidates:
+            reference_candidates[0]["seat_role"] = "参考1位"
+        if len(reference_candidates) >= 2:
+            reference_candidates[1]["seat_role"] = "参考2位"
     top_seats.sort(
         key=lambda item: (
-            4 if item["seat_role"] == "第一候補" else 3 if item["seat_role"] == "第二候補" else 2 if item["seat_role"] == "配置確認" else 0 if item["seat_role"] == "避ける" else 1,
+            6 if item["seat_role"] == "第一候補" else 5 if item["seat_role"] == "第二候補" else 4 if item["seat_role"] == "参考1位" else 3 if item["seat_role"] == "参考2位" else 2 if item["seat_role"] == "配置確認" else 0 if item["seat_role"] == "避ける" else 1,
             2 if item["status"] == "検証済み" else 1 if item["status"] == "検証対象" else 0,
             item["score"], item["sample_days"],
         ),
@@ -233,11 +264,9 @@ def _seat_pattern_summary(
     for seat in layout_seats:
         island = str(seat["island_name"] or seat["machine_name"] or "")
         by_island.setdefault(island, []).append(int(seat["seat_number"]))
-    corner_numbers = {
-        number
-        for numbers in by_island.values() if len(numbers) >= 2
-        for number in (min(numbers), max(numbers))
-    }
+    # Numeric endpoints do not establish physical corners. Explicit geometry/
+    # corner annotations and their dated history are a later analysis stage.
+    corner_numbers = set()
     corner_rows = [row for row in usable if int(row["seat_number"]) in corner_numbers]
     corner_summary = None
     if len(corner_rows) >= 20:
@@ -257,7 +286,7 @@ def _seat_pattern_summary(
         "best_tail": tails[0] if tails else None,
         "tail_ranking": tails[:5],
         "corner": corner_summary,
-        "notice": "最新配置一致を必須とし、第一・第二候補と避ける台を分離。選択中の精度基準通過だけを検証済み表示",
+        "notice": "精度基準通過だけを第一・第二候補とし、未達の比較上位は参考順位、弱い台は避ける台として分離",
     }
 
 
@@ -717,6 +746,7 @@ def get_installation_snapshot(hall_name: str = Query(...)) -> dict:
 @router.get("/api/hall/data_coverage", tags=["hall"])
 def get_data_coverage(hall_name: str = Query(...)) -> dict:
     """店舗分析に使えるデータ量と、現時点の分析可否を返す。"""
+    hall_name = canonical_hall_name(hall_name)
     from opportunity.models import get_intraday_coverage
     intraday = get_intraday_coverage(hall_name)
     empty = {
@@ -751,14 +781,23 @@ def get_data_coverage(hall_name: str = Query(...)) -> dict:
     def aggregate(table: str, date_column: str, value_column: str | None = None) -> dict:
         if not table_exists(table):
             return {"records": 0, "days": 0, "first_date": None, "latest_date": None}
+        stored_names = [
+            row[0] for row in conn.execute(
+                f"SELECT DISTINCT hall_name FROM {table} WHERE hall_name IS NOT NULL"
+            ).fetchall()
+            if hall_names_match(row[0], hall_name)
+        ]
+        if not stored_names:
+            return {"records": 0, "days": 0, "first_date": None, "latest_date": None}
+        placeholders = ",".join("?" for _ in stored_names)
         value_filter = f" AND {value_column} IS NOT NULL" if value_column else ""
         row = conn.execute(
             f"""SELECT COUNT(*) AS records,
                        COUNT(DISTINCT {date_column}) AS days,
                        MIN({date_column}) AS first_date,
                        MAX({date_column}) AS latest_date
-                FROM {table} WHERE hall_name=?{value_filter}""",
-            (hall_name,),
+                FROM {table} WHERE hall_name IN ({placeholders}){value_filter}""",
+            stored_names,
         ).fetchone()
         return {
             "records": int(row["records"] or 0),
@@ -837,6 +876,334 @@ def get_data_coverage(hall_name: str = Query(...)) -> dict:
     }
 
 
+@router.get("/api/hall/region_data_coverage", tags=["hall"])
+def get_region_data_coverage(
+    region: Literal["shijonawate"] = "shijonawate",
+) -> dict:
+    """地域内の全店舗について、予測に必要な層と収集優先順位を一覧化する。"""
+    halls = sorted(SHIJONAWATE_AREA_HALLS)
+    items = []
+    for hall_name in halls:
+        coverage = get_data_coverage(hall_name)
+        performance = coverage["performance"]
+        installation = coverage["installation"]
+        events = coverage["events"]
+        intraday = coverage["intraday"]
+        age_days = performance.get("age_days")
+        score = 0
+        score += min(40, round(int(performance.get("performance_days") or 0) / 60 * 40))
+        score += min(25, round(int(performance.get("seat_days") or 0) / 30 * 25))
+        score += 10 if int(installation.get("records") or 0) else 0
+        score += min(10, round(int(events.get("days") or 0) / 10 * 10))
+        score += 5 if intraday.get("ready") else 0
+        score += 10 if age_days is not None and age_days <= 14 else 5 if age_days is not None and age_days <= 30 else 0
+        score = min(100, score)
+        if int(performance.get("performance_days") or 0) < 30:
+            next_action = "日別実績を30日以上まで収集"
+        elif age_days is None or age_days > 30:
+            next_action = "最新の日別実績を再取得"
+        elif int(performance.get("seat_days") or 0) < 30:
+            next_action = "台番号別実績を30日以上まで収集"
+        elif not int(installation.get("records") or 0):
+            next_action = "現在の設置機種を確認"
+        elif int(events.get("days") or 0) < 3:
+            next_action = "イベント予定と結果を照合"
+        elif not intraday.get("ready"):
+            next_action = "現地の時間帯・混雑記録を蓄積"
+        else:
+            next_action = "日次更新を継続"
+        items.append({
+            **coverage,
+            "coverage_score": score,
+            "coverage_label": "十分" if score >= 80 else "参考" if score >= 55 else "不足",
+            "next_action": next_action,
+        })
+
+    alias_groups: dict[tuple[str, str], dict] = {}
+    hall_aliases: dict[str, set[str]] = {}
+    latest_outcomes: dict[tuple[str, str], dict] = {}
+    conn = _get_reports_conn()
+    if conn is not None:
+        try:
+            has_collection_log = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='collection_run_log'"
+            ).fetchone()
+            if has_collection_log:
+                log_rows = conn.execute(
+                    """SELECT source,finished_at,status,details_json,error FROM collection_run_log log
+                       WHERE id IN (SELECT MAX(id) FROM collection_run_log GROUP BY source)"""
+                ).fetchall()
+                for log_row in log_rows:
+                    log_source = str(log_row["source"])
+                    try:
+                        details = json.loads(log_row["details_json"] or "{}")
+                    except (TypeError, json.JSONDecodeError):
+                        details = {}
+                    if log_source == "public_machine_daily" and isinstance(details, list):
+                        for outcome in details:
+                            if not isinstance(outcome, dict) or not outcome.get("hall_name"):
+                                continue
+                            latest_outcomes[(canonical_hall_name(outcome["hall_name"]), "anoslot")] = {
+                                "status": str(outcome.get("status") or log_row["status"]),
+                                "records": int(outcome.get("rows") or 0),
+                                "finished_at": log_row["finished_at"],
+                                "error": str(outcome.get("error") or "")[:240],
+                            }
+                    elif log_source in {"minrepo_daily", "minrepo_startup"} and isinstance(details, list):
+                        for outcome in details:
+                            if not isinstance(outcome, dict) or not outcome.get("hall_name"):
+                                continue
+                            latest_outcomes[(canonical_hall_name(outcome["hall_name"]), "minrepo_archive")] = {
+                                "status": str(outcome.get("status") or log_row["status"]),
+                                "records": int(outcome.get("rows") or 0),
+                                "finished_at": log_row["finished_at"],
+                                "error": str(outcome.get("error") or "")[:240],
+                            }
+                    elif log_source in {"pworld_snapshot", "dmm_store_snapshot"} and isinstance(details, dict):
+                        source_key = "pworld" if log_source == "pworld_snapshot" else "dmm"
+                        for outcome_hall, outcome in details.items():
+                            if isinstance(outcome, dict):
+                                records = int(outcome.get("machines") or 0) + int(outcome.get("floor_maps") or 0)
+                                status = str(outcome.get("status") or ("ok" if records else "empty"))
+                                error = str(outcome.get("error") or "")[:240]
+                            else:
+                                records = int(outcome or 0)
+                                status = "ok" if records else "empty"
+                                error = ""
+                            latest_outcomes[(canonical_hall_name(outcome_hall), source_key)] = {
+                                "status": status,
+                                "records": records,
+                                "finished_at": log_row["finished_at"],
+                                "error": error,
+                            }
+            has_machine = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='hall_day_machine'"
+            ).fetchone()
+            if has_machine:
+                rows = conn.execute(
+                    """SELECT hall_name,machine_name,COUNT(*) AS records
+                         FROM hall_day_machine
+                        GROUP BY hall_name,machine_name"""
+                ).fetchall()
+                for row in rows:
+                    canonical_hall = canonical_hall_name(row["hall_name"])
+                    if canonical_hall not in SHIJONAWATE_AREA_HALLS:
+                        continue
+                    hall_aliases.setdefault(canonical_hall, set()).add(str(row["hall_name"]))
+                    machine_key = normalize_machine_key(row["machine_name"])
+                    if not machine_key:
+                        continue
+                    group = alias_groups.setdefault((canonical_hall, machine_key), {
+                        "hall_name": canonical_hall, "machine_key": machine_key,
+                        "variants": set(), "records": 0,
+                    })
+                    group["variants"].add(str(row["machine_name"]))
+                    group["records"] += int(row["records"] or 0)
+        finally:
+            conn.close()
+
+    core_halls = {"キコーナ四條畷店", "ひま・わり四條畷店", "キコーナ野崎店"}
+    for item in items:
+        plan = collection_source_plan(item["hall_name"])
+        enriched_sources = []
+        for source in plan["sources"]:
+            outcome = latest_outcomes.get((item["hall_name"], source["key"]))
+            enriched_sources.append({**source, "last_outcome": outcome})
+        performance_days = int(item["performance"].get("performance_days") or 0)
+        performance_outcomes = [
+            source["last_outcome"] for source in enriched_sources
+            if source["category"] == "performance" and source["supported"] and source["last_outcome"]
+        ]
+        if performance_days:
+            collection_state = "data_ready"
+            collection_label = "公開実績あり"
+        elif any(outcome["status"] in {"no_public_data", "masked_not_disclosed"} for outcome in performance_outcomes):
+            collection_state = "not_disclosed"
+            collection_label = "公開元が差枚未掲載"
+            item["next_action"] = "現地入力またはCSVで台番号実績を蓄積"
+        elif any(str(outcome["status"]).startswith("error") for outcome in performance_outcomes):
+            collection_state = "retry_pending"
+            collection_label = "自動取得を再試行"
+            item["next_action"] = "通信復旧後に自動再取得。並行して現地入力も可能"
+        elif plan["summary"]["performance_source_count"]:
+            collection_state = "configured_empty"
+            collection_label = "公開実績を確認中"
+            item["next_action"] = "自動監視を継続し、現地入力でも補完"
+        else:
+            collection_state = "manual_required"
+            collection_label = "現地・CSVが必要"
+            item["next_action"] = "現地入力またはCSVで台番号実績を蓄積"
+        item["collection"] = {
+            **plan["summary"],
+            "state": collection_state,
+            "label": collection_label,
+            "sources": enriched_sources,
+            "core_hall": item["hall_name"] in core_halls,
+        }
+    machine_variant_groups = [
+        {**group, "variants": sorted(group["variants"])}
+        for group in alias_groups.values() if len(group["variants"]) > 1
+    ]
+    machine_variant_groups.sort(key=lambda item: item["records"], reverse=True)
+    hall_variant_groups = [
+        {"hall_name": hall, "variants": sorted(variants)}
+        for hall, variants in hall_aliases.items() if len(variants) > 1
+    ]
+    return {
+        "region": region,
+        "region_label": region_label(region),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "halls": sorted(items, key=lambda item: (item["coverage_score"], item["hall_name"])),
+        "summary": {
+            "hall_count": len(items),
+            "trend_ready_halls": sum(bool(item["readiness"]["trend_ready"]) for item in items),
+            "seat_ready_halls": sum(bool(item["readiness"]["seat_ready"]) for item in items),
+            "installation_ready_halls": sum(bool(item["installation"]["records"]) for item in items),
+            "average_score": round(sum(item["coverage_score"] for item in items) / len(items)) if items else 0,
+            "public_performance_ready_halls": sum(
+                item["collection"]["state"] == "data_ready" for item in items
+            ),
+            "public_performance_configured_halls": sum(
+                bool(item["collection"]["performance_source_count"]) for item in items
+            ),
+            "public_not_disclosed_halls": sum(
+                item["collection"]["state"] == "not_disclosed" for item in items
+            ),
+            "manual_required_halls": sum(
+                item["collection"]["state"] in {"not_disclosed", "manual_required"}
+                for item in items
+            ),
+        },
+        "normalization": {
+            "hall_variant_groups": hall_variant_groups,
+            "machine_variant_group_count": len(machine_variant_groups),
+            "machine_variant_groups": machine_variant_groups[:20],
+            "policy": "確認済みの店名別表記と、L・スマスロ・空白・記号差を同一キーへ統合",
+        },
+        "notice": "点数は収集量と鮮度の充足度です。設定予測の的中率ではありません。",
+    }
+
+
+def _build_region_decision_board(
+    region: str,
+    ranked_halls: list[dict],
+    insufficient_halls: list[dict],
+) -> dict:
+    """候補に出なかった店舗も含め、地域全店の現在地と次の行動を返す。"""
+    if region != "shijonawate":
+        return {"halls": [], "summary": {"hall_count": 0}}
+    coverage = get_region_data_coverage(region="shijonawate")
+    ranked = {canonical_hall_name(item["hall_name"]): item for item in ranked_halls}
+    insufficient = {
+        canonical_hall_name(item["hall_name"]): item for item in insufficient_halls
+    }
+    board = []
+    for coverage_item in coverage["halls"]:
+        hall_name = coverage_item["hall_name"]
+        candidate = ranked.get(hall_name)
+        excluded = insufficient.get(hall_name)
+        if candidate:
+            top_machine = (candidate.get("target_machines") or [{}])[0]
+            action = candidate.get("action") or "要確認"
+            state = "actionable" if action.startswith("狙う") else "reference"
+            reason = candidate.get("action_reason") or "比較材料として表示"
+            event_names = [
+                event.get("title") or event.get("type")
+                for event in candidate.get("event_context", {}).get("events", [])
+                if event.get("title") or event.get("type")
+            ]
+            machine_name = top_machine.get("machine_name") or "機種未特定"
+        else:
+            state = "insufficient"
+            action = "データ不足"
+            reason = (
+                excluded.get("reason") if excluded
+                else (coverage_item.get("readiness", {}).get("reasons") or ["公開実績が不足"])[0]
+            )
+            event_names = []
+            machine_name = "機種未特定"
+        board.append({
+            "hall_name": hall_name,
+            "state": state,
+            "action": action,
+            "reason": reason,
+            "coverage_score": coverage_item["coverage_score"],
+            "coverage_label": coverage_item["coverage_label"],
+            "machine_name": machine_name,
+            "event_names": event_names,
+            "collection_label": coverage_item["collection"]["label"],
+            "collection_state": coverage_item["collection"]["state"],
+            "next_action": coverage_item["next_action"],
+            "core_hall": coverage_item["collection"]["core_hall"],
+        })
+    board.sort(key=lambda item: (
+        2 if item["state"] == "actionable" else 1 if item["state"] == "reference" else 0,
+        item["coverage_score"],
+        item["core_hall"],
+    ), reverse=True)
+    return {
+        "halls": board,
+        "summary": {
+            "hall_count": len(board),
+            "actionable_halls": sum(item["state"] == "actionable" for item in board),
+            "reference_halls": sum(item["state"] == "reference" for item in board),
+            "insufficient_halls": sum(item["state"] == "insufficient" for item in board),
+            "manual_required_halls": coverage["summary"]["manual_required_halls"],
+        },
+        "notice": "候補外の店舗も消さず、データ不足の理由と次の収集方法を表示します。",
+    }
+
+
+def _seat_collection_prediction_gate(seat_rows: list, reference_date: date) -> dict:
+    """台番号入力だけから作る予測を、薄い標本のまま実戦候補にしない。"""
+    valid = [row for row in seat_rows if row["diff_coins"] is not None]
+    days = len({str(row["report_date"]) for row in valid})
+    records = len(valid)
+    average_per_day = round(records / days, 1) if days else 0.0
+    machine_count = len({
+        normalize_machine_key(row["machine_name"])
+        for row in valid if normalize_machine_key(row["machine_name"])
+    })
+    games_records = sum(row["games"] is not None and row["games"] > 0 for row in valid)
+    games_coverage_pct = round(games_records / records * 100) if records else 0
+    latest_date = max((str(row["report_date"]) for row in valid), default=None)
+    stale_days = (
+        max(0, (reference_date - date.fromisoformat(latest_date)).days)
+        if latest_date else None
+    )
+    score = min(100, (
+        min(40, round(days / 30 * 40))
+        + min(25, round(average_per_day / 20 * 25))
+        + min(15, round(games_coverage_pct / 100 * 15))
+        + min(10, round(machine_count / 5 * 10))
+        + (10 if stale_days is not None and stale_days <= 7 else 5 if stale_days is not None and stale_days <= 14 else 0)
+    ))
+    blockers = []
+    if days < 30:
+        blockers.append(f"営業日{days}/30日")
+    if average_per_day < 10:
+        blockers.append(f"1日平均{average_per_day}台（10台未満）")
+    if machine_count < 5:
+        blockers.append(f"機種{machine_count}/5種類")
+    if games_coverage_pct < 60:
+        blockers.append(f"G数入力率{games_coverage_pct}%（60%未満）")
+    if stale_days is None or stale_days > 14:
+        blockers.append("直近14日以内の記録なし")
+    eligible = not blockers and score >= 70
+    return {
+        "status": "分析利用可" if eligible else "参考止まり",
+        "analysis_eligible": eligible,
+        "score": score,
+        "blockers": blockers,
+        "days": days,
+        "records": records,
+        "average_records_per_day": average_per_day,
+        "machine_count": machine_count,
+        "games_coverage_pct": games_coverage_pct,
+        "latest_date": latest_date,
+    }
+
+
 @router.get("/api/hall/target_search", tags=["hall"])
 def get_target_search(
     visit_date: str = Query(..., description="狙い台を探す日 YYYY-MM-DD"),
@@ -846,12 +1213,24 @@ def get_target_search(
     target_accuracy: int = 70,
 ) -> dict:
     """蓄積済みデータから、指定日に狙う店舗と機種の候補を根拠付きで返す。"""
+    return _build_target_search(visit_date, days, limit, region, target_accuracy)
+
+
+def _build_target_search(visit_date, days, limit, region, target_accuracy, *, include_inputs=False, as_of_date=None):
     try:
         target_date = date.fromisoformat(visit_date)
     except ValueError as exc:
         raise HTTPException(400, "visit_date は YYYY-MM-DD で指定してください") from exc
     if target_accuracy not in (70, 80):
         raise HTTPException(400, "target_accuracy は 70 または 80 を指定してください")
+
+    # 内部の比較検証だけが情報時点を指定できる。DBを開く前に検証する。
+    from hall.prediction_log import jst_today
+    information_date = as_of_date or jst_today()
+    if information_date > jst_today():
+        raise ValueError("情報時点を未来へ進めることはできません")
+    reference_date = min(target_date - timedelta(days=1), information_date - timedelta(days=1))
+    start_date = reference_date - timedelta(days=days - 1)
 
     conn = _get_reports_conn()
     weekday_names = ["月", "火", "水", "木", "金", "土", "日"]
@@ -873,16 +1252,24 @@ def get_target_search(
             "machine_80_count": 0,
             "actionable_halls": 0,
             "actionable_machines": 0,
+            "reference_halls": 0,
+            "reference_machines": 0,
+            "reference_seats": 0,
             "message": "検証できる候補がまだありません。",
+        },
+        "prediction_audit": {
+            "evaluated_models": 0, "out_of_sample_days": 0,
+            "calibrated_models": 0, "calibration_improved_models": 0,
+            "regime_shift_models": 0, "average_model_consensus_pct": 0,
         },
         "validation_policy": grade_policy(),
         "notice": "公開データが不足しているため候補を算出できません。",
     }
     if conn is None:
+        empty_result["region_board"] = _build_region_decision_board(region, [], [])
         return empty_result
 
-    reference_date = min(target_date, date.today())
-    start_date = reference_date - timedelta(days=days)
+    # 当日の途中集計は使わず、完了した営業日までに入力を固定する。
     try:
         machine_columns = {
             row[1] for row in conn.execute("PRAGMA table_info(hall_day_machine)").fetchall()
@@ -894,7 +1281,6 @@ def get_target_search(
                FROM hall_day_machine
                WHERE report_date >= ? AND report_date <= ?
                  AND machine_name != '_NODATA_'
-                 AND avg_diff_coins IS NOT NULL
                ORDER BY report_date""",
             (start_date.isoformat(), reference_date.isoformat()),
         ).fetchall()
@@ -936,10 +1322,11 @@ def get_target_search(
                    FROM hall_machine_snapshot AS snapshot
                    JOIN (
                      SELECT hall_name,MAX(snapshot_date) AS latest_date
-                     FROM hall_machine_snapshot GROUP BY hall_name
+                     FROM hall_machine_snapshot WHERE snapshot_date <= ? GROUP BY hall_name
                    ) AS latest
                    ON latest.hall_name=snapshot.hall_name
-                  AND latest.latest_date=snapshot.snapshot_date"""
+                  AND latest.latest_date=snapshot.snapshot_date""",
+                (reference_date.isoformat(),),
             ).fetchall()
             for snapshot_row in snapshot_rows:
                 item = installation_by_hall.setdefault(
@@ -949,43 +1336,164 @@ def get_target_search(
         except sqlite3.OperationalError:
             installation_by_hall = {}
         event_rows = []
+        verified_event_rows = []
+        from hall.event_prediction import load_events
+        event_study_records = load_events(conn, start_date, target_date)
         try:
             event_rows = conn.execute(
-                """SELECT hall_name,event_date,event_type,event_title,source,source_url
+                """SELECT hall_name,event_date,event_type,event_title,source,source_url,
+                          event_kind,source_trust,prediction_eligible,classification_reason
                      FROM hall_event
-                    WHERE event_date >= ? AND event_date <= ?""",
+                    WHERE prediction_eligible=1
+                      AND event_date >= ? AND event_date <= ?""",
                 (start_date.isoformat(), target_date.isoformat()),
             ).fetchall()
         except sqlite3.OperationalError:
             event_rows = []
+        try:
+            verified_event_rows = conn.execute(
+                """SELECT hall_name,event_date,event_name,source_trust,quality_reason
+                     FROM hall_event_evidence
+                    WHERE analysis_eligible=1
+                      AND event_date >= ? AND event_date < ?""",
+                (start_date.isoformat(), (reference_date + timedelta(days=1)).isoformat()),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            verified_event_rows = []
         seat_history_rows = []
         try:
+            seat_columns = {
+                row[1] for row in conn.execute("PRAGMA table_info(hall_day_seat)").fetchall()
+            }
+            source_expression = "source" if "source" in seat_columns else "'unknown'"
+            source_url_expression = "source_url" if "source_url" in seat_columns else "''"
             seat_history_rows = conn.execute(
-                """SELECT hall_name,report_date,machine_name,seat_number,diff_coins,games
+                f"""SELECT hall_name,report_date,machine_name,seat_number,diff_coins,games,
+                            {source_expression} AS source, {source_url_expression} AS source_url
                      FROM hall_day_seat
                     WHERE report_date >= ? AND report_date < ?
-                      AND seat_number > 0 AND diff_coins IS NOT NULL""",
-                (start_date.isoformat(), target_date.isoformat()),
+                      """,
+                (start_date.isoformat(), (reference_date + timedelta(days=1)).isoformat()),
             ).fetchall()
         except sqlite3.OperationalError:
             seat_history_rows = []
-        latest_layout_seats = []
-        try:
-            latest_layout_seats = conn.execute(
-                """SELECT layout.hall_name,seat.seat_number,seat.machine_name,seat.island_name
-                     FROM hall_layout AS layout
-                     JOIN hall_layout_seat AS seat ON seat.layout_id=layout.id
-                     JOIN (
-                       SELECT hall_name,MAX(valid_from) AS latest_date
-                         FROM hall_layout GROUP BY hall_name
-                     ) AS latest
-                       ON latest.hall_name=layout.hall_name
-                      AND latest.latest_date=layout.valid_from"""
-            ).fetchall()
-        except sqlite3.OperationalError:
-            latest_layout_seats = []
+        from hall.seat_history import layout_observations, known_layouts, observations_from_layouts
+        placement_observations = layout_observations(conn, reference_date)
+        # Replay requires maps known at each historical cutoff, not today's
+        # corrected map retroactively applied to every ranking date.
+        from hall.seat_prediction import study_days
+        seat_ranking_raw = [dict(r) for r in seat_history_rows]
+        ranking_days_by_hall = {}
+        for r in seat_ranking_raw:
+            ranking_days_by_hall.setdefault(canonical_hall_name(r['hall_name']), []).append(r)
+        ranking_cutoff = min(reference_date, target_date-timedelta(days=2))
+        ranking_map_dates = {ranking_cutoff}
+        for items in ranking_days_by_hall.values():
+            for day in study_days(items, ranking_cutoff):
+                ranking_map_dates.update((day, day-timedelta(days=2)))
+        # v3.29 also needs each observed day's map and previous-calendar-day
+        # identity for consecutive-day transitions, including non-smartslot changes.
+        placement_map_dates = set(ranking_map_dates)
+        for r in seat_ranking_raw:
+            try:
+                day = date.fromisoformat(r['report_date'])
+                if day <= ranking_cutoff:
+                    placement_map_dates.update((day, day-timedelta(days=1), day-timedelta(days=2)))
+            except (ValueError, TypeError):
+                continue
+        placement_maps = {day.isoformat(): known_layouts(conn, day) for day in sorted(placement_map_dates)}
+        ranking_layouts = {day.isoformat(): observations_from_layouts(placement_maps[day.isoformat()]) for day in sorted(ranking_map_dates)}
     finally:
         conn.close()
+
+    # 公開元が店舗別・機種別集計を出さない場合は、現地入力／CSVの台番号実績を
+    # 同日・同機種単位へ集約して店舗ランキングにも利用する。公開集計がある組は
+    # 二重計上を避けるため、そちらを優先する。
+    active_hall_prefectures = {canonical_hall_name(k): v for k, v in active_hall_prefectures.items()}
+    from hall.seat_history import build_seat_history
+    def seat_in_region(row):
+        name = canonical_hall_name(row["hall_name"])
+        return (not active_hall_prefectures or name in active_hall_prefectures) and region_matches(name, active_hall_prefectures.get(name), region)
+    seat_identity = build_seat_history(
+        [r for r in seat_history_rows if seat_in_region(r)],
+        [r for r in placement_observations if seat_in_region(r)], cutoff=reference_date,
+    )
+    # Only dated, verified maps can provide physical placement information.
+    latest_layout_seats = [r for r in placement_observations if
+                          any(s["hall_name"] == r["hall_name"] and s["seat_number"] == r["seat_number"]
+                              and s["usable"] and s["position"] == r.get("position", tuple(r.get(k) for k in ("floor_name", "island_name", "x", "y", "rotation")) + ((r.get("row_name"), r.get("row_order")) if r.get("row_name") or r.get("row_order") is not None else ()))
+                              and r["report_date"] >= s["training_from"] for s in seat_identity["seats"])]
+    def in_scope(row):
+        name = canonical_hall_name(row["hall_name"])
+        return (
+            (not active_hall_prefectures or name in active_hall_prefectures)
+            and is_smartslot_machine(row["machine_name"])
+            and region_matches(name, active_hall_prefectures.get(name), region)
+        )
+    rows, machine_input_audit = audit_rows(
+        [r for r in rows if in_scope(r)], cutoff=reference_date,
+    )
+    seat_history_rows, seat_input_audit = audit_rows(
+        [r for r in seat_history_rows if in_scope(r)], cutoff=reference_date, scope="seat",
+    )
+    input_quality = {"machine": machine_input_audit, "seat": seat_input_audit}
+    forecast_subjects = []
+    seat_rows_by_canonical_hall: dict[str, list] = {}
+    for seat_row in seat_history_rows:
+        seat_rows_by_canonical_hall.setdefault(
+            canonical_hall_name(seat_row["hall_name"]), []
+        ).append(seat_row)
+    seat_collection_quality = {
+        hall_name: _seat_collection_prediction_gate(items, reference_date)
+        for hall_name, items in seat_rows_by_canonical_hall.items()
+    }
+    existing_machine_keys = {
+        (
+            canonical_hall_name(row["hall_name"]),
+            str(row["report_date"]),
+            normalize_machine_key(row["machine_name"]),
+        )
+        for row in rows
+    }
+    manual_machine_groups: dict[tuple[str, str, str], dict] = {}
+    for seat_row in seat_history_rows:
+        machine_key = normalize_machine_key(seat_row["machine_name"])
+        if not machine_key:
+            continue
+        key = (
+            canonical_hall_name(seat_row["hall_name"]),
+            str(seat_row["report_date"]),
+            machine_key,
+        )
+        if key in existing_machine_keys:
+            continue
+        group = manual_machine_groups.setdefault(
+            key,
+            {
+                "hall_name": key[0],
+                "report_date": key[1],
+                "machine_name": clean_machine_display_name(seat_row["machine_name"]),
+                "diffs": [],
+                "games": [],
+            },
+        )
+        group["diffs"].append(float(seat_row["diff_coins"] or 0))
+        if seat_row["games"] is not None:
+            group["games"].append(float(seat_row["games"]))
+    rows = list(rows)
+    for group in manual_machine_groups.values():
+        diffs = group.pop("diffs")
+        games = group.pop("games")
+        rows.append({
+            **group,
+            "avg_diff_coins": round(sum(diffs) / len(diffs)),
+            "win_rate_pct": round(sum(value > 0 for value in diffs) / len(diffs) * 100, 1),
+            "unit_count": len(diffs),
+            "source_url": "",
+            "avg_games": round(sum(games) / len(games)) if games else None,
+            "derived_from_seat_results": True,
+            "seat_collection_quality": seat_collection_quality.get(group["hall_name"], {}),
+        })
 
     active_halls = set(active_hall_prefectures)
     if active_halls:
@@ -1007,12 +1515,24 @@ def get_target_search(
 
     events_by_hall: dict[str, list] = {}
     for event_row in event_rows:
+        event_row = {**dict(event_row), "hall_name": canonical_hall_name(event_row["hall_name"])}
         if region_matches(
             event_row["hall_name"],
             active_hall_prefectures.get(event_row["hall_name"]),
             region,
         ):
             events_by_hall.setdefault(event_row["hall_name"], []).append(event_row)
+    verified_events_by_hall: dict[str, list] = {}
+    for evidence_row in verified_event_rows:
+        if region_matches(
+            evidence_row["hall_name"],
+            active_hall_prefectures.get(evidence_row["hall_name"]),
+            region,
+        ):
+            verified_events_by_hall.setdefault(evidence_row["hall_name"], []).append(evidence_row)
+    audited_seat_rows = seat_history_rows
+    identity_keys = {(r["hall_name"], r["seat_number"], r["report_date"], normalize_machine_key(r["machine_name"])) for r in seat_identity["rows"]}
+    seat_history_rows = [r for r in audited_seat_rows if (r["hall_name"], r["seat_number"], r["report_date"], normalize_machine_key(r["machine_name"])) in identity_keys]
     seats_by_hall: dict[str, list] = {}
     for seat_row in seat_history_rows:
         if region_matches(
@@ -1038,13 +1558,36 @@ def get_target_search(
     )
     try:
         personal_sessions = list_sessions(
-            date_to=(target_date - timedelta(days=1)).isoformat(), limit=5000
+            date_to=reference_date.isoformat(), limit=5000
         )
     except Exception:
         personal_sessions = []
 
+    from hall.event_prediction import analyze_hall_events
+    from hall.machine_prediction import analyze_hall_machines
+    from hall.seat_prediction import analyze_hall_seats
+    from hall.placement_analysis import analyze_hall_placement
+    from records.models import confirmed_setting_snapshot
+    setting_records = confirmed_setting_snapshot(start_date.isoformat(), ranking_cutoff.isoformat())
+    event_studies = []
+    machine_studies = []
+    seat_ranking_studies = []
+    placement_studies = []
     for hall_name in all_hall_names:
         hall_rows = by_hall.get(hall_name, [])
+        event_study = analyze_hall_events(hall_rows, event_study_records, hall_name=hall_name,
+                                        target=target_date, as_of=information_date)
+        event_studies.append(event_study)
+        machine_study = analyze_hall_machines(hall_rows, hall_name=hall_name, target=target_date,
+                                             as_of=information_date, installation=installation_by_hall.get(hall_name))
+        machine_studies.append(machine_study)
+        seat_ranking_studies.append(analyze_hall_seats(
+            seat_ranking_raw, hall_name=hall_name, target=target_date, as_of=information_date,
+            layouts_by_cutoff=ranking_layouts, installation=installation_by_hall.get(hall_name)))
+        placement_studies.append(analyze_hall_placement(
+            seat_ranking_raw, hall_name=hall_name, target=target_date, as_of=information_date,
+            layouts_by_cutoff=placement_maps, setting_records=setting_records))
+        hall_input_quality = coverage(hall_rows, cutoff=reference_date)
         hall_events = events_by_hall.get(hall_name, [])
         seat_patterns = _seat_pattern_summary(
             seats_by_hall.get(hall_name, []),
@@ -1055,12 +1598,18 @@ def get_target_search(
         personal_profit = _personal_profit_summary(
             personal_sessions, hall_name, target_date
         )
-        event_dates = {
-            date.fromisoformat(row["event_date"]) for row in hall_events
-        }
         target_events = [
             row for row in hall_events if row["event_date"] == target_date.isoformat()
         ]
+        # v3.26 evaluates each named event separately. The former pooled bonus
+        # must not change hall or machine ranks before challenger adoption (3.30).
+        event_dates = set()
+        event_model_gate = {
+            "eligible": False,
+            "matched_verified_days": 0,
+            "eligible_patterns": [],
+            "reason": "店舗×同名イベントを比較中。3.30の採用審査までは自動加点なし",
+        }
         rows_with_games = [row for row in hall_rows if row["avg_games"] is not None and row["avg_games"] > 0]
         zero_diff_played = sum(row["avg_diff_coins"] == 0 for row in rows_with_games)
         suspicious_zero_rate = (
@@ -1080,10 +1629,10 @@ def get_target_search(
             hall_rows, target_date, event_dates=event_dates
         )
         selected_model = model_selection["selected_model"]
-        estimate = date_weighted_estimate(
+        estimate = weighted_ensemble_estimate(
             hall_rows,
             target_date,
-            model=selected_model,
+            model_weights=model_selection["ensemble_weights"],
             event_dates=event_dates,
         )
         activity_quality = activity_filter_summary(hall_rows)
@@ -1094,6 +1643,10 @@ def get_target_search(
                 "reason": "分析には最低3日分の差枚データが必要です",
             })
             continue
+        validation = walk_forward_backtest(
+            hall_rows, model="auto", event_dates=event_dates
+        )
+        estimate = finalize_prediction_estimate(estimate, validation)
         basis = (
             f"全体{estimate['sample_days']}日＋{weekday_name}曜{estimate['weekday_days']}日"
             f"＋末尾{target_date.day % 10}の日{estimate['digit_days']}日"
@@ -1115,12 +1668,28 @@ def get_target_search(
             else "中" if estimate["sample_days"] >= 30 and estimate["weekday_days"] >= 4 and stale_days <= 30
             else "低"
         )
-        validation = walk_forward_backtest(
-            hall_rows, model="auto", event_dates=event_dates
-        )
         action, action_reason = decide_action(
             avg_diff, stale_days, validation, positive_rate, estimate
         )
+        if not hall_input_quality["analysis_eligible"]:
+            if action.startswith("狙う"):
+                action = "要確認"
+            action_reason = "入力品質：" + "、".join(hall_input_quality["blockers"])
+        field_only = bool(hall_rows) and all(
+            isinstance(row, dict) and row.get("derived_from_seat_results")
+            for row in hall_rows
+        )
+        field_quality = seat_collection_quality.get(
+            canonical_hall_name(hall_name), {}
+        )
+        if field_only and not field_quality.get("analysis_eligible"):
+            if action.startswith("狙う"):
+                action = "要確認"
+            action_reason = (
+                "現地・CSVデータの品質ゲート未達："
+                + "、".join(field_quality.get("blockers", [])[:3])
+            )
+            confidence = "低"
         if target_accuracy == 80 and action == "狙う":
             action = "要確認"
             action_reason = "70%実戦基準は通過しましたが、選択中の80%級基準には未達"
@@ -1181,16 +1750,28 @@ def get_target_search(
                 machine_rows, target_date, max_test_days=60, event_dates=event_dates
             )
             machine_selected_model = machine_model_selection["selected_model"]
-            machine_estimate = date_weighted_estimate(
+            machine_estimate = weighted_ensemble_estimate(
                 machine_rows,
                 target_date,
-                model=machine_selected_model,
+                model_weights=machine_model_selection["ensemble_weights"],
                 event_dates=event_dates,
             )
             machine_sample_days = machine_estimate["sample_days"]
             if machine_sample_days < 2:
                 continue
-            reliability = min(1.0, machine_sample_days / 20)
+            machine_validation = walk_forward_backtest(
+                machine_rows, max_test_days=60, model="auto", event_dates=event_dates
+            )
+            machine_estimate = finalize_prediction_estimate(
+                machine_estimate, machine_validation
+            )
+            # 機種単体のブレが大きいほど店舗平均へ強く戻す階層推定。
+            # 少数機種が偶然の一撃でランキング上位へ張り付くのを防ぐ。
+            prior_strength = max(
+                10,
+                min(35, round(float(machine_estimate.get("volatility_coins") or 0) / 100)),
+            )
+            reliability = machine_sample_days / (machine_sample_days + prior_strength)
             machine_avg = round(
                 machine_estimate["projected"] * reliability
                 + estimate["base_avg"] * (1 - reliability)
@@ -1206,17 +1787,19 @@ def get_target_search(
             machine_diagnostics = {
                 **machine_estimate,
                 "risk_adjusted_projected": machine_risk_adjusted,
+                "hierarchical_shrinkage": {
+                    "machine_weight_pct": round(reliability * 100),
+                    "hall_weight_pct": round((1 - reliability) * 100),
+                    "prior_strength_days": prior_strength,
+                },
             }
             machine_score = round(
                 max(0, min(55, 27.5 + machine_risk_adjusted / 30))
                 + max(0, min(25, machine_positive * 0.25))
                 + min(20, machine_sample_days / 20 * 20)
             )
-            # 機種ごとの現在予測は過去成績が最良の方式を使い、表示する的中率は
-            # 各検証日時点で方式を選び直す入れ子検証にして、選択後の水増しを防ぐ。
-            machine_validation = walk_forward_backtest(
-                machine_rows, max_test_days=60, model="auto", event_dates=event_dates
-            )
+            # 表示する的中率も各検証日時点で方式を選び直す入れ子検証にして、
+            # 現在のモデルを過去へ後付けする水増しを防ぐ。
             machine_action, machine_action_reason = decide_action(
                 machine_avg,
                 machine_stale_days,
@@ -1224,9 +1807,24 @@ def get_target_search(
                 machine_positive,
                 machine_diagnostics,
             )
+            machine_input_quality = coverage(machine_rows, cutoff=reference_date)
+            if not machine_input_quality["analysis_eligible"]:
+                if machine_action.startswith("狙う"):
+                    machine_action = "要確認"
+                machine_action_reason = "入力品質：" + "、".join(machine_input_quality["blockers"])
+            machine_field_only = all(
+                isinstance(row, dict) and row.get("derived_from_seat_results")
+                for row in machine_rows
+            )
+            if machine_field_only and not field_quality.get("analysis_eligible"):
+                if machine_action.startswith("狙う"):
+                    machine_action = "要確認"
+                machine_action_reason = "現地・CSVデータが品質ゲート未達のため参考順位"
             if target_accuracy == 80 and machine_action == "狙う":
                 machine_action = "要確認"
                 machine_action_reason = "70%実戦基準は通過しましたが、選択中の80%級基準には未達"
+            standalone_action = machine_action
+            standalone_action_reason = machine_action_reason
             if action == "見送り":
                 machine_action = "見送り"
                 machine_action_reason = f"店舗判定が見送り（{action_reason}）"
@@ -1242,31 +1840,44 @@ def get_target_search(
             ]
             seat_candidates = (
                 [item for item in matching_seats if item["seat_role"] in {"第一候補", "第二候補"}]
+                + [item for item in matching_seats if item["seat_role"] in {"参考1位", "参考2位"}]
                 + [item for item in matching_seats if item["seat_role"] == "配置確認"][:2]
                 + [item for item in matching_seats if item["seat_role"] == "避ける"][:2]
             )[:4]
+            verified_seats = [
+                item for item in seat_candidates
+                if item["seat_role"] in {"第一候補", "第二候補"}
+                and item["status"] == "検証済み"
+            ]
+            reference_seats = [
+                item for item in seat_candidates
+                if item["seat_role"] in {"参考1位", "参考2位"}
+            ]
             seat_prediction = {
                 "status": (
                     "検証済み候補あり"
-                    if any(item["status"] == "検証済み" for item in seat_candidates)
-                    else "候補を検証中"
-                    if any(item["seat_role"] in {"第一候補", "第二候補"} for item in seat_candidates)
+                    if verified_seats
+                    else "参考順位あり"
+                    if reference_seats
                     else "現在配置のみ"
                     if seat_candidates
                     else "台番号未特定"
                 ),
-                "candidate_count": sum(
-                    item["seat_role"] in {"第一候補", "第二候補"}
-                    for item in seat_candidates
-                ),
+                "candidate_count": len(verified_seats),
+                "reference_count": len(reference_seats),
                 "avoid_count": sum(item["seat_role"] == "避ける" for item in seat_candidates),
                 "notice": (
-                    "同じ機種・同じ台番号の履歴を現在配置と照合済み"
+                    "安全基準を通過した台番号候補があります"
+                    if verified_seats
+                    else "実戦基準未達のため、比較上位を参考順位として表示します"
+                    if reference_seats
+                    else "現在配置は確認できますが、比較できる履歴が不足しています"
                     if seat_candidates
                     else "この機種の現在台番号、または同一番号の過去履歴が未収集です"
                 ),
             }
             machine_candidates.append({
+                "input_quality": machine_input_quality,
                 "machine_name": machine_name,
                 "score": max(0, min(100, machine_score)),
                 "avg_diff": machine_avg,
@@ -1286,44 +1897,91 @@ def get_target_search(
                 "digit_days": machine_estimate["digit_days"],
                 "prediction_diagnostics": {
                     "signal_agreement_pct": machine_estimate["signal_agreement_pct"],
+                    "model_consensus_pct": machine_estimate.get("model_consensus_pct", 100),
+                    "raw_positive_rate_pct": machine_estimate.get("raw_positive_rate_pct"),
+                    "calibrated_positive_rate_pct": machine_estimate.get("calibrated_positive_rate_pct"),
+                    "probability_calibration": machine_estimate.get("probability_calibration", {}),
+                    "forecast_interval_coins": machine_estimate.get("forecast_interval_coins", {}),
+                    "regime_stability_pct": machine_estimate.get("regime_stability_pct", 100),
+                    "regime_shift_detected": machine_estimate.get("regime_shift_detected", False),
                     "volatility_coins": machine_estimate["volatility_coins"],
                     "downside_q25_coins": machine_estimate["downside_q25_coins"],
                     "severe_loss_rate_pct": machine_estimate["severe_loss_rate_pct"],
                     "risk_adjusted_projected": machine_risk_adjusted,
+                    "hierarchical_shrinkage": machine_diagnostics["hierarchical_shrinkage"],
                     "components": machine_estimate["components"],
                 },
                 "action": machine_action,
                 "action_reason": machine_action_reason,
+                "standalone_action": standalone_action,
+                "standalone_action_reason": standalone_action_reason,
                 "validation": machine_validation,
                 "prediction_model": machine_model_selection,
                 "seat_candidates": seat_candidates,
                 "seat_prediction": seat_prediction,
             })
+        # 表示上位だけでなく、算出した見送り・参考候補も事前検証の母集団に残す。
+        for machine in machine_candidates:
+            forecast_subjects.append({
+                "scope": "machine", "hall_name": hall_name,
+                "machine_name": machine["machine_name"], "seat_number": 0,
+                "projected": machine["avg_diff"], "probability_pct": machine["positive_rate"],
+                "forecast_interval_coins": machine.get("forecast_interval_coins"),
+                "action": machine["action"], "reason": machine["action_reason"],
+                "quality": machine["input_quality"], "model": machine["prediction_model"],
+            })
+        for seat in seat_patterns["_all_seats"]:
+            if seat.get("projected_diff_coins") is None:
+                continue
+            seat_quality = coverage([
+                r for r in seats_by_hall.get(hall_name, [])
+                if r["seat_number"] == seat["seat_number"]
+                and machine_names_match(r["machine_name"], seat["machine_name"])
+            ], cutoff=reference_date, scope="seat")
+            forecast_subjects.append({
+                "scope": "seat", "hall_name": hall_name,
+                "machine_name": seat["machine_name"], "seat_number": seat["seat_number"],
+                "projected": seat["projected_diff_coins"], "probability_pct": seat["positive_rate_pct"],
+                "action": "狙う" if seat["seat_role"] in {"第一候補", "第二候補"} and action.startswith("狙う") and seat_quality["analysis_eligible"] else "参考",
+                "reason": seat["seat_role"], "quality": seat_quality,
+                "seat_identity": next((s for s in seat_identity["seats"] if s["hall_name"] == hall_name and s["seat_number"] == seat["seat_number"]), None),
+            })
         machine_candidates.sort(
             key=lambda item: (
-                2 if item["action"].startswith("狙う") else 1 if item["action"] == "要確認" else 0,
                 item["score"],
                 item["sample_days"],
                 item["avg_diff"],
             ),
             reverse=True,
         )
+        for reference_rank, machine in enumerate(machine_candidates, 1):
+            machine["reference_rank"] = reference_rank
+            machine["reference_label"] = f"参考{reference_rank}位"
 
         reasons = [
             f"{basis}を重み付け",
-            f"店舗別モデルは{model_selection['selected_label']}を自動選択",
-            f"指定日の推定差枚 {avg_diff:+,}枚・プラス日率{positive_rate}%",
+            f"{model_selection['selected_label']}を中心に複数モデルを検証加重",
+            f"指定日の推定差枚 {avg_diff:+,}枚・補正後プラス率{positive_rate}%",
         ]
+        if estimate.get("regime_shift_detected"):
+            reasons.append(
+                f"直近相場の変化を検知（安定度{estimate.get('regime_stability_pct', 0)}%）"
+            )
         if activity_quality["games_known_rows"]:
             reasons.append(
                 f"低稼働{activity_quality['excluded_low_activity_rows']}行を除外、"
                 f"{activity_quality['reduced_weight_rows']}行を減量"
             )
         if target_events:
-            reasons.append(
-                f"登録イベント{len(target_events)}件・過去イベント"
-                f"{estimate['historic_event_days']}日と照合（補正{estimate['event_adjustment_coins']:+,}枚）"
-            )
+            if event_model_gate["eligible"]:
+                reasons.append(
+                    f"登録イベント{len(target_events)}件・同名の店舗全体結果"
+                    f"{estimate['historic_event_days']}日と照合（補正{estimate['event_adjustment_coins']:+,}枚）"
+                )
+            else:
+                reasons.append(
+                    f"登録イベント{len(target_events)}件・{event_model_gate['reason']}"
+                )
         if personal_all["count"]:
             reasons.append(
                 f"本人の朝一実戦{personal_all['count']}件・平均"
@@ -1360,12 +2018,17 @@ def get_target_search(
             "prediction_model": model_selection,
             "event_context": {
                 "is_event_day": bool(target_events),
+                "model_influence_eligible": event_model_gate["eligible"],
+                "model_gate": event_model_gate,
                 "events": [
                     {
                         "type": row["event_type"] or "その他",
                         "title": row["event_title"] or "",
                         "source": row["source"] or "",
                         "source_url": row["source_url"] or "",
+                        "event_kind": row["event_kind"] or "web_candidate",
+                        "source_trust": row["source_trust"] or "未確認",
+                        "classification_reason": row["classification_reason"] or "",
                     }
                     for row in target_events
                 ],
@@ -1389,6 +2052,13 @@ def get_target_search(
             "positive_rate": positive_rate,
             "prediction_diagnostics": {
                 "signal_agreement_pct": estimate["signal_agreement_pct"],
+                "model_consensus_pct": estimate.get("model_consensus_pct", 100),
+                "raw_positive_rate_pct": estimate.get("raw_positive_rate_pct"),
+                "calibrated_positive_rate_pct": estimate.get("calibrated_positive_rate_pct"),
+                "probability_calibration": estimate.get("probability_calibration", {}),
+                "forecast_interval_coins": estimate.get("forecast_interval_coins", {}),
+                "regime_stability_pct": estimate.get("regime_stability_pct", 100),
+                "regime_shift_detected": estimate.get("regime_shift_detected", False),
                 "volatility_coins": estimate["volatility_coins"],
                 "downside_q25_coins": estimate["downside_q25_coins"],
                 "severe_loss_rate_pct": estimate["severe_loss_rate_pct"],
@@ -1398,6 +2068,7 @@ def get_target_search(
             "latest_date": latest_date,
             "stale_days": stale_days,
             "data_quality": {
+                "input_audit": hall_input_quality,
                 "status": "ok",
                 "zero_diff_played_rate_pct": round(suspicious_zero_rate * 100),
                 "installation_snapshot_date": installation["snapshot_date"] if installation else None,
@@ -1405,6 +2076,7 @@ def get_target_search(
                 "excluded_not_installed": excluded_not_installed,
                 "excluded_stale": excluded_stale,
                 "activity_filter": activity_quality,
+                "field_collection": field_quality,
             },
             "reasons": reasons,
             "target_machines": machine_candidates[:5],
@@ -1422,6 +2094,8 @@ def get_target_search(
     ranked_halls = ranked_halls[:limit]
     for index, hall in enumerate(ranked_halls, 1):
         hall["rank"] = index
+        hall["reference_rank"] = index
+        hall["reference_label"] = f"参考{index}位"
 
     trust_rank = {
         "データ不足": 0,
@@ -1455,6 +2129,10 @@ def get_target_search(
     actionable_machines = sum(
         machine["action"].startswith("狙う") for machine in machine_rows
     )
+    reference_seats = sum(
+        int(machine.get("seat_prediction", {}).get("reference_count") or 0)
+        for machine in machine_rows
+    )
     accuracy_summary = {
         "target_pct": target_accuracy,
         "hall_70_count": hall_70_count,
@@ -1465,11 +2143,44 @@ def get_target_search(
         "actionable_machines": actionable_machines,
         "evaluated_halls": len(ranked_halls),
         "evaluated_machines": len(machine_rows),
+        "reference_halls": min(3, len(ranked_halls)),
+        "reference_machines": min(3, len(machine_rows)),
+        "reference_seats": reference_seats,
         "message": (
             f"{target_accuracy}%級基準で実戦候補は店舗{actionable_halls}件・"
-            f"機種{actionable_machines}件です。未達候補は自動で要確認・見送りにしています。"
+            f"機種{actionable_machines}件です。未達でも比較上位は参考順位として残します。"
         ),
     }
+    audited_items = [*ranked_halls, *machine_rows]
+    calibrated_items = [
+        item for item in audited_items
+        if bool(item.get("prediction_diagnostics", {}).get("probability_calibration", {}).get("applied"))
+    ]
+    calibration_improved = [
+        item for item in calibrated_items
+        if item["validation"].get("brier_score") is not None
+        and item["validation"].get("raw_brier_score") is not None
+        and float(item["validation"]["brier_score"]) <= float(item["validation"]["raw_brier_score"])
+    ]
+    prediction_audit = {
+        "evaluated_models": len(audited_items),
+        "out_of_sample_days": sum(int(item["validation"].get("test_days") or 0) for item in audited_items),
+        "calibrated_models": len(calibrated_items),
+        "calibration_improved_models": len(calibration_improved),
+        "regime_shift_models": sum(
+            bool(item.get("prediction_diagnostics", {}).get("regime_shift_detected"))
+            for item in audited_items
+        ),
+        "average_model_consensus_pct": round(sum(
+            int(item.get("prediction_diagnostics", {}).get("model_consensus_pct") or 0)
+            for item in audited_items
+        ) / len(audited_items)) if audited_items else 0,
+        "policy": "未来情報なし・確率補正・モデル一致・相場変化・予測幅を同時監査",
+    }
+    region_board = _build_region_decision_board(region, ranked_halls, insufficient)
+    from hall.model_selection import research_summary
+    model_review_research = research_summary({"event_studies": event_studies, "machine_studies": machine_studies,
+        "seat_ranking_studies": seat_ranking_studies, "placement_studies": placement_studies})
 
     return {
         "visit_date": visit_date,
@@ -1480,7 +2191,33 @@ def get_target_search(
         "generated_at": datetime.now().isoformat(timespec="minutes"),
         "halls": ranked_halls,
         "insufficient_halls": insufficient,
+        "region_board": region_board,
         "accuracy_summary": accuracy_summary,
+        "prediction_audit": prediction_audit,
+        "input_quality": input_quality,
+        "forecast_subjects": forecast_subjects,
+        "seat_identity": {k: v for k, v in seat_identity.items() if k != "rows"},
+        "event_studies": event_studies,
+        "machine_studies": machine_studies,
+        "seat_ranking_studies": seat_ranking_studies,
+        "placement_studies": placement_studies,
+        "model_review_research": model_review_research,
+        "input_cutoff_date": reference_date.isoformat(),
+        **({"frozen_inputs": {
+            "machine_rows": [dict(r) for r in rows],
+            "seat_rows": [dict(r) for r in seat_history_rows],
+            "seat_rows_before_identity_filter": [dict(r) for r in audited_seat_rows],
+            "seat_ranking_observations": [r for r in seat_ranking_raw if seat_in_region(r)],
+            "seat_ranking_layouts_by_cutoff": {day:[r for r in items if seat_in_region(r)] for day, items in ranking_layouts.items()},
+            "placement_maps_by_cutoff": {day:[m for m in items if seat_in_region(m)] for day, items in placement_maps.items()},
+            "confirmed_setting_records": [r for r in setting_records if seat_in_region(r)],
+            "placement_observations": placement_observations,
+            "events": [dict(r) for r in event_rows],
+            "event_evidence": [dict(r) for r in verified_event_rows],
+            "event_study_records": event_study_records,
+            "installations": installation_by_hall,
+            "layout": [dict(r) for r in latest_layout_seats],
+        }} if include_inputs else {}),
         "validation_policy": grade_policy(),
         "notice": (
             "候補は公開データを先読みなしで過去検証しています。"

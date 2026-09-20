@@ -16,7 +16,6 @@ import argparse
 import re
 import sqlite3
 import time
-import unicodedata
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional
@@ -80,10 +79,8 @@ def _get_page(url: str, timeout: int = 15, attempts: int = GET_ATTEMPTS):
 
 
 def _normalize_hall_name(name: str) -> str:
-    normalized = unicodedata.normalize("NFKC", name or "").lower()
-    # 公開元とアプリで英字／漢字表記が異なる既知の店舗名を同一視する。
-    normalized = normalized.replace("matsumoto", "松本")
-    return re.sub(r"[^0-9a-zぁ-んァ-ヶ一-龠]", "", normalized)
+    from hall.names import normalize_hall_key
+    return normalize_hall_key(name)
 
 
 # ---------------------------------------------------------------------------

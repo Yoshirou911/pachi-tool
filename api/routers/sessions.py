@@ -53,6 +53,18 @@ class SessionCreate(BaseModel):
     started_from: int = Field(default=0, ge=0)
     element_counts: dict[str, int] = Field(default_factory=dict)
     posterior: Optional[dict[str, float]] = None
+    player_result_recorded: Optional[bool] = None
+    machine_result_recorded: Optional[bool] = None
+    expected_value_yen: Optional[int] = None
+    expected_value_source: str = ""
+    setting_evidence_level: Literal[
+        "unknown", "estimated", "weak_hint", "strong_hint",
+        "confirmed_minimum", "confirmed_exact",
+    ] = "unknown"
+    confirmed_setting: Optional[int] = Field(default=None, ge=1, le=6)
+    minimum_confirmed_setting: Optional[int] = Field(default=None, ge=1, le=6)
+    setting_evidence_note: str = ""
+    prediction_snapshot: Optional[dict] = None
     notes: str = ""
 
 class SessionUpdate(BaseModel):
@@ -66,6 +78,18 @@ class SessionUpdate(BaseModel):
     seat_number: Optional[int] = Field(default=None, ge=1)
     is_corner: Optional[bool] = None
     is_event_day: Optional[bool] = None
+    player_result_recorded: Optional[bool] = None
+    machine_result_recorded: Optional[bool] = None
+    expected_value_yen: Optional[int] = None
+    expected_value_source: Optional[str] = None
+    setting_evidence_level: Optional[Literal[
+        "unknown", "estimated", "weak_hint", "strong_hint",
+        "confirmed_minimum", "confirmed_exact",
+    ]] = None
+    confirmed_setting: Optional[int] = Field(default=None, ge=1, le=6)
+    minimum_confirmed_setting: Optional[int] = Field(default=None, ge=1, le=6)
+    setting_evidence_note: Optional[str] = None
+    prediction_snapshot: Optional[dict] = None
 
 class CsvImportBody(BaseModel):
     csv_text: str  # UTF-8 CSVテキスト（BOM可）
@@ -75,6 +99,32 @@ class CsvImportBody(BaseModel):
 def create_session(body: SessionCreate) -> dict:
     if body.started_from > body.games_total:
         raise HTTPException(422, "引き継ぎG数は総ゲーム数以下で指定してください")
+    if (
+        body.confirmed_setting is not None
+        and body.minimum_confirmed_setting is not None
+        and body.confirmed_setting < body.minimum_confirmed_setting
+    ):
+        raise HTTPException(422, "確定設定は最低設定以上で指定してください")
+    if body.setting_evidence_level == "confirmed_exact" and body.confirmed_setting is None:
+        raise HTTPException(422, "設定確定を選んだ場合は確定設定を入力してください")
+    if body.setting_evidence_level == "confirmed_minimum" and body.minimum_confirmed_setting is None:
+        raise HTTPException(422, "設定以上確定を選んだ場合は最低設定を入力してください")
+    evidence_level = body.setting_evidence_level
+    if body.confirmed_setting is not None:
+        evidence_level = "confirmed_exact"
+    elif body.minimum_confirmed_setting is not None:
+        evidence_level = "confirmed_minimum"
+    submitted = body.model_fields_set
+    player_recorded = (
+        body.player_result_recorded
+        if body.player_result_recorded is not None
+        else bool({"investment", "returns"} & submitted)
+    )
+    machine_recorded = (
+        body.machine_result_recorded
+        if body.machine_result_recorded is not None
+        else "diff_coins" in submitted
+    )
     s = Session(
         date=body.date,
         machine_name=body.machine_name,
@@ -88,6 +138,15 @@ def create_session(body: SessionCreate) -> dict:
         is_event_day=body.is_event_day,
         started_from=body.started_from,
         posterior=body.posterior,
+        player_result_recorded=player_recorded,
+        machine_result_recorded=machine_recorded,
+        expected_value_yen=body.expected_value_yen,
+        expected_value_source=body.expected_value_source,
+        setting_evidence_level=evidence_level,
+        confirmed_setting=body.confirmed_setting,
+        minimum_confirmed_setting=body.minimum_confirmed_setting,
+        setting_evidence_note=body.setting_evidence_note,
+        prediction_snapshot=body.prediction_snapshot,
         element_counts=body.element_counts,
         notes=body.notes,
     )
@@ -137,6 +196,9 @@ def export_sessions_csv_route(
         "id", "date", "hall_name", "machine_name", "seat_number", "is_corner",
         "games_total", "investment", "returns", "diff_yen", "diff_coins",
         "is_event_day", "started_from", "expected_setting", "high_setting_prob",
+        "player_result_recorded", "machine_result_recorded",
+        "expected_value_yen", "expected_value_source", "setting_evidence_level",
+        "confirmed_setting", "minimum_confirmed_setting", "setting_evidence_note",
         "notes",
     ])
     for s in sessions:
@@ -150,7 +212,13 @@ def export_sessions_csv_route(
             s.seat_number or "", int(s.is_corner),
             s.games_total, s.investment, s.returns, s.diff_yen, s.diff_coins,
             int(s.is_event_day), s.started_from,
-            exp_setting, high_prob, s.notes,
+            exp_setting, high_prob,
+            int(s.player_result_recorded), int(s.machine_result_recorded),
+            s.expected_value_yen if s.expected_value_yen is not None else "",
+            s.expected_value_source, s.setting_evidence_level,
+            s.confirmed_setting if s.confirmed_setting is not None else "",
+            s.minimum_confirmed_setting if s.minimum_confirmed_setting is not None else "",
+            s.setting_evidence_note, s.notes,
         ])
     output.seek(0)
     return StreamingResponse(
@@ -186,6 +254,17 @@ def import_sessions_csv(body: CsvImportBody) -> dict:
                 diff_coins=int(row.get("diff_coins") or 0),
                 is_event_day=row.get("is_event_day", "0") in ("1", "True", "true"),
                 started_from=int(row.get("started_from") or 0),
+                player_result_recorded=row.get("player_result_recorded", "") in ("1", "True", "true")
+                    if "player_result_recorded" in row else bool(inv or ret),
+                machine_result_recorded=row.get("machine_result_recorded", "") in ("1", "True", "true")
+                    if "machine_result_recorded" in row else bool(int(row.get("diff_coins") or 0)),
+                expected_value_yen=int(row["expected_value_yen"]) if row.get("expected_value_yen") else None,
+                expected_value_source=row.get("expected_value_source", ""),
+                setting_evidence_level=row.get("setting_evidence_level", "unknown") or "unknown",
+                confirmed_setting=int(row["confirmed_setting"]) if row.get("confirmed_setting") else None,
+                minimum_confirmed_setting=int(row["minimum_confirmed_setting"])
+                    if row.get("minimum_confirmed_setting") else None,
+                setting_evidence_note=row.get("setting_evidence_note", ""),
                 notes=row.get("notes", ""),
             )
             save_session(s)
@@ -234,16 +313,14 @@ def get_estimation_accuracy(
     hall_name: Optional[str] = Query(None),
     limit: int = Query(100),
 ) -> dict:
-    """
-    推定設定 vs 実差枚の相関分析。
-    推測エンジンの精度を評価し、「高設定推定時に実際に収益がプラスだった率」を返す。
-    """
+    """推定設定と収支の関係、および確定設定がある場合だけ設定精度を分離集計する。"""
     from records.models import list_sessions
     sessions = list_sessions(hall_name=hall_name)
     if not sessions:
         return {"message": "セッションなし"}
 
     valid = []
+    confirmed_truth = []
     for s in sessions[-limit:]:
         if s.posterior is None or s.diff_coins is None:
             continue
@@ -253,18 +330,30 @@ def get_estimation_accuracy(
                 continue
             exp_s = sum(float(k) * v for k, v in post.items())
             high_p = sum(v for k, v in post.items() if float(k) >= 4)
-            valid.append({
-                "expected_setting": exp_s,
-                "high_prob": high_p,
-                "diff_coins": s.diff_coins,
-                "games": s.games_total,
-                "is_positive": s.diff_coins > 0,
-            })
+            truth_high = None
+            if s.confirmed_setting is not None:
+                truth_high = s.confirmed_setting >= 4
+            elif s.minimum_confirmed_setting is not None and s.minimum_confirmed_setting >= 4:
+                truth_high = True
+            if truth_high is not None:
+                confirmed_truth.append({
+                    "truth_high": truth_high,
+                    "predicted_high": high_p >= 0.5,
+                    "high_prob": high_p,
+                })
+            if s.machine_result_recorded:
+                valid.append({
+                    "expected_setting": exp_s,
+                    "high_prob": high_p,
+                    "diff_coins": s.diff_coins,
+                    "games": s.games_total,
+                    "is_positive": s.diff_coins > 0,
+                })
         except Exception:
             continue
 
-    if not valid:
-        return {"message": "推測データ付きセッションなし"}
+    if not valid and not confirmed_truth:
+        return {"message": "推測データまたは設定確定情報付きセッションなし"}
 
     # 高設定推定（≥4）時の勝率
     high_est = [v for v in valid if v["expected_setting"] >= 4.0]
@@ -293,16 +382,74 @@ def get_estimation_accuracy(
            (v["expected_setting"] < 3 and v["diff_coins"] <= 0)
     )
     direction_accuracy = correct_direction / len(valid) if valid else 0
+    setting_hits = sum(item["truth_high"] == item["predicted_high"] for item in confirmed_truth)
 
     return {
+        "metric_scope": "推定と差枚・本人収支の関係。高設定的中率とは別指標",
+        "setting_accuracy_definition": "確定設定または設定4以上確定が登録された記録だけで判定",
         "total_sessions_analyzed": len(valid),
-        "overall_win_rate": round(sum(1 for v in valid if v["is_positive"]) / len(valid) * 100, 1),
+        "overall_win_rate": (
+            round(sum(1 for v in valid if v["is_positive"]) / len(valid) * 100, 1)
+            if valid else None
+        ),
         "high_setting_est_sessions": len(high_est),
         "high_setting_est_win_rate": round(high_est_winrate * 100, 1) if high_est_winrate is not None else None,
         "low_setting_est_sessions": len(low_est),
         "low_setting_est_win_rate": round(low_est_winrate * 100, 1) if low_est_winrate is not None else None,
         "direction_accuracy": round(direction_accuracy * 100, 1),
+        "confirmed_setting_sessions": len(confirmed_truth),
+        "setting_classification_accuracy_pct": (
+            round(setting_hits / len(confirmed_truth) * 100, 1) if confirmed_truth else None
+        ),
         "high_prob_brackets": brackets,
+    }
+
+
+@router.get("/api/sessions/label_summary", tags=["sessions"])
+def get_session_label_summary(
+    hall_name: Optional[str] = Query(None),
+    limit: int = Query(2000, le=5000),
+) -> dict:
+    """学習に使える正解ラベルを、種類を混ぜずに集計する。"""
+    sessions = list_sessions(hall_name=hall_name, limit=limit)
+    player = [s for s in sessions if s.player_result_recorded]
+    machine = [s for s in sessions if s.machine_result_recorded]
+    expected = [s for s in sessions if s.expected_value_yen is not None]
+    setting_evidence = [s for s in sessions if s.setting_evidence_level != "unknown"]
+    setting_confirmed = [
+        s for s in sessions
+        if s.confirmed_setting is not None or s.minimum_confirmed_setting is not None
+    ]
+    return {
+        "total_sessions": len(sessions),
+        "labels": {
+            "player_profit": {
+                "count": len(player),
+                "positive": sum(s.diff_yen > 0 for s in player),
+                "meaning": "本人の投資と回収による収支",
+            },
+            "machine_diff": {
+                "count": len(machine),
+                "positive": sum(s.diff_coins > 0 for s in machine),
+                "meaning": "遊技した台の差枚結果",
+            },
+            "expected_value": {
+                "count": len(expected),
+                "positive": sum((s.expected_value_yen or 0) > 0 for s in expected),
+                "meaning": "着席前に固定した期待値",
+            },
+            "setting_evidence": {
+                "count": len(setting_evidence),
+                "confirmed_count": len(setting_confirmed),
+                "confirmed_high_count": sum(
+                    (s.confirmed_setting is not None and s.confirmed_setting >= 4)
+                    or (s.minimum_confirmed_setting is not None and s.minimum_confirmed_setting >= 4)
+                    for s in setting_confirmed
+                ),
+                "meaning": "示唆・確定設定。収支や差枚とは別の正解",
+            },
+        },
+        "training_policy": "本人勝敗・台差枚・期待値・設定正解を相互に代用しない",
     }
 
 
@@ -316,7 +463,25 @@ def get_session_endpoint(session_id: int) -> dict:
 
 @router.put("/api/sessions/{session_id}", tags=["sessions"])
 def update_session_endpoint(session_id: int, body: SessionUpdate) -> dict:
-    updates = body.model_dump(exclude_none=True)
+    updates = body.model_dump(exclude_unset=True)
+    non_nullable = {
+        "games_total", "investment", "returns", "diff_coins", "notes",
+        "is_corner", "is_event_day", "player_result_recorded", "machine_result_recorded",
+    }
+    if any(key in updates and updates[key] is None for key in non_nullable):
+        raise HTTPException(422, "必須項目を空にできません")
+    evidence = updates.get("setting_evidence_level")
+    if evidence == "confirmed_exact":
+        if updates.get("confirmed_setting") is None:
+            raise HTTPException(422, "設定確定を選んだ場合は確定設定を入力してください")
+        updates["minimum_confirmed_setting"] = None
+    elif evidence == "confirmed_minimum":
+        if updates.get("minimum_confirmed_setting") is None:
+            raise HTTPException(422, "設定以上確定を選んだ場合は最低設定を入力してください")
+        updates["confirmed_setting"] = None
+    elif evidence is not None:
+        updates["confirmed_setting"] = None
+        updates["minimum_confirmed_setting"] = None
     if not updates:
         raise HTTPException(400, "更新内容がありません")
     update_session(session_id, **updates)

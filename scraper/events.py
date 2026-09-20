@@ -2,10 +2,13 @@
 ホールイベント情報スクレーパー v2
 
 対応ソース（優先度順）:
-  1. みんレポ (min-repo.com)   — ホールタグページからイベント日を推定
-  2. Dステ (dste.jp)           — ホール公式イベントカレンダー
-  3. P-WORLD (p-world.ne.jp)  — 特定日情報
-  4. やすだのスロット日記系サイト / Google fallback
+  1. P-WORLD (p-world.ne.jp)  — 店舗公式の公開告知
+  2. Dステ (dste.jp)           — 公開イベントカレンダー
+  3. SloMap                    — 公開 Schema.org Event
+  4. Google fallback           — 未確認候補として隔離
+
+みんレポのホールタグ日は出玉実績の掲載日であり、イベント予定ではないため
+収集履歴として保持しつつ予測対象から除外する。
 
 廃止:
   - Twitter/Nitter (ほぼ全インスタンス死亡のため廃止)
@@ -16,7 +19,7 @@ import json
 import re
 import sqlite3
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 import urllib.parse
@@ -46,8 +49,14 @@ SESSION.headers.update(HEADERS)
 # 公開ページと店舗名の対応が確認できた店舗だけを登録する。
 # SloMap の非公開 API は使用せず、検索エンジン向けに公開された JSON-LD のみ読む。
 SLOMAP_HALL_URLS = {
+    "マルハン大東店": "https://slo-map.com/halls/7950",
+    "キコーナ大東店": "https://slo-map.com/halls/7953",
+    "ベガスベガス大東店": "https://slo-map.com/halls/7954",
+    "スーパーコスモプレミアム大東店": "https://slo-map.com/halls/7955",
+    "ニコニコ住道店": "https://slo-map.com/halls/7961",
     "キコーナ四條畷店": "https://slo-map.com/halls/7964",
     "キコーナ野崎店": "https://slo-map.com/halls/7963",
+    "ひま・わり四條畷店": "https://slo-map.com/halls/8113",
 }
 
 
@@ -65,10 +74,107 @@ def init_event_db(conn: sqlite3.Connection) -> None:
             event_title TEXT,
             source      TEXT,
             source_url  TEXT,
+            event_kind  TEXT NOT NULL DEFAULT 'unclassified',
+            source_trust TEXT NOT NULL DEFAULT '未確認',
+            prediction_eligible INTEGER NOT NULL DEFAULT 0,
+            classification_reason TEXT,
             created_at  TEXT DEFAULT (datetime('now','localtime')),
             UNIQUE(hall_name, event_date, source, event_title)
         )
     """)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(hall_event)")}
+    additions = {
+        "event_type": "TEXT",
+        "source": "TEXT",
+        "source_url": "TEXT",
+        "event_kind": "TEXT NOT NULL DEFAULT 'unclassified'",
+        "source_trust": "TEXT NOT NULL DEFAULT '未確認'",
+        "prediction_eligible": "INTEGER NOT NULL DEFAULT 0",
+        "classification_reason": "TEXT",
+        "created_at": "TEXT",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE hall_event ADD COLUMN {name} {definition}")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hall_source_day_summary (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            hall_name TEXT NOT NULL,
+            report_date TEXT NOT NULL,
+            avg_diff_coins INTEGER,
+            total_diff_coins INTEGER,
+            unit_count INTEGER,
+            evidence_scope TEXT NOT NULL,
+            source_trust TEXT NOT NULL,
+            analysis_eligible INTEGER NOT NULL DEFAULT 0,
+            quality_reason TEXT,
+            source_url TEXT NOT NULL,
+            scraped_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(source, hall_name, report_date)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS hall_event_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            hall_name TEXT NOT NULL,
+            event_date TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            media_name TEXT,
+            event_rank TEXT,
+            evidence_scope TEXT NOT NULL,
+            avg_diff_coins INTEGER,
+            total_diff_coins INTEGER,
+            unit_count INTEGER,
+            source_trust TEXT NOT NULL,
+            analysis_eligible INTEGER NOT NULL DEFAULT 0,
+            quality_reason TEXT,
+            source_url TEXT NOT NULL,
+            scraped_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(source, hall_name, event_date, event_name)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_model_evaluation (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_name TEXT NOT NULL,
+            evaluated_on TEXT NOT NULL,
+            region TEXT NOT NULL,
+            reference_date TEXT NOT NULL,
+            evaluated_trials INTEGER NOT NULL DEFAULT 0,
+            recommended_trials INTEGER NOT NULL DEFAULT 0,
+            hits INTEGER NOT NULL DEFAULT 0,
+            success_pct INTEGER,
+            lower_bound_pct INTEGER,
+            promotion_status TEXT NOT NULL,
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(model_name, evaluated_on, region)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS event_prediction_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model_name TEXT NOT NULL,
+            prediction_date TEXT NOT NULL,
+            target_date TEXT NOT NULL,
+            region TEXT NOT NULL,
+            hall_name TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            score INTEGER NOT NULL DEFAULT 0,
+            quality_passed INTEGER NOT NULL DEFAULT 0,
+            snapshot_json TEXT NOT NULL DEFAULT '{}',
+            outcome_avg_diff_coins INTEGER,
+            outcome_success INTEGER,
+            outcome_source TEXT,
+            resolved_at TEXT,
+            created_at TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(model_name, target_date, region, hall_name, event_name)
+        )
+    """)
+    _backfill_event_classification(conn)
     conn.commit()
 
 
@@ -83,6 +189,87 @@ def get_conn() -> sqlite3.Connection:
 # ---------------------------------------------------------------------------
 # ユーティリティ
 # ---------------------------------------------------------------------------
+
+def classify_event_record(
+    source: str | None,
+    event_title: str | None,
+    source_url: str | None = None,
+) -> dict:
+    """取得元を、予測へ使える予定と単なる実績掲載日に安全側で分ける。"""
+    normalized_source = (source or "").strip().lower()
+    title = (event_title or "").strip()
+    url = (source_url or "").lower()
+
+    if normalized_source == "minrepo" or title.startswith("みんレポ記録日"):
+        return {
+            "event_kind": "report_day",
+            "source_trust": "対象外",
+            "prediction_eligible": 0,
+            "classification_reason": "実績記事の掲載日であり、イベント告知ではない",
+        }
+    if normalized_source == "pworld" or "p-world.co.jp" in url:
+        return {
+            "event_kind": "official_notice",
+            "source_trust": "A",
+            "prediction_eligible": 1,
+            "classification_reason": "店舗公式系ページで確認した予定",
+        }
+    if normalized_source == "dste":
+        return {
+            "event_kind": "media_schedule",
+            "source_trust": "B",
+            "prediction_eligible": 1,
+            "classification_reason": "取材・予定媒体の公開ページで確認",
+        }
+    if normalized_source == "slomap":
+        return {
+            "event_kind": "media_schedule",
+            "source_trust": "C",
+            "prediction_eligible": 1,
+            "classification_reason": "公開イベント構造化データから取得",
+        }
+    if normalized_source == "manual":
+        return {
+            "event_kind": "manual_record",
+            "source_trust": "C",
+            "prediction_eligible": 1,
+            "classification_reason": "利用者が確認して手動登録",
+        }
+    return {
+        "event_kind": "web_candidate",
+        "source_trust": "D",
+        "prediction_eligible": 0,
+        "classification_reason": "単一の未確認情報源のため、予測には未使用",
+    }
+
+
+def _backfill_event_classification(conn: sqlite3.Connection) -> None:
+    """旧データを削除せず、分類列だけを付与する可逆な移行。"""
+    rows = conn.execute(
+        """
+        SELECT rowid, source, event_title, source_url
+        FROM hall_event
+        WHERE event_kind IS NULL OR event_kind='unclassified'
+           OR source_trust IS NULL OR source_trust='未確認'
+        """
+    ).fetchall()
+    for row in rows:
+        classification = classify_event_record(row[1], row[2], row[3])
+        conn.execute(
+            """
+            UPDATE hall_event
+               SET event_kind=?, source_trust=?, prediction_eligible=?,
+                   classification_reason=?
+             WHERE rowid=?
+            """,
+            (
+                classification["event_kind"],
+                classification["source_trust"],
+                classification["prediction_eligible"],
+                classification["classification_reason"],
+                row[0],
+            ),
+        )
 
 def _classify_event(text: str) -> str:
     if re.search(r'新台|入替', text):
@@ -159,13 +346,19 @@ def _save_events(events: list[dict]) -> int:
     saved = 0
     for ev in events:
         try:
+            classification = classify_event_record(
+                ev.get("source"), ev.get("event_title"), ev.get("source_url")
+            )
             conn.execute("""
                 INSERT OR IGNORE INTO hall_event
-                  (hall_name, event_date, event_type, event_title, source, source_url)
-                VALUES (?, ?, ?, ?, ?, ?)
+                  (hall_name, event_date, event_type, event_title, source, source_url,
+                   event_kind, source_trust, prediction_eligible, classification_reason, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 ev["hall_name"], ev["event_date"], ev.get("event_type", "その他"),
-                ev.get("event_title", "")[:120], ev.get("source", ""), ev.get("source_url", "")
+                ev.get("event_title", "")[:120], ev.get("source", ""), ev.get("source_url", ""),
+                classification["event_kind"], classification["source_trust"],
+                classification["prediction_eligible"], classification["classification_reason"], datetime.now(timezone.utc).isoformat(),
             ))
             saved += conn.execute("SELECT changes()").fetchone()[0]
         except Exception as e:
@@ -173,6 +366,155 @@ def _save_events(events: list[dict]) -> int:
     conn.commit()
     conn.close()
     return saved
+
+
+def _decode_next_flight(html: str) -> str:
+    """Next.js が公開HTMLへ埋め込んだRSC文字列を結合する。"""
+    chunks: list[str] = []
+    prefix = "self.__next_f.push("
+    for script in BeautifulSoup(html, "lxml").find_all("script"):
+        raw = script.string or ""
+        if not raw.startswith(prefix) or not raw.endswith(")"):
+            continue
+        try:
+            value = json.loads(raw[len(prefix):-1])
+        except json.JSONDecodeError:
+            continue
+        if len(value) > 1 and isinstance(value[1], str):
+            chunks.append(value[1])
+    return "".join(chunks)
+
+
+def parse_slomap_day_summaries(
+    html: str, hall_name: str, source_url: str
+) -> list[dict]:
+    """公開HTML内の店舗全体日別差枚を読む。全日0のマスク値は拒否する。"""
+    text = _decode_next_flight(html)
+    decoder = json.JSONDecoder()
+    candidates: list[dict] = []
+    for match in re.finditer(r'"dailyMedalDiff":', text):
+        try:
+            value, _ = decoder.raw_decode(text, match.end())
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict):
+            candidates.append(value)
+    payload = max(candidates, key=len, default={})
+    rows: list[dict] = []
+    for report_date, raw in payload.items():
+        try:
+            date.fromisoformat(str(report_date))
+        except ValueError:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        avg_diff = raw.get("avg_medal_diff")
+        total_diff = raw.get("total_medal_diff")
+        unit_count = raw.get("total_machines")
+        if not isinstance(avg_diff, (int, float)) or not isinstance(total_diff, (int, float)):
+            continue
+        if not isinstance(unit_count, (int, float)) or int(unit_count) <= 0:
+            continue
+        rows.append({
+            "source": "slomap", "hall_name": hall_name,
+            "report_date": str(report_date), "avg_diff_coins": round(avg_diff),
+            "total_diff_coins": round(total_diff), "unit_count": int(unit_count),
+            "evidence_scope": "hall_all_reported_units", "source_trust": "C",
+            "analysis_eligible": 1,
+            "quality_reason": "公開ページの店舗全体日別差枚",
+            "source_url": source_url,
+        })
+    if (
+        len(rows) >= 20
+        and all(row["avg_diff_coins"] == 0 for row in rows)
+        and all(row["total_diff_coins"] == 0 for row in rows)
+    ):
+        return []
+    return rows
+
+
+def parse_slomap_event_evidence(
+    html: str, hall_name: str, source_url: str, day_summaries: list[dict]
+) -> list[dict]:
+    """イベント記録と同日の店舗全体差枚を結び付け、証拠範囲を明示する。"""
+    text = _decode_next_flight(html)
+    decoder = json.JSONDecoder()
+    summaries = {row["report_date"]: row for row in day_summaries}
+    found: dict[tuple[str, str], dict] = {}
+    for match in re.finditer(r'\{"event_date":', text):
+        try:
+            raw, _ = decoder.raw_decode(text, match.start())
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(raw, dict) or raw.get("store_name") != hall_name:
+            continue
+        event_date = str(raw.get("event_date") or "")[:10]
+        event_name = re.sub(r"\s+", " ", str(raw.get("syuzai_name") or "")).strip()
+        try:
+            date.fromisoformat(event_date)
+        except ValueError:
+            continue
+        if not event_name:
+            continue
+        summary = summaries.get(event_date)
+        eligible = int(summary is not None)
+        found[(event_date, event_name)] = {
+            "source": "slomap", "hall_name": hall_name, "event_date": event_date,
+            "event_name": event_name, "media_name": str(raw.get("media_name") or ""),
+            "event_rank": str(raw.get("syuzai_rank") or ""),
+            "evidence_scope": "hall_all_reported_units" if eligible else "schedule_only",
+            "avg_diff_coins": summary["avg_diff_coins"] if summary else None,
+            "total_diff_coins": summary["total_diff_coins"] if summary else None,
+            "unit_count": summary["unit_count"] if summary else None,
+            "source_trust": "C", "analysis_eligible": eligible,
+            "quality_reason": (
+                "同日の店舗全体差枚と照合済み" if eligible
+                else "開催記録のみ。店舗全体差枚は非公開または欠損"
+            ),
+            "source_url": source_url,
+        }
+    return list(found.values())
+
+
+def _save_slomap_public_data(day_summaries: list[dict], evidence: list[dict]) -> dict:
+    conn = get_conn()
+    day_saved = 0
+    evidence_saved = 0
+    for row in day_summaries:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO hall_source_day_summary
+              (source,hall_name,report_date,avg_diff_coins,total_diff_coins,unit_count,
+               evidence_scope,source_trust,analysis_eligible,quality_reason,source_url,scraped_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'))
+            """,
+            tuple(row[key] for key in (
+                "source", "hall_name", "report_date", "avg_diff_coins",
+                "total_diff_coins", "unit_count", "evidence_scope", "source_trust",
+                "analysis_eligible", "quality_reason", "source_url",
+            )),
+        )
+        day_saved += 1
+    for row in evidence:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO hall_event_evidence
+              (source,hall_name,event_date,event_name,media_name,event_rank,evidence_scope,
+               avg_diff_coins,total_diff_coins,unit_count,source_trust,analysis_eligible,
+               quality_reason,source_url,scraped_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            tuple(row[key] for key in (
+                "source", "hall_name", "event_date", "event_name", "media_name",
+                "event_rank", "evidence_scope", "avg_diff_coins", "total_diff_coins",
+                "unit_count", "source_trust", "analysis_eligible", "quality_reason",
+                "source_url",
+            )) + (datetime.now(timezone.utc).isoformat(),),
+        )
+        evidence_saved += 1
+    conn.commit()
+    conn.close()
+    return {"day_summaries": day_saved, "event_evidence": evidence_saved}
 
 
 def _get(url: str, timeout: int = 15) -> Optional[requests.Response]:
@@ -269,7 +611,15 @@ def scrape_slomap_events(hall_name: str) -> list[dict]:
     if not response:
         return []
     events = parse_slomap_events(response.text, hall_name, source_url)
-    print(f"[SloMap] {hall_name}: {len(events)}件取得")
+    day_summaries = parse_slomap_day_summaries(response.text, hall_name, source_url)
+    evidence = parse_slomap_event_evidence(
+        response.text, hall_name, source_url, day_summaries
+    )
+    saved = _save_slomap_public_data(day_summaries, evidence)
+    print(
+        f"[SloMap] {hall_name}: 予定{len(events)}件・"
+        f"店舗日次{saved['day_summaries']}件・証拠{saved['event_evidence']}件"
+    )
     return events
 
 

@@ -10,6 +10,25 @@
 # SQLite (DATA_DIR上のファイルは除外; machines/は含める)
 **/data/sessions.db
 **/data/hall_reports.db
+**/data/opportunities.db
+**/data/ai_evaluations.db
+**/data/ai_evaluations.db-journal
+**/data/ai_usage.db
+**/data/ai_usage.db-journal
+**/data/image_analysis.db
+**/data/image_analysis.db-journal
+**/data/*.db-shm
+**/data/*.db-wal
+**/data/logs
+**/data/dev-backups
+**/*.pachi-backup.zip
+
+# Local build output and logs
+**/build
+**/dist
+**/build-v*
+**/dist-v*
+**/.tmp-*.log
 
 # OS
 **/.DS_Store
@@ -22,6 +41,9 @@
 # Local env
 **/.env
 **/*.local
+
+# Generated source handoff snapshot (not a runtime artifact)
+SOURCE_SNAPSHOT.txt
 
 # flyctl launch added from .pytest_cache/.gitignore
 # Created by pytest automatically.

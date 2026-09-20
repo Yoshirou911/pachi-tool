@@ -14,6 +14,38 @@ def _connect(path):
     return conn
 
 
+def test_forecast_and_benchmark_inputs_use_same_current_seat_tenure(tmp_path, monkeypatch):
+    path = tmp_path / 'tenure.db'
+    conn = _connect(path)
+    conn.executescript('''
+        CREATE TABLE hall_day_machine (hall_name TEXT, report_date TEXT, machine_name TEXT,
+            avg_diff_coins REAL,win_rate_pct REAL,unit_count INTEGER,source_url TEXT);
+        CREATE TABLE hall_day_seat (hall_name TEXT,report_date TEXT,machine_name TEXT,
+            seat_number INTEGER,diff_coins REAL,games INTEGER,source_url TEXT);
+    ''')
+    conn.executemany('INSERT INTO hall_day_seat VALUES (?,?,?,?,?,?,?)', [
+        ('キコーナ四條畷店','2026-08-01','L北斗',101,9000,4000,'a'),
+        ('キコーナ四條畷店','2026-08-02','マイジャグラーV',101,None,4000,'b'),
+        ('キコーナ四條畷店','2026-08-03','L北斗',101,-100,4000,'c'),
+    ])
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(hall_router, '_get_reports_conn', lambda: _connect(path))
+    result = hall_router._build_target_search('2026-08-05',120,20,'shijonawate',70,include_inputs=True)
+    assert len(result['frozen_inputs']['seat_rows']) == 1
+    assert result['frozen_inputs']['seat_rows'][0]['report_date'] == '2026-08-03'
+    assert len(result['frozen_inputs']['seat_rows_before_identity_filter']) == 2
+    assert result['seat_identity']['seats'][0]['changes'] == 2
+    assert result['seat_ranking_studies'][0]['ranked_seats'] == 0
+    assert not result['seat_ranking_studies'][0]['model_influence_eligible']
+    assert len(result['frozen_inputs']['seat_ranking_observations']) == 3
+    assert '2026-08-03' in result['frozen_inputs']['seat_ranking_layouts_by_cutoff']
+    assert result['placement_studies'][0]['candidate_groups'] == 0
+    assert not result['placement_studies'][0]['model_influence_eligible']
+    assert '2026-08-02' in result['frozen_inputs']['placement_maps_by_cutoff']
+    assert 'confirmed_setting_records' in result['frozen_inputs']
+
+
 def test_target_search_ranks_only_halls_with_enough_evidence(tmp_path, monkeypatch):
     db_path = tmp_path / "hall.db"
     conn = _connect(db_path)
@@ -25,7 +57,15 @@ def test_target_search_ranks_only_halls_with_enough_evidence(tmp_path, monkeypat
             avg_diff_coins INTEGER, win_rate_pct REAL, unit_count INTEGER,
             source_url TEXT
         );
+        CREATE TABLE hall_event (
+            hall_name TEXT, event_date TEXT, event_type TEXT, event_title TEXT,
+            source TEXT, source_url TEXT, event_kind TEXT, source_trust TEXT,
+            prediction_eligible INTEGER, classification_reason TEXT
+        );
         INSERT INTO scrape_hall_config VALUES ('十分店', 1), ('不足店', 1);
+        INSERT INTO hall_event VALUES
+          ('十分店','2026-08-10','通常イベント','みんレポ記録日','minrepo','https://min-repo.com/1','report_day','対象外',0,'実績掲載日'),
+          ('十分店','2026-08-11','新台入替','新台入替','pworld','https://p-world.co.jp/1','official_notice','A',1,'公式系ページ');
         """
     )
     rows = [
@@ -52,16 +92,73 @@ def test_target_search_ranks_only_halls_with_enough_evidence(tmp_path, monkeypat
     assert result["insufficient_halls"][0]["hall_name"] == "不足店"
     assert result["target_accuracy"] == 70
     assert result["accuracy_summary"]["target_pct"] == 70
+    assert result["prediction_audit"]["evaluated_models"] >= 1
+    assert result["prediction_audit"]["out_of_sample_days"] >= 0
+    assert result["halls"][0]["event_context"]["is_event_day"] is False
 
     next_day = hall_router.get_target_search("2026-08-11", days=120, limit=8)
     assert next_day["weekday"] == "火"
     assert next_day["halls"][0]["avg_diff"] != result["halls"][0]["avg_diff"]
+    assert next_day["halls"][0]["event_context"]["is_event_day"] is True
+    assert next_day["halls"][0]["event_context"]["events"][0]["source_trust"] == "A"
+    assert next_day["halls"][0]["event_context"]["model_influence_eligible"] is False
+    assert next_day["halls"][0]["event_context"]["adjustment_coins"] == 0
 
     strict = hall_router.get_target_search(
         "2026-08-10", days=120, limit=8, target_accuracy=80
     )
     assert strict["target_accuracy"] == 80
     assert strict["accuracy_summary"]["target_pct"] == 80
+
+
+def test_target_search_legacy_event_bonus_is_not_adopted_without_comparison(tmp_path, monkeypatch):
+    db_path = tmp_path / "verified-events.db"
+    conn = _connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE scrape_hall_config (hall_name TEXT PRIMARY KEY, enabled INTEGER);
+        CREATE TABLE hall_day_machine (
+            hall_name TEXT, report_date TEXT, machine_name TEXT,
+            avg_diff_coins INTEGER, win_rate_pct REAL, unit_count INTEGER,
+            source_url TEXT
+        );
+        CREATE TABLE hall_event (
+            hall_name TEXT, event_date TEXT, event_type TEXT, event_title TEXT,
+            source TEXT, source_url TEXT, event_kind TEXT, source_trust TEXT,
+            prediction_eligible INTEGER, classification_reason TEXT
+        );
+        CREATE TABLE hall_event_evidence (
+            hall_name TEXT, event_date TEXT, event_name TEXT, source_trust TEXT,
+            analysis_eligible INTEGER, quality_reason TEXT
+        );
+        INSERT INTO scrape_hall_config VALUES ('結果照合店', 1);
+        INSERT INTO hall_event VALUES
+          ('結果照合店','2026-08-01','通常イベント','旧イベ(7のつく日)（Cランク）',
+           'slomap','https://example.com','media_schedule','C',1,'公開予定');
+        INSERT INTO hall_event_evidence VALUES
+          ('結果照合店','2026-07-05','旧イベ(7のつく日)','C',1,'店舗全体'),
+          ('結果照合店','2026-07-12','旧イベ(7のつく日)','C',1,'店舗全体'),
+          ('結果照合店','2026-07-19','旧イベ(7のつく日)','C',1,'店舗全体');
+        """
+    )
+    for day in range(1, 26):
+        report_date = f"2026-07-{day:02d}"
+        value = 800 if day in {5, 12, 19} else -100
+        conn.execute(
+            "INSERT INTO hall_day_machine VALUES (?,?,?,?,?,?,?)",
+            ("結果照合店", report_date, "L北斗", value, 60, 10, "https://example.com"),
+        )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(hall_router, "_get_reports_conn", lambda: _connect(db_path))
+    result = hall_router.get_target_search("2026-08-01", days=120, limit=8)
+    context = result["halls"][0]["event_context"]
+    assert context["model_influence_eligible"] is False
+    assert context["adjustment_coins"] == 0
+    study = result['event_studies'][0]
+    assert study['profiles'][0]['unknown_timestamp_records'] == 4
+    assert study['profiles'][0]['predicted_coins'] is None
 
 
 def test_target_search_rejects_invalid_date():
@@ -104,6 +201,52 @@ def test_target_search_weights_daily_average_by_installed_units(tmp_path, monkey
     result = hall_router.get_target_search("2026-08-10", days=120, limit=8)
 
     assert result["halls"][0]["baseline_avg"] == 48
+
+
+def test_target_search_uses_manual_seat_results_when_machine_summary_is_missing(
+    tmp_path, monkeypatch
+):
+    db_path = tmp_path / "manual-seat.db"
+    conn = _connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE scrape_hall_config (hall_name TEXT PRIMARY KEY, enabled INTEGER);
+        CREATE TABLE hall_day_machine (
+            hall_name TEXT, report_date TEXT, machine_name TEXT,
+            avg_diff_coins INTEGER, win_rate_pct REAL, unit_count INTEGER,
+            source_url TEXT
+        );
+        CREATE TABLE hall_day_seat (
+            hall_name TEXT, report_date TEXT, machine_name TEXT,
+            seat_number INTEGER, diff_coins INTEGER, games INTEGER
+        );
+        INSERT INTO scrape_hall_config VALUES ('キコーナ四條畷店', 1);
+        """
+    )
+    for offset, report_date in enumerate(("2026-08-01", "2026-08-02", "2026-08-03")):
+        conn.executemany(
+            "INSERT INTO hall_day_seat VALUES (?,?,?,?,?,?)",
+            [
+                ("キコーナ四條畷店", report_date, "L北斗", 501, 600 + offset * 100, 6500),
+                ("キコーナ四條畷店", report_date, "L北斗", 502, -100, 6000),
+            ],
+        )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(hall_router, "_get_reports_conn", lambda: _connect(db_path))
+    result = hall_router.get_target_search("2026-08-10", days=120, limit=8)
+
+    assert [item["hall_name"] for item in result["halls"]] == ["キコーナ四條畷店"]
+    assert result["halls"][0]["sample_days"] == 3
+    assert result["halls"][0]["target_machines"][0]["machine_name"] == "L北斗"
+    assert result["halls"][0]["target_machines"][0]["sample_days"] == 3
+    field_quality = result["halls"][0]["data_quality"]["field_collection"]
+    assert field_quality["analysis_eligible"] is False
+    assert field_quality["days"] == 3
+    assert result["halls"][0]["target_machines"][0]["action"] != "狙う"
+    assert "probability_calibration" in result["halls"][0]["prediction_diagnostics"]
+    assert "forecast_interval_coins" in result["halls"][0]["prediction_diagnostics"]
 
 
 def test_target_heat_map_returns_date_score_and_long_term_trends(tmp_path, monkeypatch):
@@ -278,13 +421,56 @@ def test_seat_patterns_require_history_and_personal_profit_never_raises_predicti
 
     assert seat_summary["top_seats"][0]["seat_number"] == 101
     assert seat_summary["top_seats"][0]["status"] == "検証対象"
-    assert seat_summary["top_seats"][0]["seat_role"] == "第一候補"
+    assert seat_summary["top_seats"][0]["seat_role"] == "参考1位"
+    assert all(
+        item["seat_role"] != "第一候補"
+        for item in seat_summary["top_seats"]
+        if item["status"] != "検証済み"
+    )
     assert next(item for item in seat_summary["top_seats"] if item["seat_number"] == 102)["seat_role"] == "避ける"
     assert "risk_adjusted_diff_coins" in seat_summary["top_seats"][0]
-    assert seat_summary["corner"]["verified_layout"] is True
+    assert seat_summary["corner"] is None  # numbering alone cannot verify corners
     assert profit["all"]["count"] == 10
     assert profit["all"]["avg_yen"] == -1000
     assert profit["can_raise_prediction"] is False
+
+
+def test_seat_patterns_reserve_first_candidate_for_validated_signal():
+    start = hall_router.date(2026, 1, 1)
+    rows = []
+    for offset in range(75):
+        report_date = (start + hall_router.timedelta(days=offset)).isoformat()
+        rows.extend([
+            {
+                "report_date": report_date,
+                "machine_name": "L北斗",
+                "seat_number": 101,
+                "diff_coins": 500,
+                "games": 3000,
+            },
+            {
+                "report_date": report_date,
+                "machine_name": "L北斗",
+                "seat_number": 102,
+                "diff_coins": -300,
+                "games": 3000,
+            },
+        ])
+    layouts = [
+        {"seat_number": 101, "machine_name": "L北斗", "island_name": "A"},
+        {"seat_number": 102, "machine_name": "L北斗", "island_name": "A"},
+    ]
+
+    summary = hall_router._seat_pattern_summary(
+        rows,
+        layouts,
+        target_date=hall_router.date(2026, 3, 17),
+    )
+    first = next(item for item in summary["top_seats"] if item["seat_number"] == 101)
+
+    assert first["status"] == "検証済み"
+    assert first["seat_role"] == "第一候補"
+    assert first["action"].startswith("狙う")
 
 
 def test_seat_patterns_exclude_machine_that_moved_to_another_seat():

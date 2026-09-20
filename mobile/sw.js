@@ -1,13 +1,26 @@
-const VERSION = 'pachi-tool-mobile-v3.10.1';
+const VERSION = 'pachi-tool-mobile-v3.49.0';
 const CORE_ASSETS = [
+  './ai-review.mjs?v=3.49.0',
+  './ai-evaluation.mjs?v=3.49.0',
+  './ai-knowledge.mjs?v=3.49.0',
+  './image-analysis.mjs?v=3.49.0',
+  './ai-comparison.mjs?v=3.49.0',
+  './hall-ai.mjs?v=3.49.0',
+  './ai-evidence.mjs?v=3.49.0',
   './',
   './index.html',
-  './app.css?v=3.10.1',
-  './app.js?v=3.10.1',
-  './core.mjs?v=3.10.1',
-  './ocr.mjs?v=3.10.1',
-  './catalog.json?v=3.10.1',
+  './app.css?v=3.49.0',
+  './app.js?v=3.49.0',
+  './core.mjs?v=3.49.0',
+  './ocr.mjs?v=3.49.0',
+  './catalog.json?v=3.49.0',
   './manifest.webmanifest',
+  './prediction-verification.mjs?v=3.49.0',
+  './placement-analysis.mjs?v=3.49.0',
+  './model-review.mjs?v=3.49.0',
+  './probability-validation.mjs?v=3.49.0',
+  './candidate-evaluation.mjs?v=3.49.0',
+  './prediction-monitor.mjs?v=3.49.0',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];
@@ -26,6 +39,11 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  // 保存状況・答え合わせ・予測APIを古いキャッシュで表示しない。
+  if (new URL(event.request.url).pathname.startsWith('/api/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
   if (event.request.mode === 'navigate') {
     event.respondWith(fetch(event.request).then(response => {
       const copy = response.clone();

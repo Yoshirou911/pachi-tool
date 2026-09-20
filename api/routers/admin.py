@@ -56,9 +56,11 @@ def get_stats() -> dict:
     if econn:
         try:
             result["event_count"] = econn.execute(
-                "SELECT COUNT(*) FROM hall_event").fetchone()[0]
+                "SELECT COUNT(*) FROM hall_event WHERE prediction_eligible=1").fetchone()[0]
+            result["event_excluded_count"] = econn.execute(
+                "SELECT COUNT(*) FROM hall_event WHERE prediction_eligible=0").fetchone()[0]
             result["event_halls"] = econn.execute(
-                "SELECT COUNT(DISTINCT hall_name) FROM hall_event").fetchone()[0]
+                "SELECT COUNT(DISTINCT hall_name) FROM hall_event WHERE prediction_eligible=1").fetchone()[0]
         except Exception:
             pass
         econn.close()

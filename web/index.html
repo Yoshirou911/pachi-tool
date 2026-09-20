@@ -34,7 +34,7 @@
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="header-date" style="font-size:.72rem;color:var(--text3)"></span>
-        <button id="desktop-version-button" class="desktop-version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="desktop-version-label">v2.0.0</span><em id="desktop-version-new">NEW</em></button>
+        <button id="desktop-version-button" class="desktop-version-button" type="button" aria-label="バージョンと更新内容を開く"><span id="desktop-version-label">v3.49.0</span><em id="desktop-version-new">NEW</em></button>
         <span id="header-status" class="status-badge"></span>
       </div>
     </div>
@@ -208,6 +208,18 @@
           </div>
           <p id="desktop-target-status" class="target-search-help">平均差枚・プラス日率・同曜日実績・データ鮮度をまとめて評価します。</p>
         </div>
+        <div class="card desktop-event-analysis-panel">
+          <div class="desktop-event-analysis-head"><div><span class="page-eyebrow">EVENT ANALYSIS</span><h2>今後のイベントと過去成績</h2><p>行く日から31日分を、同じ店舗の通常日と比較します。</p></div><button id="desktop-event-analysis-button" class="btn btn-secondary" type="button">イベント予定を更新</button></div>
+          <p id="desktop-event-analysis-status" class="target-search-help">上で指定した行く日・四條畷駅周辺に連動します。</p>
+          <div id="desktop-event-analysis-results" class="desktop-event-analysis-results"></div>
+        </div>
+        <div class="card desktop-event-ai-panel">
+          <div class="desktop-event-analysis-head"><div><span class="page-eyebrow">EVIDENCE-BOUND AI</span><h2>イベント分析に質問</h2><p>AIは確定済み統計を説明するだけで、候補判定を変更しません。</p></div><button id="desktop-event-ai-summary" class="btn btn-secondary" type="button">要点を説明</button></div>
+          <div id="desktop-event-model-audit" class="desktop-event-model-audit">自動答え合わせを読み込むと、現行モデルの検証件数を表示します。</div>
+          <div id="desktop-event-ai-output" class="desktop-event-ai-output">行く日を指定して、要点または質問を送ってください。</div>
+          <form id="desktop-event-ai-form" class="desktop-event-ai-form"><input id="desktop-event-ai-input" class="form-input" maxlength="300" placeholder="例：なぜ参考止まり？" required><button class="btn btn-primary" type="submit">質問</button></form>
+          <div class="desktop-event-ai-quick"><button class="btn btn-ghost btn-sm" type="button" data-desktop-event-ai="どの店を優先すべき？">どの店？</button><button class="btn btn-ghost btn-sm" type="button" data-desktop-event-ai="なぜ参考止まりなの？">なぜ参考？</button><button class="btn btn-ghost btn-sm" type="button" data-desktop-event-ai="強い機種はある？">強い機種</button><button class="btn btn-ghost btn-sm" type="button" data-desktop-event-ai="台番号まで分かる？">台番号</button></div>
+        </div>
         <div class="card target-analysis-shortcut"><div><strong>店ごとの得意機種を比べる</strong><span>四條畷周辺の店舗×スマスロを、70%検証基準つきで横並びにします。</span></div><button class="btn btn-secondary" type="button" data-home-destination="trend-profile">店舗別の強い機種を見る →</button></div>
         <div class="card desktop-monthly-play-guide"><div><span class="page-eyebrow">MONTHLY OPERATION</span><h2>月プラスを狙う5段階</h2></div><ol><li><b>前日</b><span>70%級で店と機種を確認。80%級が出れば最優先、候補0なら設定狙いを休む。</span></li><li><b>入場後</b><span>第一候補→第二候補の順で確認し、「避ける台」と配置変更台を除外。</span></li><li><b>実戦中</b><span>差枚だけで見切らず、初当たり・CZ・小役・示唆から設定判別を更新。</span></li><li><b>撤退</b><span>根拠が弱くなったら終了。1日上限は月の損失上限÷予定稼働日で事前設定。</span></li><li><b>閉店後</b><span>台番号・根拠・収支を保存し、平均利益と平均損失を月末に検証。</span></li></ol><p>月単位の勝ちを保証する機能ではありません。基準未達の日に打たないことが最重要です。</p></div>
         <div id="desktop-target-results" class="desktop-target-results"></div>
@@ -233,6 +245,10 @@
           <p id="desktop-trend-status" class="target-search-help">事実・推定・AIの解説を分けて表示します。</p>
         </div>
         <div id="desktop-trend-results" class="desktop-trend-results"></div>
+        <article id="desktop-hall-ai-panel" class="card" style="margin-top:16px"></article>
+        <article id="desktop-ai-knowledge-panel" class="card" style="margin-top:16px"></article>
+        <article id="desktop-ai-comparison-panel" class="card" style="margin-top:16px"></article>
+        <article id="desktop-ai-evaluation-panel" class="card" style="margin-top:16px"></article>
       </div>
     </section>
 
@@ -257,13 +273,20 @@
           <div class="desktop-floor-scroll"><div id="desktop-floor-canvas" class="desktop-floor-canvas"></div></div>
           <aside id="desktop-floor-detail" class="desktop-floor-detail"><div class="desktop-floor-empty">座席を選ぶと分析根拠を表示します。</div></aside>
         </div>
+        <article id="desktop-image-analysis-panel" class="card image-analysis-panel"></article>
+        <article id="desktop-collection-progress" class="card desktop-collection-progress" aria-live="polite">
+          <p class="desktop-analysis-empty">店舗を選ぶと、30日分析までのデータ蓄積状況を表示します。</p>
+        </article>
         <details class="card desktop-layout-editor">
           <summary><span><b>店内マップを登録・修正</b><small>公式情報または現地確認を元に入力</small></span><i>＋</i></summary>
           <form id="desktop-layout-form">
             <div class="form-row-2col"><div><label class="form-label">出典名</label><input id="desktop-layout-source-label" class="form-input" maxlength="200" placeholder="例：店舗公式フロア案内"></div><div><label class="form-label">出典URL</label><input id="desktop-layout-source-url" class="form-input" type="url" placeholder="https://..."></div></div>
             <div class="form-row-2col"><div><label class="form-label">有効日</label><input id="desktop-layout-valid-from" class="form-input" type="date" required></div><div><label class="form-label">確認状態</label><select id="desktop-layout-verification" class="form-select"><option>未確認</option><option>要確認</option><option>確認済み</option></select></div></div>
+            <label class="form-label">出典種別<select id="desktop-layout-source-kind" class="form-select"><option value="manual">現地・手動</option><option value="official">店舗公式</option><option value="pworld">P-WORLD</option><option value="uploaded">画像から再構築</option></select></label>
             <div class="desktop-layout-range"><label>開始台番号<input id="desktop-layout-seat-start" class="form-input" type="number" min="1" placeholder="501"></label><label>終了台番号<input id="desktop-layout-seat-end" class="form-input" type="number" min="1" placeholder="540"></label><label>島名・機種<input id="desktop-layout-island" class="form-input" maxlength="100" placeholder="スマスロ北斗の拳 島"></label><button id="desktop-layout-auto" class="btn btn-ghost" type="button">台番号を仮配置</button></div>
             <label class="form-label">確認メモ<textarea id="desktop-layout-notes" class="form-input" rows="2" maxlength="1000" placeholder="現地確認した位置や未確認箇所"></textarea></label>
+            <label class="form-label">確認した並び<textarea id="desktop-layout-rows" class="form-input" rows="4" placeholder="501,北斗島,通路側,1&#10;508,北斗島,通路側,2&#10;503,北斗島,通路側,3"></textarea></label>
+            <p class="target-search-disclaimer">1行に「台番号,島名,列名,列内順」。実際に隣り合う順番を1から入力。台番号の連続とは別です。空欄の台は並び不明として保存します。分析結果は「狙い台捜索」の並び・島・翌日の傾向へ表示します。</p>
             <button id="desktop-layout-save" class="btn btn-primary btn-full" type="submit">この配置を保存</button>
           </form>
           <p class="target-search-disclaimer">仮配置は本物の座席位置ではありません。公式情報または現地確認前は「要確認」のまま保存してください。</p>
@@ -273,10 +296,13 @@
           <form id="desktop-seat-result-form">
             <div class="form-row-2col"><div><label class="form-label">営業日</label><input id="desktop-seat-result-date" class="form-input" type="date" required></div><div><label class="form-label">情報源</label><input id="desktop-seat-result-source" class="form-input" maxlength="200" value="現地入力" placeholder="例：現地データ"></div></div>
             <div class="desktop-layout-range"><label>台番号<input id="desktop-seat-result-number" class="form-input" type="number" min="1" required placeholder="501"></label><label>機種名<input id="desktop-seat-result-machine" class="form-input" maxlength="120" placeholder="マップ登録済みなら省略可"></label><label>差枚<input id="desktop-seat-result-diff" class="form-input" type="number" min="-100000" max="100000" required placeholder="+1800"></label><label>G数<input id="desktop-seat-result-games" class="form-input" type="number" min="0" max="100000" placeholder="7200"></label></div>
-            <button id="desktop-seat-result-save" class="btn btn-primary" type="submit">この1台を保存</button>
+            <div id="desktop-seat-diff-quick" class="desktop-seat-diff-quick" aria-label="差枚クイック入力"><button type="button" data-desktop-seat-diff="-1000">-1,000</button><button type="button" data-desktop-seat-diff="-500">-500</button><button type="button" data-desktop-seat-diff="0">±0</button><button type="button" data-desktop-seat-diff="500">+500</button><button type="button" data-desktop-seat-diff="1000">+1,000</button></div>
+            <button id="desktop-seat-result-save" class="btn btn-primary" type="submit">保存して次の台へ</button>
           </form>
+          <div id="desktop-seat-daily-progress" class="desktop-seat-daily-progress">この営業日の登録件数を確認しています...</div>
+          <div id="desktop-seat-recent-results" class="desktop-seat-recent-results"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><label class="btn btn-ghost" style="cursor:pointer">CSVを読み込む<input id="desktop-seat-result-csv" type="file" accept=".csv,text/csv" hidden></label><button id="desktop-seat-result-template" class="btn btn-ghost" type="button">CSVひな形</button></div>
-          <p id="desktop-seat-result-status" class="target-search-disclaimer">登録すると翌日以降の座席ヒートマップに反映されます。公開取得済みの行は上書きしません。</p>
+          <p id="desktop-seat-result-status" class="target-search-disclaimer">保存後は台番号を+1し、機種名を残します。公開取得済みの行は上書きしません。</p>
         </details>
       </div>
     </section>
@@ -562,6 +588,35 @@
               <input type="number" id="save-coins" class="form-input" placeholder="0" inputmode="numeric">
             </div>
           </div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">着席前の期待値（円）</label>
+              <input type="number" id="save-expected-value" class="form-input" placeholder="未記録" inputmode="numeric">
+            </div>
+            <div>
+              <label class="form-label">設定の確認状況</label>
+              <select id="save-setting-evidence" class="form-select">
+                <option value="unknown">未確認</option>
+                <option value="estimated">推測のみ</option>
+                <option value="weak_hint">弱い示唆</option>
+                <option value="strong_hint">強い示唆</option>
+                <option value="confirmed_minimum">設定○以上確定</option>
+                <option value="confirmed_exact">設定確定</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">確定・最低設定</label>
+              <select id="save-confirmed-setting" class="form-select">
+                <option value="">未入力</option><option value="1">設定1</option><option value="2">設定2</option><option value="3">設定3</option><option value="4">設定4</option><option value="5">設定5</option><option value="6">設定6</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">設定根拠</label>
+              <input type="text" id="save-setting-note" class="form-input" placeholder="例：設定4以上確定画面">
+            </div>
+          </div>
           <div class="form-row">
             <label class="form-label">メモ</label>
             <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px">
@@ -623,6 +678,11 @@
           <div id="sum-streak" style="text-align:center;padding:6px 0 10px;min-height:24px;font-size:.85rem;font-weight:700"></div>
         </div>
 
+        <div class="card" id="session-label-card">
+          <div class="card-title">学習データの内訳 <span style="font-size:.65rem;color:var(--text3);font-weight:400">（収支・差枚・設定を分離）</span></div>
+          <div id="session-label-summary"><p class="hint">確認しています...</p></div>
+        </div>
+
         <!-- 推定精度レポート -->
         <div class="card" id="estimation-accuracy-card" style="display:none">
           <div class="card-title">推定精度レポート <span style="font-size:.65rem;color:var(--text3);font-weight:400">（ベイズエンジン評価）</span></div>
@@ -668,6 +728,35 @@
             <div>
               <label class="form-label">日付</label>
               <input type="date" id="qe-date" class="form-input">
+            </div>
+          </div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">台の差枚</label>
+              <input type="number" id="qe-coins" class="form-input" placeholder="未記録" inputmode="numeric">
+            </div>
+            <div>
+              <label class="form-label">着席前の期待値（円）</label>
+              <input type="number" id="qe-expected-value" class="form-input" placeholder="未記録" inputmode="numeric">
+            </div>
+          </div>
+          <div class="form-row-2col">
+            <div>
+              <label class="form-label">設定の確認状況</label>
+              <select id="qe-setting-evidence" class="form-select">
+                <option value="unknown">未確認</option>
+                <option value="estimated">推測のみ</option>
+                <option value="weak_hint">弱い示唆</option>
+                <option value="strong_hint">強い示唆</option>
+                <option value="confirmed_minimum">設定○以上確定</option>
+                <option value="confirmed_exact">設定確定</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">確定・最低設定</label>
+              <select id="qe-confirmed-setting" class="form-select">
+                <option value="">未入力</option><option value="1">設定1</option><option value="2">設定2</option><option value="3">設定3</option><option value="4">設定4</option><option value="5">設定5</option><option value="6">設定6</option>
+              </select>
             </div>
           </div>
           <div class="form-row-2col">
@@ -1155,6 +1244,7 @@
             <!-- スケジューラー状態 -->
             <div id="scrape-scheduler-info" style="font-size:.72rem;color:var(--text3);margin-bottom:8px"></div>
             <div id="scrape-health-info" style="font-size:.68rem;color:var(--text3);margin-bottom:10px;line-height:1.6"></div>
+            <div id="desktop-region-coverage" class="desktop-region-coverage">四條畷周辺8店舗の充足度を確認しています...</div>
             <!-- 実行ログ -->
             <div>
               <div style="font-size:.68rem;color:var(--text3);font-weight:600;margin-bottom:4px">直近実行ログ</div>
@@ -1201,6 +1291,8 @@
             <div id="ev-bp-meta" style="font-size:.65rem;color:var(--text3);margin-bottom:8px"></div>
             <div id="ev-bp-halls" style="max-height:180px;overflow-y:auto;font-size:.72rem"></div>
           </div>
+
+          <div id="cal-event-quality" class="event-quality-strip">イベント情報の品質を確認しています...</div>
 
           <!-- カレンダーグリッド -->
           <div class="cal-grid-hd">
@@ -1540,7 +1632,7 @@
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
             <div>
               <div style="font-size:1rem;font-weight:800;letter-spacing:-.02em">AI データアナリスト</div>
-              <div style="font-size:.72rem;color:var(--text2);margin-top:2px">Llama 3.3 70B · Groq</div>
+              <div id="ai-provider-label" style="font-size:.72rem;color:var(--text2);margin-top:2px">接続先を確認中...</div>
             </div>
             <span id="ai-status-badge" style="font-size:.68rem;padding:3px 10px;border-radius:99px;background:var(--bg3);color:var(--text2)">確認中...</span>
           </div>
@@ -1551,14 +1643,17 @@
           <div id="ai-scope-badge" style="margin-top:8px;font-size:.72rem;color:var(--text3);padding:4px 8px;background:var(--bg3);border-radius:6px;display:inline-block">
             全店舗のデータを横断分析します
           </div>
+          <div id="ai-privacy-label" style="margin-top:8px;font-size:.7rem;color:var(--text3)">APIキーはサーバー側だけで管理します。</div>
         </div>
+
+        <article id="desktop-ai-review-panel" class="card"></article>
 
         <!-- B. 自動レポート -->
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
             <div>
-              <div class="card-title" style="margin-bottom:2px" id="ai-report-title">今日の攻略レポート</div>
-              <div style="font-size:.72rem;color:var(--text3)" id="ai-report-subtitle">全店舗比較・イベント候補・おすすめ店舗</div>
+              <div class="card-title" style="margin-bottom:2px" id="ai-report-title">公開実績レポート</div>
+              <div style="font-size:.72rem;color:var(--text3)" id="ai-report-subtitle">登録店舗・機種の過去実績と不足情報</div>
             </div>
             <button id="ai-report-btn" class="btn btn-primary btn-sm">生成</button>
           </div>
@@ -1573,22 +1668,22 @@
           <div class="grad-line"></div>
           <div style="display:flex;gap:8px;margin-bottom:10px">
             <input type="text" id="ai-chat-input" class="form-input"
-                   placeholder="例: 今日どの店に行くべき？"
+                   placeholder="例: 公開データから機種の傾向を教えて"
                    style="flex:1;font-size:.85rem">
             <button id="ai-chat-send" class="btn btn-primary btn-sm" style="white-space:nowrap;padding:0 18px">送信</button>
           </div>
           <!-- 全店舗モードのクイックボタン -->
           <div id="ai-quick-all" style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今日どの店に行くべきか教えて">今日どの店が熱い？</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="全店舗の中で直近最も高設定が出ている店と機種を教えて">高設定が出てる店</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="公開データに記録された店舗と機種の過去実績を教えて">店舗と機種の過去実績</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="公開データの機種別差枚傾向を教えて">機種別の差枚傾向</button>
             <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今どのデータが不足してる？何をスクレイプすればいい？">何が足りてない？</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分の実戦データから改善すべき点は？">実戦の課題</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="この集計の根拠と対象期間は？">根拠と期間</button>
           </div>
           <!-- 単店舗モードのクイックボタン -->
           <div id="ai-quick-hall" style="display:none;gap:6px;flex-wrap:wrap">
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="狙い目の台番ベスト3を教えて">狙い目ベスト3</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="最近の自分の実戦で改善すべき点は？">実戦の課題</button>
-            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="末尾の傾向から今日の立ち回りを提案して">末尾傾向</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="台番号ごとの公開履歴を教えて">台番号の履歴</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="公開データで強く扱われた機種は？">機種の過去傾向</button>
+            <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="日付末尾別の過去実績を教えて">日付末尾の傾向</button>
             <button class="ai-quick-btn btn btn-ghost btn-sm" data-q="今どのデータが不足してる？">何が足りてない？</button>
           </div>
         </div>

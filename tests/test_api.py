@@ -8,11 +8,16 @@ sessions テーブルは tmp_path 上の DB に差し替えて、実データ(da
 汚さないようにしている。machines/ 配下の理論値データと hall/prior.py の
 定数（DAITO_MACHINE_SCORES 等）は読み取り専用なのでそのまま利用する。
 """
+import asyncio
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 
 from records import models as records_models
-from api.main import app
+from api import main as api_main
+
+app = api_main.app
 
 client = TestClient(app)
 
@@ -29,6 +34,21 @@ def _get_first_machine() -> str:
     machines = r.json()
     assert len(machines) > 0
     return machines[0]
+
+
+def test_packaged_smoke_test_skips_background_collection(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["PACHI TOOL.exe", "--smoke-test"])
+
+    def unexpected_scheduler_start():
+        raise AssertionError("smoke test must not start scheduled collection")
+
+    monkeypatch.setattr(api_main.scheduler, "_start_scrape_scheduler", unexpected_scheduler_start)
+
+    async def enter_lifespan():
+        async with api_main._lifespan(app):
+            pass
+
+    asyncio.run(enter_lifespan())
 
 
 def test_machines():
@@ -156,6 +176,9 @@ def test_sessions():
     assert r.status_code == 200
     s = r.json()
     assert s["machine_name"] == "テスト機"
+    assert s["outcome_labels"]["player_profit"]["status"] == "negative"
+    assert s["outcome_labels"]["machine_diff"]["status"] == "unknown"
+    assert s["outcome_labels"]["high_setting"]["confirmed"] is False
     # delete
     r = client.delete(f"/api/sessions/{sid}")
     assert r.status_code == 200
@@ -165,3 +188,71 @@ def test_sessions_export():
     r = client.get("/api/sessions/export")
     assert r.status_code == 200
     assert "text/csv" in r.headers.get("content-type", "")
+
+
+def test_session_outcome_labels_are_kept_separate():
+    r = client.post("/api/sessions", json={
+        "machine_name": "ラベル検証機",
+        "investment": 20000,
+        "returns": 10000,
+        "diff_coins": 1200,
+        "expected_value_yen": 3500,
+        "expected_value_source": "着席前予測",
+        "minimum_confirmed_setting": 4,
+        "setting_evidence_note": "設定4以上確定画面",
+        "prediction_snapshot": {"high_setting_probability_pct": 62},
+    })
+    assert r.status_code == 200, r.text
+    session = client.get(f"/api/sessions/{r.json()['id']}").json()
+    labels = session["outcome_labels"]
+    assert labels["player_profit"]["status"] == "negative"
+    assert labels["machine_diff"]["status"] == "positive"
+    assert labels["expected_value"]["status"] == "positive"
+    assert labels["high_setting"]["status"] == "confirmed_minimum"
+    assert labels["high_setting"]["confirmed"] is True
+    assert session["prediction_snapshot"]["high_setting_probability_pct"] == 62
+
+    summary = client.get("/api/sessions/label_summary").json()
+    assert summary["labels"]["player_profit"]["count"] == 1
+    assert summary["labels"]["machine_diff"]["count"] == 1
+    assert summary["labels"]["expected_value"]["count"] == 1
+    assert summary["labels"]["setting_evidence"]["confirmed_count"] == 1
+
+
+def test_zero_results_can_be_recorded_without_becoming_unknown():
+    r = client.post("/api/sessions", json={
+        "machine_name": "引き分け検証機",
+        "investment": 0,
+        "returns": 0,
+        "diff_coins": 0,
+    })
+    session = client.get(f"/api/sessions/{r.json()['id']}").json()
+    assert session["outcome_labels"]["player_profit"]["status"] == "break_even"
+    assert session["outcome_labels"]["machine_diff"]["status"] == "break_even"
+
+
+def test_inconsistent_confirmed_settings_are_rejected():
+    r = client.post("/api/sessions", json={
+        "machine_name": "矛盾検証機",
+        "confirmed_setting": 3,
+        "minimum_confirmed_setting": 4,
+    })
+    assert r.status_code == 422
+
+
+def test_setting_truth_can_be_corrected_without_leaving_stale_confirmation():
+    created = client.post("/api/sessions", json={
+        "machine_name": "訂正検証機",
+        "minimum_confirmed_setting": 4,
+        "setting_evidence_level": "confirmed_minimum",
+    })
+    sid = created.json()["id"]
+    updated = client.put(f"/api/sessions/{sid}", json={
+        "setting_evidence_level": "strong_hint",
+        "setting_evidence_note": "確定ではなく強い示唆へ訂正",
+    })
+    assert updated.status_code == 200, updated.text
+    label = updated.json()["outcome_labels"]["high_setting"]
+    assert label["status"] == "strong_hint"
+    assert label["confirmed"] is False
+    assert label["minimum_confirmed_setting"] is None

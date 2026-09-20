@@ -18,8 +18,7 @@ uvicorn[standard]>=0.29.0
 # Pydantic (fastapi 同梱だが明示)
 pydantic>=2.0.0
 
-# AI分析
-groq>=0.11.0
+# AI分析（複数社のHTTP APIは上記httpxを共通利用）
 
 # テスト (fastapi.testclient.TestClient が内部で httpx を要求する)
 httpx>=0.27.0

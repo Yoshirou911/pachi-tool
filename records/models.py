@@ -41,6 +41,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     is_event_day   INTEGER NOT NULL DEFAULT 0,
     started_from   INTEGER NOT NULL DEFAULT 0,
     posterior_json TEXT,
+    player_result_recorded  INTEGER NOT NULL DEFAULT 0,
+    machine_result_recorded INTEGER NOT NULL DEFAULT 0,
+    expected_value_yen      INTEGER,
+    expected_value_source   TEXT,
+    setting_evidence_level  TEXT NOT NULL DEFAULT 'unknown',
+    confirmed_setting       INTEGER,
+    minimum_confirmed_setting INTEGER,
+    setting_evidence_note   TEXT,
+    prediction_snapshot_json TEXT,
     notes          TEXT,
     created_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -79,6 +88,31 @@ def _conn() -> Generator[sqlite3.Connection, None, None]:
 def init_db() -> None:
     with _conn() as con:
         con.executescript(_SCHEMA)
+        # 既存ユーザーのDBを削除せず、v3.21の正解ラベル列を追加する。
+        existing = {row["name"] for row in con.execute("PRAGMA table_info(sessions)")}
+        migrations = {
+            "player_result_recorded": "INTEGER NOT NULL DEFAULT 0",
+            "machine_result_recorded": "INTEGER NOT NULL DEFAULT 0",
+            "expected_value_yen": "INTEGER",
+            "expected_value_source": "TEXT",
+            "setting_evidence_level": "TEXT NOT NULL DEFAULT 'unknown'",
+            "confirmed_setting": "INTEGER",
+            "minimum_confirmed_setting": "INTEGER",
+            "setting_evidence_note": "TEXT",
+            "prediction_snapshot_json": "TEXT",
+        }
+        for column, definition in migrations.items():
+            if column not in existing:
+                con.execute(f"ALTER TABLE sessions ADD COLUMN {column} {definition}")
+        # 金額・差枚が入っている旧記録だけは、既知の結果として安全に移行できる。
+        con.execute(
+            "UPDATE sessions SET player_result_recorded=1 "
+            "WHERE player_result_recorded=0 AND (investment<>0 OR returns<>0)"
+        )
+        con.execute(
+            "UPDATE sessions SET machine_result_recorded=1 "
+            "WHERE machine_result_recorded=0 AND diff_coins<>0"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +133,15 @@ class Session:
     is_event_day: bool = False
     started_from: int = 0                    # 途中拾い開始G数（朝一は0）
     posterior: Optional[dict[str, float]] = None
+    player_result_recorded: bool = False
+    machine_result_recorded: bool = False
+    expected_value_yen: Optional[int] = None
+    expected_value_source: str = ""
+    setting_evidence_level: str = "unknown"
+    confirmed_setting: Optional[int] = None
+    minimum_confirmed_setting: Optional[int] = None
+    setting_evidence_note: str = ""
+    prediction_snapshot: Optional[dict] = None
     element_counts: dict[str, int] = field(default_factory=dict)
     notes: str = ""
     id: Optional[int] = None
@@ -111,12 +154,22 @@ class Session:
     def _posterior_json(self) -> Optional[str]:
         return json.dumps(self.posterior, ensure_ascii=False) if self.posterior else None
 
+    @property
+    def _prediction_snapshot_json(self) -> Optional[str]:
+        return json.dumps(self.prediction_snapshot, ensure_ascii=False) if self.prediction_snapshot else None
+
     @classmethod
     def _from_row(cls, row: sqlite3.Row, counts: list[sqlite3.Row]) -> "Session":
         posterior: Optional[dict[str, float]] = None
         if row["posterior_json"]:
             try:
                 posterior = json.loads(row["posterior_json"])
+            except json.JSONDecodeError:
+                pass
+        prediction_snapshot: Optional[dict] = None
+        if row["prediction_snapshot_json"]:
+            try:
+                prediction_snapshot = json.loads(row["prediction_snapshot_json"])
             except json.JSONDecodeError:
                 pass
         return cls(
@@ -133,6 +186,15 @@ class Session:
             is_event_day=bool(row["is_event_day"]),
             started_from=row["started_from"],
             posterior=posterior,
+            player_result_recorded=bool(row["player_result_recorded"]),
+            machine_result_recorded=bool(row["machine_result_recorded"]),
+            expected_value_yen=row["expected_value_yen"],
+            expected_value_source=row["expected_value_source"] or "",
+            setting_evidence_level=row["setting_evidence_level"] or "unknown",
+            confirmed_setting=row["confirmed_setting"],
+            minimum_confirmed_setting=row["minimum_confirmed_setting"],
+            setting_evidence_note=row["setting_evidence_note"] or "",
+            prediction_snapshot=prediction_snapshot,
             element_counts={r["element_name"]: r["count"] for r in counts},
             notes=row["notes"] or "",
         )
@@ -158,11 +220,19 @@ def save_session(s: Session) -> int:
             """INSERT INTO sessions
                (date,hall_id,machine_name,seat_number,is_corner,
                 games_total,investment,returns,diff_coins,
-                is_event_day,started_from,posterior_json,notes)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                is_event_day,started_from,posterior_json,
+                player_result_recorded,machine_result_recorded,
+                expected_value_yen,expected_value_source,setting_evidence_level,
+                confirmed_setting,minimum_confirmed_setting,setting_evidence_note,
+                prediction_snapshot_json,notes)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (s.date, hall_id, s.machine_name, s.seat_number, int(s.is_corner),
              s.games_total, s.investment, s.returns, s.diff_coins,
-             int(s.is_event_day), s.started_from, s._posterior_json, s.notes),
+             int(s.is_event_day), s.started_from, s._posterior_json,
+             int(s.player_result_recorded), int(s.machine_result_recorded),
+             s.expected_value_yen, s.expected_value_source, s.setting_evidence_level,
+             s.confirmed_setting, s.minimum_confirmed_setting, s.setting_evidence_note,
+             s._prediction_snapshot_json, s.notes),
         )
         sid = cur.lastrowid
         for name, cnt in s.element_counts.items():
@@ -177,7 +247,9 @@ def update_session(session_id: int, **kwargs) -> None:
     _allowed = {
         "games_total", "investment", "returns", "diff_coins",
         "is_event_day", "started_from", "seat_number", "is_corner",
-        "notes",
+        "notes", "player_result_recorded", "machine_result_recorded",
+        "expected_value_yen", "expected_value_source", "setting_evidence_level",
+        "confirmed_setting", "minimum_confirmed_setting", "setting_evidence_note",
     }
     with _conn() as con:
         if "element_counts" in kwargs:
@@ -191,8 +263,14 @@ def update_session(session_id: int, **kwargs) -> None:
         if "posterior" in kwargs:
             p = kwargs.pop("posterior")
             kwargs["posterior_json"] = json.dumps(p) if p else None
+        if "prediction_snapshot" in kwargs:
+            snapshot = kwargs.pop("prediction_snapshot")
+            kwargs["prediction_snapshot_json"] = json.dumps(snapshot, ensure_ascii=False) if snapshot else None
 
-        cols = {k: v for k, v in kwargs.items() if k in _allowed or k == "posterior_json"}
+        cols = {
+            k: v for k, v in kwargs.items()
+            if k in _allowed or k in {"posterior_json", "prediction_snapshot_json"}
+        }
         if cols:
             sets = ", ".join(f"{k} = ?" for k in cols) + ", updated_at = CURRENT_TIMESTAMP"
             con.execute(
@@ -263,7 +341,52 @@ def list_halls() -> list[str]:
         return [r["name"] for r in con.execute("SELECT name FROM halls ORDER BY name").fetchall()]
 
 
+def confirmed_setting_snapshot(date_from: str, cutoff: str) -> list[dict]:
+    """Read a minimal dated evidence snapshot; omit money, notes and personal IDs."""
+    if not DB_PATH.exists():
+        return []
+    con = sqlite3.connect(DB_PATH.resolve().as_uri() + "?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in con.execute(
+            """SELECT s.date,h.name AS hall_name,s.machine_name,s.seat_number,
+                      s.setting_evidence_level,s.confirmed_setting,
+                      MAX(s.created_at,s.updated_at) AS known_at
+                 FROM sessions s JOIN halls h ON h.id=s.hall_id
+                WHERE s.date>=? AND s.date<=? AND s.setting_evidence_level='confirmed_exact'
+                  AND s.confirmed_setting BETWEEN 1 AND 6 AND s.seat_number>0
+                  AND substr(MAX(s.created_at,s.updated_at),1,10)<=?
+                ORDER BY s.date,s.id""", (date_from, cutoff, cutoff))]
+    except sqlite3.OperationalError:
+        return []  # Older databases have no confirmed-setting columns.
+    finally:
+        con.close()
+
+
 def session_to_dict(s: Session) -> dict:
+    player_status = (
+        "positive" if s.player_result_recorded and s.diff_yen > 0
+        else "negative" if s.player_result_recorded and s.diff_yen < 0
+        else "break_even" if s.player_result_recorded
+        else "unknown"
+    )
+    machine_status = (
+        "positive" if s.machine_result_recorded and s.diff_coins > 0
+        else "negative" if s.machine_result_recorded and s.diff_coins < 0
+        else "break_even" if s.machine_result_recorded
+        else "unknown"
+    )
+    expected_value_status = (
+        "positive" if s.expected_value_yen is not None and s.expected_value_yen > 0
+        else "negative" if s.expected_value_yen is not None and s.expected_value_yen < 0
+        else "break_even" if s.expected_value_yen is not None
+        else "unknown"
+    )
+    confirmed_high = (
+        s.confirmed_setting is not None and s.confirmed_setting >= 4
+    ) or (
+        s.minimum_confirmed_setting is not None and s.minimum_confirmed_setting >= 4
+    )
     return {
         "id": s.id,
         "date": s.date,
@@ -279,6 +402,36 @@ def session_to_dict(s: Session) -> dict:
         "is_event_day": s.is_event_day,
         "started_from": s.started_from,
         "posterior": s.posterior,
+        "prediction_snapshot": s.prediction_snapshot,
+        "outcome_labels": {
+            "player_profit": {
+                "status": player_status,
+                "recorded": s.player_result_recorded,
+                "value_yen": s.diff_yen if s.player_result_recorded else None,
+                "meaning": "本人の投資と回収による収支",
+            },
+            "machine_diff": {
+                "status": machine_status,
+                "recorded": s.machine_result_recorded,
+                "value_coins": s.diff_coins if s.machine_result_recorded else None,
+                "meaning": "遊技した台の差枚結果",
+            },
+            "high_setting": {
+                "status": s.setting_evidence_level,
+                "confirmed": confirmed_high,
+                "confirmed_setting": s.confirmed_setting,
+                "minimum_confirmed_setting": s.minimum_confirmed_setting,
+                "evidence_note": s.setting_evidence_note,
+                "meaning": "設定示唆・確定情報。収支や差枚とは別判定",
+            },
+            "expected_value": {
+                "status": expected_value_status,
+                "recorded": s.expected_value_yen is not None,
+                "value_yen": s.expected_value_yen,
+                "source": s.expected_value_source,
+                "meaning": "着席前に固定した期待値",
+            },
+        },
         "element_counts": s.element_counts,
         "notes": s.notes,
     }

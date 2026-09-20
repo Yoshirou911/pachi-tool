@@ -94,6 +94,7 @@ def _run_nightly_scrape() -> None:
         # ③ P-WORLD（現在の設置スマスロ）。差枚データがない店舗も対象機種を蓄積する。
         _run_snapshot_scrape()
         _run_dmm_snapshot_scrape()
+        _run_coverage_audit()
     except Exception as e:
         logger.warning(f"[スクレイプ] バッチエラー: {e}")
     finally:
@@ -162,6 +163,25 @@ def _run_dmm_snapshot_scrape() -> None:
         logger.warning(f"[DMM店舗情報] 日次スナップショットエラー: {e}")
 
 
+def _run_coverage_audit() -> None:
+    """収集後に8店舗の不足層を再計算し、次回の収集優先順位を残す。"""
+    try:
+        from api.routers.hall import get_region_data_coverage
+        result = run_logged(
+            "shijonawate_coverage_audit",
+            lambda: get_region_data_coverage(region="shijonawate"),
+        )
+        summary = result.get("summary") or {}
+        logger.info(
+            "[データ充足度] "
+            f"平均{summary.get('average_score', 0)}点・"
+            f"傾向{summary.get('trend_ready_halls', 0)}/{summary.get('hall_count', 0)}店・"
+            f"台番号{summary.get('seat_ready_halls', 0)}/{summary.get('hall_count', 0)}店"
+        )
+    except Exception as e:
+        logger.warning(f"[データ充足度] 監査エラー: {e}")
+
+
 def _run_opportunity_source_check() -> None:
     """期待値公開元を低頻度で確認し、差分を承認キューへ保存する。"""
     try:
@@ -186,10 +206,20 @@ def _run_startup_refresh() -> None:
         _run_pekasen_juggler_scrape()
         _run_snapshot_scrape()
         _run_dmm_snapshot_scrape()
+        _run_coverage_audit()
     except Exception as e:
         logger.warning(f"[起動時更新] エラー: {e}")
     finally:
         set_scrape_running(False)
+
+
+def _run_prediction_verification() -> None:
+    try:
+        from api.routers.predictions import run_daily_predictions
+        result = run_logged("prediction_verification", run_daily_predictions)
+        logger.info(f"[事前予測] {result}")
+    except Exception as exc:
+        logger.warning(f"[事前予測] 保存・照合に失敗: {exc}")
 
 
 def _start_scrape_scheduler() -> None:
@@ -200,6 +230,16 @@ def _start_scrape_scheduler() -> None:
         from apscheduler.triggers.cron import CronTrigger
         from apscheduler.triggers.date import DateTrigger
         _SCHEDULER = BackgroundScheduler(timezone="Asia/Tokyo")
+        _SCHEDULER.add_job(
+            _run_prediction_verification,
+            CronTrigger(hour=13, minute=0, timezone="Asia/Tokyo"),
+            id="prediction_daily", replace_existing=True, max_instances=1,
+        )
+        _SCHEDULER.add_job(
+            _run_prediction_verification,
+            DateTrigger(run_date=datetime.now() + timedelta(seconds=45)),
+            id="prediction_startup", replace_existing=True,
+        )
         _SCHEDULER.add_job(
             _run_nightly_scrape,
             CronTrigger(hour=4, minute=0, timezone="Asia/Tokyo"),
@@ -223,10 +263,29 @@ def _start_scrape_scheduler() -> None:
             except Exception as e:
                 logger.warning(f"[イベント] 自動取得エラー: {e}")
 
+        def _run_event_model_evaluation():
+            try:
+                from api.routers.events import run_event_model_evaluation
+                result = run_event_model_evaluation(region="shijonawate")
+                baseline = result["baseline"]
+                logger.info(
+                    "[イベント検証] 自動答え合わせ完了: "
+                    f"{baseline['hits']}/{baseline['recommended_trials']}件・"
+                    f"95%下限{baseline['lower_bound_pct']}%"
+                )
+            except Exception as e:
+                logger.warning(f"[イベント検証] 自動答え合わせエラー: {e}")
+
         _SCHEDULER.add_job(
             _run_event_scrape,
             CronTrigger(hour=12, minute=0, timezone="Asia/Tokyo"),
             id="event_scrape",
+            replace_existing=True,
+        )
+        _SCHEDULER.add_job(
+            _run_event_model_evaluation,
+            CronTrigger(hour=12, minute=10, timezone="Asia/Tokyo"),
+            id="event_model_evaluation",
             replace_existing=True,
         )
         _SCHEDULER.add_job(
@@ -242,12 +301,18 @@ def _start_scrape_scheduler() -> None:
             replace_existing=True,
         )
         _SCHEDULER.add_job(
+            _run_coverage_audit,
+            CronTrigger(hour=12, minute=40, timezone="Asia/Tokyo"),
+            id="shijonawate_coverage_audit",
+            replace_existing=True,
+        )
+        _SCHEDULER.add_job(
             _run_startup_refresh,
             DateTrigger(run_date=datetime.now() + timedelta(seconds=20)),
             id="startup_refresh",
             replace_existing=True,
         )
         _SCHEDULER.start()
-        logger.info("[スクレイプ] 期待値月曜03:20/差枚04:00/イベント12:00/設置12:15/DMM12:25(JST)")
+        logger.info("[スクレイプ] 期待値月曜03:20/差枚04:00/イベント12:00/自動検証12:10/設置12:15/DMM12:25/充足監査12:40(JST)")
     except Exception as e:
         logger.warning(f"[スクレイプ] スケジューラー起動失敗: {e}")

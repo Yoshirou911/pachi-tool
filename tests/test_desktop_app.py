@@ -24,6 +24,19 @@ def test_migrate_legacy_databases_never_overwrites(tmp_path):
     assert (destination / "opportunities.db").read_bytes() == b"legacy opportunities"
 
 
+def test_configured_data_dir_is_an_isolation_boundary(tmp_path, monkeypatch):
+    destination = tmp_path / "isolated"
+    monkeypatch.setenv("DATA_DIR", str(destination))
+
+    def unexpected_migration(*_args, **_kwargs):
+        raise AssertionError("an explicit DATA_DIR must not import legacy databases")
+
+    monkeypatch.setattr(desktop_app, "migrate_legacy_databases", unexpected_migration)
+
+    assert desktop_app.configure_environment() == destination
+    assert destination.is_dir()
+
+
 def test_reserve_local_port_returns_available_port():
     port = desktop_app.reserve_local_port()
     assert 1024 < port <= 65535

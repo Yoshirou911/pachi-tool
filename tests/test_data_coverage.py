@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 from datetime import date, timedelta
 
 import pytest
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from api import deps
 from api.main import app
+from api.routers import hall as hall_router
 
 
 client = TestClient(app)
@@ -90,4 +92,61 @@ def test_coverage_explains_empty_store(coverage_database):
     assert data["readiness"]["trend_label"] == "不足"
     assert data["readiness"]["trend_ready"] is False
     assert any("未収集" in reason for reason in data["readiness"]["reasons"])
+
+
+def test_coverage_merges_confirmed_hall_name_alias(coverage_database):
+    conn = sqlite3.connect(coverage_database)
+    conn.execute(
+        "INSERT INTO hall_day_machine VALUES (?,?,?,?,?,?)",
+        ("キコーナ四条畷店", date.today().isoformat(), "L北斗", 100, 51, "https://example.com"),
+    )
+    conn.commit()
+    conn.close()
+    response = client.get(
+        "/api/hall/data_coverage", params={"hall_name": "キコーナ四條畷店"}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["performance"]["machine_records"] == 1
+
+
+def test_region_coverage_distinguishes_public_not_disclosed_from_network_error(
+    coverage_database,
+):
+    conn = sqlite3.connect(coverage_database)
+    conn.execute(
+        """CREATE TABLE collection_run_log (
+               id INTEGER PRIMARY KEY, source TEXT, started_at TEXT, finished_at TEXT,
+               status TEXT, records INTEGER, details_json TEXT, error TEXT
+           )"""
+    )
+    details = [{
+        "hall_name": "キコーナ四条畷店",
+        "status": "no_public_data",
+        "rows": 0,
+    }]
+    conn.execute(
+        "INSERT INTO collection_run_log VALUES (1,?,?,?,?,?,?,?)",
+        (
+            "public_machine_daily", "2026-09-02T08:00:00", "2026-09-02T08:00:01",
+            "partial", 0, json.dumps(details, ensure_ascii=False), "",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    response = client.get("/api/hall/region_data_coverage", params={"region": "shijonawate"})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    item = next(row for row in data["halls"] if row["hall_name"] == "キコーナ四條畷店")
+    assert item["collection"]["state"] == "not_disclosed"
+    assert item["collection"]["label"] == "公開元が差枚未掲載"
+    assert "CSV" in item["next_action"]
+    assert data["summary"]["public_not_disclosed_halls"] == 1
+
+
+def test_target_search_region_board_keeps_all_local_halls_visible(coverage_database):
+    board = hall_router._build_region_decision_board("shijonawate", [], [])
+    assert board["summary"]["hall_count"] == 8
+    assert len(board["halls"]) == 8
+    assert all(item["next_action"] for item in board["halls"])
 

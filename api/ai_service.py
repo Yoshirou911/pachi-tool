@@ -1,978 +1,235 @@
-"""
-Groq API を使ったパチスロ分析AIサービス（無料）
-- チャット (A): データを渡してQ&A
-- 自動レポート (B): 今日の攻略レポート生成
-- 設定推測コメント (C): 推測結果の解釈（機種理論値付き）
-"""
+"""v3.41: evidence-bound explanations. All public AI paths share one validator."""
 from __future__ import annotations
 
-import json
-import os
-import sqlite3
-from pathlib import Path
-from typing import Optional
-
-try:
-    from config import HALL_REPORTS_DB, SESSIONS_DB, MACHINES_DIR
-except ImportError:
-    _base = Path(__file__).parent.parent / "data"
-    HALL_REPORTS_DB = _base / "hall_reports.db"
-    SESSIONS_DB     = _base / "sessions.db"
-    MACHINES_DIR    = _base / "machines"
-
-MODEL = "llama-3.3-70b-versatile"
-
-SYSTEM_PROMPT = """あなたはパチスロ専門のデータアナリストです。
-ユーザーのパチスロ実戦データと店舗の台別データを分析し、
-簡潔で実践的なアドバイスを日本語で提供します。
-
-回答のルール:
-- 必ず日本語で答える
-- 数字は具体的に示す。「BB 1/200 → 設定4〜5相当」のように理論値と比較する
-- 投資判断は「〇〇円以内」など明確に
-- 絵文字は使わない
-- 長すぎず、要点を絞る
-- データが少ない場合は「〇〇Gのサンプルでは判断が難しい」と明記する"""
+from datetime import date
+from api.ai_provider import AIProviderClient, get_provider_config, provider_status
+from api.ai_governance import AIGovernanceError, GovernedClient, governance, validate_request_id
+from api.ai_evidence import answer, evidence, freeze_evidence, historical_snapshot, metric
+from config import HALL_REPORTS_DB
+from api.ai_hall_analysis import build_hall_snapshot, resolve_topics
+from api.ai_guard import VERSION as GUARD_VERSION, inspect_snapshot
 
 
-def _get_client():
-    key = os.environ.get("GROQ_API_KEY", "")
-    if not key:
+def _get_client(*, request_id=None, purpose="", messages=None, confirmed=False,
+                environ=None, governance_service=governance):
+    """External AI is opt-in per request; all legacy callers stay local."""
+    if not confirmed:
         return None
-    try:
-        from groq import Groq
-        return Groq(api_key=key)
-    except ImportError:
-        return None
+    validate_request_id(request_id)
+    if not messages or governance_service is None:
+        raise AIGovernanceError("外部AIの送信内容・費用管理が設定されていません")
+    config = get_provider_config(environ)
+    if not config or not config.available:
+        raise ValueError("外部AIが接続されていません")
+    governance_service.authorize(request_id=str(request_id), provider=config.definition.name,
+        model=config.model, purpose=purpose, call_messages=[messages], max_tokens=600,
+        confirmed=True, environ=environ)
+    return GovernedClient(AIProviderClient(config), governance_service, str(request_id), environ,
+                          expected_messages=messages)
 
 
-# ---------------------------------------------------------------------------
-# データ収集ヘルパー
-# ---------------------------------------------------------------------------
+def get_ai_status() -> dict:
+    return {**provider_status(), "evidence_contract_version": "1.0",
+            "answer_mode": "根拠照合・固定文", "personal_history_enabled": False,
+            "automatic_external_calls": False, "answer_guard_version": GUARD_VERSION}
 
-def _hall_summary(hall_name: str, days: int = 30) -> str:
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute("""
-            SELECT machine_name, seat_number,
-                   COUNT(*) as cnt,
-                   ROUND(AVG(diff_coins)) as avg_diff,
-                   MAX(diff_coins) as max_diff,
-                   MIN(diff_coins) as min_diff,
-                   ROUND(AVG(games)) as avg_games
-            FROM hall_day_seat
-            WHERE hall_name=? AND machine_name != '_NODATA_'
-              AND report_date >= date('now', ? || ' days')
-            GROUP BY machine_name, seat_number
-            HAVING cnt >= 3
-            ORDER BY avg_diff DESC
-            LIMIT 30
-        """, (hall_name, f"-{days}")).fetchall()
-        conn.close()
-        if not rows:
-            return f"{hall_name}: データなし"
-        lines = [f"【{hall_name} 過去{days}日 台別成績ランキング】"]
-        lines.append("機種 | 台番 | 出現日数 | 平均差枚 | 最大 | 最小 | 平均G")
-        for r in rows[:15]:
-            lines.append(f"{r[0]} | {r[1]}番 | {r[2]}日 | {r[3]:+}枚 | {r[4]:+} | {r[5]:+} | {r[6]}G")
-        if len(rows) > 15:
-            lines.append("---下位---")
-            for r in rows[-5:]:
-                lines.append(f"{r[0]} | {r[1]}番 | {r[2]}日 | {r[3]:+}枚 | {r[4]:+} | {r[5]:+} | {r[6]}G")
-        return "\n".join(lines)
-    except Exception as e:
-        return f"データ取得エラー: {e}"
 
+def current_engine_label(client=None) -> str:
+    active = client or _get_client()
+    return f"{active.display_name}＋根拠照合" if active else "統計エンジン"
 
-def _weekday_summary(hall_name: str) -> str:
-    """曜日別傾向サマリー"""
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute("""
-            SELECT strftime('%w', report_date) as dow,
-                   COUNT(*) as cnt,
-                   ROUND(AVG(diff_coins)) as avg_diff,
-                   ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
-            FROM hall_day_seat
-            WHERE hall_name=? AND bb_prob IS NOT NULL
-              AND machine_name NOT LIKE '末尾%'
-            GROUP BY dow
-            ORDER BY avg_diff DESC
-        """, (hall_name,)).fetchall()
-        conn.close()
-        if not rows:
-            return ""
-        dow_names = {"0":"日","1":"月","2":"火","3":"水","4":"木","5":"金","6":"土"}
-        lines = ["【曜日別傾向】"]
-        for r in rows:
-            name = dow_names.get(r[0], r[0])
-            lines.append(f"{name}曜日: 平均{r[2]:+}枚 / 勝率{r[3]}% ({r[1]}件)")
-        return "\n".join(lines)
-    except Exception:
-        return ""
 
+def _seat_question(message: str) -> bool:
+    return any(word in message for word in ("台番", "何番", "番台"))
 
-def _session_summary(limit: int = 20) -> str:
-    """直近セッション履歴（正しいカラム名使用）"""
-    try:
-        conn = sqlite3.connect(SESSIONS_DB)
-        rows = conn.execute("""
-            SELECT s.machine_name, s.date, s.games_total,
-                   s.investment, s.returns, s.diff_coins,
-                   s.posterior_json
-            FROM sessions s
-            ORDER BY s.created_at DESC
-            LIMIT ?
-        """, (limit,)).fetchall()
-        conn.close()
-        if not rows:
-            return "セッション履歴: なし"
-        lines = ["【直近セッション履歴】"]
-        lines.append("機種 | 日付 | G数 | 収支 | 推定設定")
-        for r in rows:
-            profit = (r[4] or 0) - (r[3] or 0)
-            exp_s = ""
-            if r[6]:
-                try:
-                    post = json.loads(r[6])
-                    if isinstance(post, dict) and post:
-                        exp = sum(float(k)*v for k,v in post.items())
-                        high = sum(v for k,v in post.items() if float(k) >= 4)
-                        exp_s = f" 推定設定{exp:.1f}(高設定{high:.0%})"
-                except Exception:
-                    pass
-            lines.append(
-                f"{r[0]} | {r[1]} | {r[2] or 0}G | {profit:+}枚{exp_s}"
-            )
-        return "\n".join(lines)
-    except Exception as e:
-        return f"セッション取得エラー: {e}"
 
+def chat_result(message: str, hall_name: str, history: list | None = None,
+                target_date: str | None = None) -> dict:
+    target = target_date or date.today().isoformat()
+    if hall_name and hall_name != "全店舗":
+        return hall_question_result(hall_name=hall_name, target_date=target, question=message)
+    snapshot = historical_snapshot(HALL_REPORTS_DB, hall_name=hall_name, target_date=target)
+    notice = ("この集計だけでは台番号を確定できません。現在配置・台別履歴・台別検証を確認してください。"
+              if _seat_question(message) else "")
+    # Conversation history is untrusted, possibly personal and from other scopes.
+    # v3.41 grounds each answer in the current scope, never in prior AI prose.
+    return answer(snapshot, question=message, client=_get_client(), required_notice=notice)
 
-def _tail_summary(hall_name: str) -> str:
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute("""
-            SELECT (seat_number % 10) as tail,
-                   COUNT(*) as cnt,
-                   ROUND(AVG(diff_coins)) as avg_diff,
-                   ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
-            FROM hall_day_seat
-            WHERE hall_name=? AND machine_name NOT LIKE '_%'
-              AND machine_name NOT LIKE '末尾%' AND bb_prob IS NOT NULL
-            GROUP BY tail
-            ORDER BY avg_diff DESC
-        """, (hall_name,)).fetchall()
-        conn.close()
-        if not rows:
-            return ""
-        lines = ["【末尾別傾向】"]
-        for r in rows:
-            lines.append(f"末尾{r[0]}: {r[2]:+}枚 / 勝率{r[3]}% ({r[1]}件)")
-        return "\n".join(lines)
-    except Exception:
-        return ""
 
+def chat(message: str, hall_name: str, history: list) -> str:
+    return chat_result(message, hall_name, history)["summary"]
 
-def _today_targets_summary(hall_name: str) -> str:
-    """今日の狙い台サマリー（AIレポート用）"""
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute("""
-            SELECT machine_name, seat_number,
-                   COUNT(*) as days,
-                   ROUND(AVG(diff_coins)) as avg_diff,
-                   ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate,
-                   ROUND(MIN(diff_coins)) as worst
-            FROM hall_day_seat
-            WHERE hall_name=? AND machine_name NOT LIKE '末尾%'
-              AND machine_name != '_NODATA_' AND bb_prob IS NOT NULL
-              AND report_date >= date('now', '-30 days')
-            GROUP BY machine_name, seat_number
-            HAVING days >= 3
-            ORDER BY avg_diff DESC
-            LIMIT 5
-        """, (hall_name,)).fetchall()
-        conn.close()
-        if not rows:
-            return ""
-        lines = ["【推奨狙い台TOP5（30日間平均）】"]
-        for i, r in enumerate(rows, 1):
-            lines.append(
-                f"{i}. {r[0]} {r[1]}番 — 平均{r[2]:+}枚 / 勝率{r[4]}% / 最悪{r[5]:+}枚 ({r[2]}日)"
-            )
-        return "\n".join(lines)
-    except Exception:
-        return ""
 
+def report_result(hall_name: str, target_date: str | None = None) -> dict:
+    return chat_result("この店舗の公開実績と不足情報をまとめて", hall_name, target_date=target_date)
 
-def _machine_setting_tendency(hall_name: str) -> str:
-    """機種別推定設定傾向サマリー（AIレポート用）"""
-    try:
-        import datetime
-        from hall.prior import _estimate_prior_from_anaslo
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute(
-            """SELECT machine_name, COUNT(*) as records,
-                      ROUND(AVG(diff_coins)) as avg_diff,
-                      ROUND(AVG(bb_prob)*100, 4) as avg_bb_pct
-               FROM hall_day_seat
-               WHERE hall_name=? AND bb_prob IS NOT NULL
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-                 AND report_date >= date('now', '-60 days')
-               GROUP BY machine_name HAVING records >= 5
-               ORDER BY records DESC LIMIT 10""",
-            (hall_name,)
-        ).fetchall()
-        conn.close()
-        if not rows:
-            return ""
-        today_dow = datetime.date.today().weekday()
-        lines = ["【機種別推定設定傾向（60日）】"]
-        for r in rows[:8]:
-            mname = r[0]
-            avg_diff = r[2] or 0
-            prior = _estimate_prior_from_anaslo(hall_name, mname, ["1","2","3","4","5","6"], today_dow)
-            if prior:
-                exp_s = sum(int(s)*p for s,p in prior.items())
-                high_p = sum(p for s,p in prior.items() if int(s) >= 4)
-                lines.append(f"  {mname}: 推定設定{exp_s:.1f} / 高設定{high_p:.0%} / 平均{avg_diff:+}枚 ({r[1]}件)")
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
-
-def _bb_surge_summary(hall_name: str) -> str:
-    """直近3日でBB確率が急上昇した台（設定入れ替えシグナル）"""
-    try:
-        import datetime as _dt
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        prev_date = (_dt.date.today() - _dt.timedelta(days=3)).isoformat()
-
-        recent = conn.execute(
-            """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
-               FROM hall_day_seat
-               WHERE hall_name=? AND bb_prob IS NOT NULL AND report_date >= ?
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-               GROUP BY machine_name, seat_number HAVING COUNT(*) >= 1""",
-            (hall_name, prev_date)
-        ).fetchall()
-
-        baseline = conn.execute(
-            """SELECT machine_name, seat_number, AVG(bb_prob) as avg_bb
-               FROM hall_day_seat
-               WHERE hall_name=? AND bb_prob IS NOT NULL
-                 AND report_date < ? AND report_date >= date(?, '-60 days')
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-               GROUP BY machine_name, seat_number HAVING COUNT(*) >= 3""",
-            (hall_name, prev_date, prev_date)
-        ).fetchall()
-        conn.close()
-
-        import statistics as _s
-        m_bbs: dict[str, list[float]] = {}
-        for r in baseline:
-            m_bbs.setdefault(r[0], []).append(float(r[2]))
-        machine_std = {m: (_s.stdev(v) if len(v) > 1 else 0.001) or 0.001 for m, v in m_bbs.items()}
-        bmap = {(r[0], r[1]): float(r[2]) for r in baseline}
-
-        surges = []
-        for r in recent:
-            base = bmap.get((r[0], r[1]))
-            if base is None:
-                continue
-            std = machine_std.get(r[0], 0.001)
-            z = (float(r[2]) - base) / std
-            if z >= 0.8:
-                surges.append((r[0], r[1], z, float(r[2])*100, base*100))
-
-        if not surges:
-            return ""
-        surges.sort(key=lambda x: -x[2])
-        lines = ["【BB確率急上昇台（設定入れ替えシグナル）直近3日】"]
-        for m, s, z, rec_bb, base_bb in surges[:5]:
-            lines.append(f"  {m} {s}番: +{z:.1f}σ（ベース{base_bb:.3f}% → 直近{rec_bb:.3f}%）")
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
-
-def _top_streak_seats(hall_name: str) -> str:
-    """連続プラス台（3日以上連続好調）"""
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute(
-            """SELECT machine_name, seat_number, report_date, diff_coins
-               FROM hall_day_seat
-               WHERE hall_name=? AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-                 AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
-                 AND report_date >= date('now', '-14 days')
-               ORDER BY machine_name, seat_number, report_date DESC""",
-            (hall_name,)
-        ).fetchall()
-        conn.close()
-
-        from collections import defaultdict
-        seat_data: dict = defaultdict(list)
-        for m, s, d, diff in rows:
-            seat_data[(m, s)].append(diff or 0)
-
-        streaks = []
-        for (m, s), diffs in seat_data.items():
-            streak = 0
-            for d in diffs:
-                if d > 0:
-                    streak += 1
-                else:
-                    break
-            if streak >= 3:
-                streaks.append((m, s, streak, sum(diffs[:streak])//streak))
-
-        if not streaks:
-            return ""
-        streaks.sort(key=lambda x: -x[2])
-        lines = ["【連続好調台（直近3日以上プラス）】"]
-        for m, s, k, avg in streaks[:5]:
-            lines.append(f"  {m} {s}番: {k}連続プラス（平均{avg:+}枚）")
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
-
-def _event_day_hint(hall_name: str) -> str:
-    """今日がイベント日候補かどうかをBBパターン統計から判定"""
-    try:
-        import datetime as _dt
-        import statistics as _s
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute(
-            """SELECT report_date, AVG(bb_prob) as avg_bb, COUNT(*) as cnt
-               FROM hall_day_seat
-               WHERE hall_name=? AND bb_prob IS NOT NULL
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-                 AND report_date >= date('now', '-180 days')
-               GROUP BY report_date HAVING cnt >= 3""",
-            (hall_name,)
-        ).fetchall()
-        conn.close()
-        if len(rows) < 10:
-            return ""
-
-        all_bbs = [float(r[1]) for r in rows]
-        global_mean = _s.mean(all_bbs)
-        global_std  = _s.stdev(all_bbs) if len(all_bbs) > 1 else 0.001
-
-        today = _dt.date.today()
-        today_tail = today.day % 10
-        today_dow  = ["月","火","水","木","金","土","日"][today.weekday()]
-        today_dow_int = (today.weekday() + 1) % 7  # strftime %w (0=Sun)
-        is_five = today.day in (5, 15, 25)
-
-        hits = []
-        for tail in [today_tail]:
-            p = [float(r[1]) for r in rows if _dt.date.fromisoformat(r[0]).day % 10 == tail]
-            if len(p) >= 3:
-                z = (sum(p)/len(p) - global_mean) / max(global_std, 1e-8)
-                if z >= 0.5:
-                    hits.append(f"末尾{tail}の日(+{z:.1f}σ)")
-        for dow_i, dow_n in [(today_dow_int, today_dow)]:
-            p = [float(r[1]) for r in rows if _dt.date.fromisoformat(r[0]).weekday() == (dow_i - 1) % 7]
-            if len(p) >= 3:
-                z = (sum(p)/len(p) - global_mean) / max(global_std, 1e-8)
-                if z >= 0.5:
-                    hits.append(f"{dow_n}曜日(+{z:.1f}σ)")
-        if is_five:
-            p = [float(r[1]) for r in rows if _dt.date.fromisoformat(r[0]).day in (5,15,25)]
-            if len(p) >= 2:
-                z = (sum(p)/len(p) - global_mean) / max(global_std, 1e-8)
-                if z >= 0.5:
-                    hits.append(f"5・15・25日(+{z:.1f}σ)")
-
-        if not hits:
-            return f"【今日({today.month}/{today.day} {today_dow}曜日)】イベント日特有のパターンなし"
-        return (f"【今日({today.month}/{today.day} {today_dow}曜日)はイベント日候補！】\n"
-                f"  該当パターン: {'、'.join(hits)}\n  → 高設定比率が統計的に上昇する傾向あり")
-    except Exception:
-        return ""
-
-
-def _zone_summary(hall_name: str) -> str:
-    """台番ゾーン別BB傾向（AIレポート用）"""
-    try:
-        import statistics as _s
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute(
-            """SELECT seat_number, AVG(bb_prob) as avg_bb
-               FROM hall_day_seat
-               WHERE hall_name=? AND bb_prob IS NOT NULL AND seat_number IS NOT NULL
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-                 AND report_date >= date('now', '-90 days')
-               GROUP BY seat_number HAVING COUNT(*) >= 3""",
-            (hall_name,)
-        ).fetchall()
-        conn.close()
-        if len(rows) < 5:
-            return ""
-
-        zone_data: dict[int, list[float]] = {}
-        for seat, bb in rows:
-            z = ((int(seat)-1)//10)*10+1
-            zone_data.setdefault(z, []).append(float(bb))
-
-        if len(zone_data) < 2:
-            return ""
-        all_bbs = [v for vals in zone_data.values() for v in vals]
-        gm = _s.mean(all_bbs)
-        gs = _s.stdev(all_bbs) if len(all_bbs) > 1 else 0.001
-
-        zones = [(z, sum(v)/len(v), (sum(v)/len(v)-gm)/max(gs,1e-8))
-                 for z, v in zone_data.items()]
-        zones.sort(key=lambda x: -x[2])
-        top = zones[:3]
-        lines = ["【台番ゾーン別BB傾向TOP3（高設定が集まりやすいゾーン）】"]
-        for z_start, mean_bb, zs in top:
-            lines.append(f"  {z_start}~{z_start+9}番台: BB {mean_bb*100:.3f}% ({'+' if zs>=0 else ''}{zs:.1f}σ)")
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
-
-def _today_dow_best(hall_name: str) -> str:
-    """本日曜日に強い機種TOP5"""
-    try:
-        import datetime
-        today = datetime.date.today()
-        sql_dow = str((today.weekday()+1) % 7)
-        dow_ja = ["月","火","水","木","金","土","日"][today.weekday()]
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute(
-            """SELECT machine_name, COUNT(*) as cnt,
-                      ROUND(AVG(diff_coins)) as avg_diff,
-                      ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
-               FROM hall_day_seat
-               WHERE hall_name=? AND strftime('%w',report_date)=?
-                 AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-                 AND (bb_prob IS NOT NULL OR ev_pct IS NOT NULL)
-                 AND report_date >= date('now', '-120 days')
-               GROUP BY machine_name HAVING cnt >= 3
-               ORDER BY avg_diff DESC LIMIT 5""",
-            (hall_name, sql_dow)
-        ).fetchall()
-        conn.close()
-        if not rows:
-            return ""
-        lines = [f"【{dow_ja}曜日に強い機種TOP5（過去120日同曜日）】"]
-        for i, r in enumerate(rows, 1):
-            lines.append(f"  {i}. {r[0]}: 平均{r[2]:+}枚 / 勝率{r[3]}% ({r[1]}日)")
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
-
-def _load_machine_theory(machine_name: str) -> str:
-    """機種の設定別理論値テーブルを文字列で返す（AIへの参考データ）"""
-    path = MACHINES_DIR / f"{machine_name}.json"
-    if not path.exists():
-        return ""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-        settings = data.get("settings", [])
-        elements = data.get("elements", [])
-        kw = data.get("machine_kw", {})
-        lines = [f"【{machine_name} 設定別理論値】"]
-        # 機械割
-        if kw:
-            kw_str = " / ".join(f"設定{s}:{kw.get(s,'?'):.1%}" for s in settings if s in kw)
-            lines.append(f"機械割: {kw_str}")
-        # 各要素
-        for el in elements:
-            p = el.get("p", {})
-            name = el["name"]
-            vals = []
-            for s in settings:
-                prob = p.get(s, 0)
-                if prob > 0:
-                    if prob < 0.01:
-                        # 1/x 表記
-                        vals.append(f"設{s}:1/{1/prob:.0f}")
-                    else:
-                        # パーセント表記
-                        vals.append(f"設{s}:{prob:.1%}")
-            lines.append(f"  {name}: {' / '.join(vals)}")
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
-
-def _call(client, messages: list, max_tokens: int = 800) -> str:
-    try:
-        resp = client.chat.completions.create(
-            model=MODEL,
-            max_tokens=max_tokens,
-            messages=messages,
-        )
-        return resp.choices[0].message.content
-    except Exception as e:
-        err = str(e)
-        if "rate_limit" in err.lower():
-            return "レート制限に達しました。少し待ってから再試行してください。"
-        if "invalid_api_key" in err.lower() or "authentication" in err.lower():
-            return "APIキーが無効です。GROQ_API_KEYを確認してください。"
-        return f"AIエラー: {err[:200]}"
-
-
-def explain_trend_profile(profile: dict) -> str | None:
-    """統計APIの店舗カルテを、断定を避けた短い攻略メモへ変換する。"""
-    client = _get_client()
-    if client is None:
-        return None
-    compact_profile = {
-        "hall_name": profile.get("hall_name"),
-        "visit_date": profile.get("visit_date"),
-        "sample_days": profile.get("sample_days"),
-        "confidence": profile.get("confidence"),
-        "overall": profile.get("overall"),
-        "weekday_profile": profile.get("weekday_profile", []),
-        "digit_profile": profile.get("digit_profile", []),
-        "machine_profile": profile.get("machine_profile", [])[:8],
-        "next_dates": profile.get("next_dates", [])[:5],
-        "statistical_insights": profile.get("insights", []),
-    }
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT + "\n"
-         "店舗傾向の事実と仮説を混ぜないでください。"
-         "出力は『確認できた傾向』『次回の見方』『注意点』の3項目、各2文以内。"
-         "入力にない数値・イベント・台番号を作らないでください。"},
-        {"role": "user", "content": "次の統計カルテを説明してください。\n" + json.dumps(compact_profile, ensure_ascii=False)},
-    ]
-    result = _call(client, messages, max_tokens=500)
-    return result if result and not result.startswith("AIエラー") else None
-
-
-# ---------------------------------------------------------------------------
-# データ在庫サマリー（「何のデータが不足しているか」に答えるため）
-# ---------------------------------------------------------------------------
-
-def _data_availability_summary() -> str:
-    """DB内のデータ量を具体的にまとめてAIに渡す（「何が不足している？」への回答用）"""
-    lines = ["【現在のデータ在庫状況】"]
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        # 店舗別データ量
-        hall_rows = conn.execute("""
-            SELECT hall_name,
-                   COUNT(*) as records,
-                   COUNT(DISTINCT report_date) as days,
-                   MIN(report_date) as oldest,
-                   MAX(report_date) as newest,
-                   COUNT(DISTINCT machine_name) as machines,
-                   ROUND(AVG(diff_coins)) as avg_diff
-            FROM hall_day_seat
-            WHERE machine_name != '_NODATA_'
-            GROUP BY hall_name
-            ORDER BY records DESC
-        """).fetchall()
-
-        if hall_rows:
-            lines.append(f"スクレイプ済み店舗: {len(hall_rows)}店")
-            for r in hall_rows:
-                lines.append(
-                    f"  {r[0]}: {r[2]}日分 / {r[5]}機種 / {r[1]}レコード "
-                    f"（{r[3]}〜{r[4]}）平均{r[6]:+}枚"
-                )
-        else:
-            lines.append("スクレイプデータ: なし（一度もスクレイプされていません）")
-
-        # 最終スクレイプ日時
-        log_row = conn.execute("""
-            SELECT MAX(started_at), COUNT(*), SUM(CASE WHEN status='cf_blocked' THEN 1 ELSE 0 END)
-            FROM scrape_log
-        """).fetchone()
-        if log_row and log_row[0]:
-            lines.append(f"最終スクレイプ: {log_row[0]} / 全{log_row[1]}回実行 / CF失敗{log_row[2]}回")
-
-        conn.close()
-    except Exception as e:
-        lines.append(f"hall_reports.db読み取りエラー: {e}")
-
-    try:
-        conn2 = sqlite3.connect(SESSIONS_DB)
-        ses_row = conn2.execute("""
-            SELECT COUNT(*),
-                   COUNT(DISTINCT machine_name),
-                   SUM(games_total),
-                   MIN(date), MAX(date),
-                   ROUND(AVG((returns or 0)-(investment or 0)))
-            FROM sessions
-        """).fetchone()
-        conn2.close()
-        if ses_row and ses_row[0]:
-            lines.append(
-                f"実戦セッション: {ses_row[0]}件 / {ses_row[1]}機種 / "
-                f"累計{ses_row[2] or 0:,}G（{ses_row[3]}〜{ses_row[4]}）"
-                f" 平均収支{ses_row[5]:+}枚"
-            )
-        else:
-            lines.append("実戦セッション: 0件（まだ実戦データを記録していません）")
-    except Exception as e:
-        lines.append(f"sessions.db読み取りエラー: {e}")
-
-    lines.append("\n【不足しているデータの種類（例示）】")
-    lines.append("・ 実戦セッション: 台で打った記録（G数・ボーナス回数・収支）— 推定精度の向上に使用")
-    lines.append("・ スクレイプデータ: 店舗の台別・機種別データ — 狙い目選定の基礎")
-    lines.append("・ イベント情報: ホールの特定日データ — いつ打ちに行くべきかの判断に使用")
-
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# 全店舗横断サマリー
-# ---------------------------------------------------------------------------
-
-def _all_halls_summary() -> str:
-    """全店舗の比較サマリー（どの店が熱いか・スコアランキング）"""
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        rows = conn.execute("""
-            SELECT hall_name,
-                   COUNT(*) as cnt,
-                   COUNT(DISTINCT report_date) as days,
-                   ROUND(AVG(diff_coins)) as avg_diff,
-                   ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate,
-                   ROUND(AVG(bb_prob)*10000, 2) as avg_bb_per10k,
-                   MAX(report_date) as latest
-            FROM hall_day_seat
-            WHERE machine_name != '_NODATA_'
-              AND report_date >= date('now', '-60 days')
-            GROUP BY hall_name
-            HAVING days >= 3
-            ORDER BY avg_diff DESC
-        """).fetchall()
-        conn.close()
-        if not rows:
-            return "全店舗データなし（スクレイプ未実施）"
-        lines = ["【全店舗比較ランキング（直近60日）】"]
-        lines.append("店舗名 | 集計日数 | 平均差枚 | 勝率 | 最終データ")
-        for i, r in enumerate(rows, 1):
-            lines.append(
-                f"{i}. {r[0]}: {r[2]}日分 / 平均{r[3]:+}枚 / 勝率{r[4]}% "
-                f"/ BB={r[5]}/1万G / {r[6]}"
-            )
-        return "\n".join(lines)
-    except Exception as e:
-        return f"全店舗サマリーエラー: {e}"
-
-
-def _all_halls_top_machines() -> str:
-    """店舗ごとの機種別成績（各店TOP4）+ 全横断ランキング"""
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        # 全組み合わせを取得して Python 側でフィルタ
-        rows = conn.execute("""
-            SELECT hall_name, machine_name,
-                   COUNT(*) as cnt,
-                   ROUND(AVG(diff_coins)) as avg_diff,
-                   ROUND(AVG(CASE WHEN diff_coins > 0 THEN 1.0 ELSE 0.0 END)*100) as win_rate
-            FROM hall_day_seat
-            WHERE machine_name != '_NODATA_'
-              AND report_date >= date('now', '-30 days')
-            GROUP BY hall_name, machine_name
-            HAVING cnt >= 2
-            ORDER BY hall_name, avg_diff DESC
-        """).fetchall()
-        conn.close()
-        if not rows:
-            return ""
-
-        # 店舗ごとにTOP4をまとめる
-        from collections import defaultdict
-        hall_machines: dict[str, list] = defaultdict(list)
-        for r in rows:
-            hall_machines[r[0]].append(r)
-
-        lines = ["【店舗別 機種ランキング（直近30日 各店TOP4）】"]
-        lines.append("（「スマスロ北斗はどの店？」などの質問に使う機種×店舗データ）")
-        for hall, machines in hall_machines.items():
-            lines.append(f"\n▼ {hall}")
-            for m in machines[:4]:
-                lines.append(f"  {m[1]}: 平均{m[3]:+}枚 / 勝率{m[4]}% ({m[2]}日)")
-
-        # 横断TOP10（全体でも上位を別掲）
-        all_sorted = sorted(rows, key=lambda x: -(x[3] or -9999))[:10]
-        lines.append("\n【全店舗横断 好調機種×店舗 TOP10】")
-        for i, r in enumerate(all_sorted, 1):
-            lines.append(f"{i}. {r[0]} × {r[1]}: 平均{r[3]:+}枚 / 勝率{r[4]}% ({r[2]}日)")
-
-        return "\n".join(lines)
-    except Exception:
-        return ""
-
-
-def _all_halls_event_hint() -> str:
-    """全店舗で今日イベント候補かどうか（BB統計から）"""
-    import datetime as _dt
-    lines = []
-    try:
-        conn = sqlite3.connect(HALL_REPORTS_DB)
-        halls = [r[0] for r in conn.execute(
-            "SELECT DISTINCT hall_name FROM hall_day_seat WHERE machine_name != '_NODATA_'"
-        ).fetchall()]
-        conn.close()
-    except Exception:
-        return ""
-
-    today = _dt.date.today()
-    today_tail = today.day % 10
-    today_dow_jp = ["月","火","水","木","金","土","日"][today.weekday()]
-    hot_halls = []
-
-    for hall in halls:
-        try:
-            conn = sqlite3.connect(HALL_REPORTS_DB)
-            rows = conn.execute(
-                """SELECT report_date, AVG(bb_prob) as avg_bb
-                   FROM hall_day_seat WHERE hall_name=? AND bb_prob IS NOT NULL
-                     AND machine_name NOT LIKE '末尾%' AND machine_name != '_NODATA_'
-                     AND report_date >= date('now', '-180 days')
-                   GROUP BY report_date HAVING COUNT(*) >= 3""",
-                (hall,)
-            ).fetchall()
-            conn.close()
-            if len(rows) < 8:
-                continue
-            import statistics as _s
-            all_bb = [float(r[1]) for r in rows]
-            gm, gs = _s.mean(all_bb), (_s.stdev(all_bb) if len(all_bb) > 1 else 0.001)
-            tail_bbs = [float(r[1]) for r in rows if _dt.date.fromisoformat(r[0]).day % 10 == today_tail]
-            if len(tail_bbs) >= 2:
-                z = (sum(tail_bbs)/len(tail_bbs) - gm) / max(gs, 1e-8)
-                if z >= 0.5:
-                    hot_halls.append((hall, z, f"末尾{today_tail}({z:+.1f}σ)"))
-        except Exception:
-            continue
-
-    if not hot_halls:
-        lines.append(f"今日({today.month}/{today.day} {today_dow_jp}曜): 全店舗で特有のイベントシグナルなし")
-    else:
-        lines.append(f"今日({today.month}/{today.day} {today_dow_jp}曜)イベント候補店舗:")
-        hot_halls.sort(key=lambda x: -x[1])
-        for hall, z, reason in hot_halls[:4]:
-            lines.append(f"  {hall}: {reason}")
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
-# A. チャット
-# ---------------------------------------------------------------------------
-
-_ALL_HALLS_KEY = "全店舗"
-
-def chat(message: str, hall_name: str, history: list[dict]) -> str:
-    client = _get_client()
-    if not client:
-        return "GROQ_API_KEY が設定されていません。"
-
-    is_all = not hall_name or hall_name == _ALL_HALLS_KEY
-
-    if is_all:
-        context = "\n\n".join(filter(None, [
-            _data_availability_summary(),
-            _all_halls_summary(),
-            _all_halls_top_machines(),
-            _all_halls_event_hint(),
-            _session_summary(),
-        ]))
-    else:
-        context = "\n\n".join(filter(None, [
-            _data_availability_summary(),
-            _hall_summary(hall_name),
-            _tail_summary(hall_name),
-            _weekday_summary(hall_name),
-            _today_targets_summary(hall_name),
-            _session_summary(),
-        ]))
-
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for h in history[-6:]:
-        messages.append({"role": h["role"], "content": h["content"]})
-
-    scope = "全店舗横断" if is_all else hall_name
-    messages.append({
-        "role": "user",
-        "content": f"【分析対象: {scope}】\n【参考データ】\n{context}\n\n【質問】\n{message}"
-    })
-
-    return _call(client, messages, max_tokens=800)
-
-
-# ---------------------------------------------------------------------------
-# B. 自動レポート
-# ---------------------------------------------------------------------------
 
 def generate_report(hall_name: str) -> str:
+    return report_result(hall_name)["summary"]
+
+
+def hall_question_result(*, hall_name: str, target_date: str, question: str,
+                         days: int = 90, topic: str = "auto", machine_name: str = "",
+                         external_request_id=None, confirm_external=False,
+                         confirm_public_data_only=False, environ=None,
+                         governance_service=governance) -> dict:
+    from hall.names import canonical_hall_name
+    hall = canonical_hall_name(hall_name)
+    topics = resolve_topics(question, topic)
+    event_facts = []
+    event_error = False
+    if "event" in topics:
+        try:
+            from api.routers.events import get_event_analysis
+            analysis = get_event_analysis(visit_date=target_date, region="all", hall_name=hall,
+                                          history_days=days, future_days=31)
+            event_snapshot, _, _ = _event_evidence(analysis)
+            event_facts = event_snapshot["evidence"]
+        except Exception:
+            event_error = True
+    snapshot = build_hall_snapshot(HALL_REPORTS_DB, hall_name=hall, target_date=target_date,
+        days=days, question=question, topic=topic, machine_name=machine_name, event_facts=event_facts)
+    if event_error:
+        # Add diagnostics before freezing again, keeping them covered by the ID.
+        snapshot = {**snapshot, **freeze_evidence(snapshot["evidence"], target_date=target_date, scope=hall,
+                    missing=snapshot["missing_information"] + ["登録イベントの読み込みに失敗しました。曜日や日付から代用しません"],
+                    constraints=snapshot.get("constraints"))}
     client = _get_client()
-    if not client:
-        return "GROQ_API_KEY が設定されていません。"
-
-    is_all = not hall_name or hall_name == _ALL_HALLS_KEY
-
-    if is_all:
-        context = "\n\n".join(filter(None, [
-            _data_availability_summary(),
-            _all_halls_event_hint(),
-            _all_halls_summary(),
-            _all_halls_top_machines(),
-            _session_summary(10),
-        ]))
-        prompt = f"""以下のデータを元に「今日の全店舗比較 攻略レポート」を作成してください。
-
-{context}
-
-レポートに含める内容:
-0. 今日のイベント候補店舗（データあれば必ず言及）
-1. 総合ランキング上位の店舗（平均差枚・勝率から推奨店TOP3）
-2. 全店舗横断で最も出ている機種（どの店でどの機種が熱いか）
-3. データが少ない・スクレイプできていない店舗の指摘
-4. 今日の立ち回りアドバイス（「どの店に行くべきか」「何を打つべきか」）
-5. 総括ひとこと
-
-・具体的な数字（差枚・勝率・σ）を根拠として示す
-・データ不足の店舗は「データ不足：スクレイプを実施してください」と明記"""
-    else:
-        context = "\n\n".join(filter(None, [
-            _data_availability_summary(),
-            _event_day_hint(hall_name),
-            _hall_summary(hall_name, days=30),
-            _tail_summary(hall_name),
-            _zone_summary(hall_name),
-            _weekday_summary(hall_name),
-            _today_dow_best(hall_name),
-            _machine_setting_tendency(hall_name),
-            _today_targets_summary(hall_name),
-            _bb_surge_summary(hall_name),
-            _top_streak_seats(hall_name),
-            _session_summary(10),
-        ]))
-        prompt = f"""以下のデータを元に「{hall_name}の今日の攻略レポート」を作成してください。
-
-{context}
-
-レポートに含める内容（データがある部分のみ）:
-0. 今日がイベント日候補かどうか（データある場合は必ず最初に言及）
-1. 狙い目の台番ベスト3（機種名・台番・理由を明記。平均差枚・勝率・BB確率を根拠にする）
-2. 機種別推定設定傾向から判断した「今日打つべき機種」TOP2（推定設定と高設定確率を根拠に）
-3. BB確率急上昇台（設定入れ替えが疑われる台 — 最優先狙い候補）
-4. 連続好調台（3日以上プラス継続中の台）
-5. 本日曜日に強い機種（曜日特化傾向から）
-6. 末尾傾向・ゾーン傾向から見た立ち回り方針（高設定が集まりやすいゾーンに言及）
-7. 避けるべき台番ワースト2（具体的な数字で理由を示す）
-8. 今日のひとこと総括と最重要狙い台1点
-
-・データが少ない場合は「データ不足のため参考程度」と明記
-・具体的な数字（差枚・勝率・推定設定・BBσ）を使って信頼性を示すこと
-・BB急上昇はσ値が高いほど設定入れ替えの証拠として強力であることを考慮すること
-・推奨台は「○○の△番台（平均+□□枚、高設定確率○○%）」の形式で示すこと
-・ゾーン傾向が強い場合は「○○~○○番台エリアを優先」と立ち回り方針に組み込むこと"""
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ]
-    return _call(client, messages, max_tokens=1400)
+    if confirm_external:
+        validate_request_id(external_request_id)
+        if not confirm_public_data_only:
+            raise ValueError("外部送信する内容の確認が必要です")
+        # answer() will stay local for insufficient or rejected evidence. Do not
+        # reserve money or construct a provider for a request it cannot send.
+        guard = inspect_snapshot(snapshot, question)
+        if snapshot["evidence"] and not guard["blocked_codes"] and not guard["rejected"]:
+            from api.ai_evidence import evidence_messages
+            messages = evidence_messages(snapshot, question)
+            client = _get_client(request_id=external_request_id, purpose="hall_question",
+                messages=messages, confirmed=True, environ=environ,
+                governance_service=governance_service)
+    result = answer(snapshot, question=question, client=client)
+    return {**result, "available": result["answer_status"] == "validated"}
 
 
-# ---------------------------------------------------------------------------
-# C. 設定推測コメント（機種理論値付き）
-# ---------------------------------------------------------------------------
+def trend_result(profile: dict) -> dict:
+    target = profile.get("visit_date") or date.today().isoformat()
+    sources = [{"url": url, "retrieved_at": None, "label": profile.get("source_label")}
+               for url in profile.get("source_urls", [])]
+    common = dict(hall=profile.get("hall_name"), target=target,
+                  start=profile.get("first_date"), end=profile.get("latest_date"),
+                  sources=sources, source_label="店舗カルテ集計",
+                  missing=["結果公開時刻・改訂履歴は未確認"])
+    overall = profile.get("overall") or {}
+    facts = []
+    if profile.get("sample_days"):
+        facts.append(evidence(**common, metrics=[
+            metric("記録日数", profile.get("sample_days"), "日"),
+            metric("日別平均差枚の平均", overall.get("avg_diff"), "枚"),
+            metric("プラス日率", overall.get("positive_day_rate"), "%")]))
+        for item in (profile.get("machine_profile") or [])[:8]:
+            facts.append(evidence(**common, machine=item.get("machine_name"), metrics=[
+                metric("記録日数", item.get("sample_days"), "日"),
+                metric("既存カルテの補正平均差枚", item.get("avg_diff"), "枚"),
+                metric("店舗平均との差", item.get("strength_margin"), "枚")]))
+    snapshot = freeze_evidence(facts, target_date=target, scope=profile.get("hall_name") or "店舗カルテ",
+                               constraints={"hall_name": profile.get("hall_name")},
+                               missing=["将来の勝率・確定設定を示すものではありません"])
+    return answer(snapshot, question="店舗カルテの要点と不足情報を説明", client=_get_client())
 
-def comment_estimate(
-    machine_name: str,
-    games: int,
-    element_counts: dict,
-    posterior: dict,
-    ev: float,
-    recommendation: str,
-    element_analysis: list | None = None,
-    credible_interval: list | None = None,
-    element_powers: dict | None = None,
-    correlated_elements: list | None = None,
-) -> str:
-    client = _get_client()
-    if not client:
-        return ""
 
-    post_str = " / ".join([
-        f"設定{k}: {v:.1%}" for k, v in sorted(posterior.items())
-    ])
+def explain_trend_profile(profile: dict) -> str:
+    return trend_result(profile)["summary"]
 
-    exp_setting = sum(float(k)*v for k,v in posterior.items())
-    high_prob   = sum(v for k,v in posterior.items() if float(k) >= 4)
 
-    # 実測値 vs 理論値の比較文
-    rate_lines = []
-    if element_analysis:
-        for el in element_analysis:
-            obs_n = el.get("observed_per_n")
-            name  = el["name"]
-            closest = el.get("closest_setting", "?")
-            direction = el.get("direction", "")
-            dir_txt = "理論より高め" if direction == "up" else "理論より低め"
-            theory = el.get("theoretical", {})
-            # 設定1と設定6の理論値を示す
-            low_t  = theory.get("1", 0)
-            high_t = theory.get("6", 0)
-            if obs_n and low_t > 0 and high_t > 0:
-                low_1  = f"1/{1/low_t:.0f}"  if low_t < 0.01  else f"{low_t:.1%}"
-                high_6 = f"1/{1/high_t:.0f}" if high_t < 0.01 else f"{high_t:.1%}"
-                obs_s  = f"1/{obs_n:.0f}"    if el["observed"] < 0.01 else f"{el['observed']:.1%}"
-                rate_lines.append(
-                    f"  {name}: 実測{obs_s} (設1理論{low_1}〜設6理論{high_6}) → {dir_txt}、設{closest}相当"
-                )
+def _event_evidence(analysis: dict) -> tuple[dict, list, list]:
+    target = analysis.get("visit_date") or date.today().isoformat()
+    ranked = sorted(list(analysis.get("upcoming") or []),
+                    key=lambda item: (item.get("baseline_forecast") or {}).get("score") or 0,
+                    reverse=True)[:5]
+    facts, records, machine_facts = [], [], []
+    patterns = {(row.get("hall_name"), row.get("event_name")): row
+                for row in analysis.get("event_analysis", [])}
+    for item in ranked:
+        forecast = item.get("baseline_forecast") or {}
+        gate = item.get("quality_gate") or {}
+        fact = {
+            "event_date": item.get("event_date"), "hall_name": item.get("hall_name"),
+            "event_name": item.get("event_name"), "grade": item.get("grade"),
+            "score": forecast.get("score"), "decision": forecast.get("decision", "参考止まり"),
+            "matched_days": item.get("matched_days"), "quality_score": gate.get("quality_score"),
+            "quality_passed": bool(gate.get("passed")), "blockers": list(gate.get("blockers") or []),
+        }
+        facts.append(fact)
+        pattern = patterns.get((fact["hall_name"], fact["event_name"]), {})
+        sources = [{"url": url, "retrieved_at": None, "label": "イベント分析の記録出典"}
+                   for url in pattern.get("source_urls", [])]
+        records.append(evidence(hall=fact["hall_name"], event=fact["event_name"],
+            target=fact["event_date"], start=analysis.get("history_start"), end=analysis.get("reference_date"),
+            sources=sources, kind="fixed_event_decision", source_label="説明可能ベースライン v1",
+            decision=fact["decision"], missing=fact["blockers"] + ["当日の公式告知・設置状況は未確認"],
+            metrics=[metric("基準点", fact["score"], "点"), metric("品質点", fact["quality_score"], "点"),
+                     metric("対応実績日数", fact["matched_days"], "日")]))
+    for row in analysis.get("event_analysis", []):
+        if not (row.get("quality_gate") or {}).get("passed"):
+            continue
+        for item in (row.get("strong_machines") or [])[:3]:
+            if len(machine_facts) >= 10:
+                break
+            fact = {key: item.get(key) for key in ("machine_name", "lift_vs_normal", "matched_days", "status")}
+            fact.update(hall_name=row.get("hall_name"), event_name=row.get("event_name"))
+            machine_facts.append(fact)
+            records.append(evidence(hall=fact["hall_name"], event=fact["event_name"],
+                machine=fact["machine_name"], target=target,
+                start=analysis.get("history_start"), end=analysis.get("reference_date"),
+                sources=[{"url": url, "retrieved_at": None} for url in row.get("source_urls", [])],
+                source_label="イベント分析の機種別集計", metrics=[
+                    metric("通常日比", fact["lift_vs_normal"], "枚"),
+                    metric("対応実績日数", fact["matched_days"], "日")],
+                missing=["機種別参考集計であり台番号候補ではありません"]))
+    snapshot = freeze_evidence(records, target_date=target, scope=analysis.get("region") or "イベント分析",
+        constraints={"allow_upcoming_events": True},
+        missing=["対象日から先のイベント予定を含みます。予定日と集計期間を区別してください",
+                 "取得・改訂履歴を使った厳密な事前予測検証は未実施"])
+    return snapshot, facts, machine_facts
 
-    # 機種理論値テーブル
-    theory_text = _load_machine_theory(machine_name)
 
-    count_str = " / ".join(f"{k}:{v}" for k,v in element_counts.items()) if element_counts else "（未入力）"
+def _event_result(analysis: dict, question: str) -> dict:
+    snapshot, facts, machine_facts = _event_evidence(analysis)
+    notice = ("イベント分析だけでは台番号を確定できません。狙い台捜索の台番号候補で、現在配置・台別履歴・過去検証を確認してください。"
+              if _seat_question(question) else "")
+    result = answer(snapshot, question=question, client=_get_client(), required_notice=notice)
+    return {**result, "facts": facts, "machine_facts": machine_facts,
+            "decision_source": "説明可能ベースライン v1"}
 
-    ci_str = ""
-    if credible_interval and len(credible_interval) == 2:
-        ci_str = f"\n90%信用区間: 設定{credible_interval[0]:.0f}〜設定{credible_interval[1]:.0f}"
 
-    powers_str = ""
-    if element_powers:
-        sorted_powers = sorted(element_powers.items(), key=lambda x: -x[1])
-        powers_str = "\n要素識別力ランキング: " + ", ".join(f"{n}({v:.1f})" for n,v in sorted_powers[:4])
+def explain_event_forecast(analysis: dict) -> dict:
+    return _event_result(analysis, "イベントの固定判定と不足情報を説明")
 
-    corr_str = ""
-    if correlated_elements:
-        corr_str = f"\n注意: 要素間に高相関あり（二重計上の可能性）: {', '.join(f'{a}↔{b}' for a,b,_ in correlated_elements)}"
 
-    prompt = f"""機種: {machine_name}
-総ゲーム数: {games}G
-入力カウント: {count_str}
+def answer_event_question(question: str, analysis: dict) -> dict:
+    # One request, one provider call. Never call forecast AI first.
+    return {**_event_result(analysis, question), "question": question}
 
-【実測 vs 理論比較】
-{chr(10).join(rate_lines) if rate_lines else "（カウントデータなし）"}
 
-【設定推測結果】
-事後確率: {post_str}
-期待設定値: {exp_setting:.2f} / 高設定(4以上)確率: {high_prob:.1%}{ci_str}
-期待値: {ev:+.0f}枚/1000G
-推奨: {recommendation}{powers_str}{corr_str}
+def estimate_result(machine_name: str, games: int, element_counts: dict,
+                    posterior: dict, ev: float, recommendation: str,
+                    element_analysis=None, credible_interval=None,
+                    element_powers=None, correlated_elements=None) -> dict:
+    target = date.today().isoformat()
+    metrics = [metric("入力ゲーム数", games, "G"), metric("入力された期待値", ev, "枚/1000G")]
+    for setting in range(1, 7):
+        value = posterior.get(str(setting), posterior.get(setting))
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= value <= 1:
+            metrics.append(metric(f"入力された設定{setting}の推定確率", round(value * 100, 2), "%"))
+    fact = evidence(machine=machine_name, target=target, metrics=metrics,
+                    kind="user_input", source_label="画面から渡された入力値（独立検証なし）",
+                    missing=["入力値の妥当性・確定設定を独立に確認していません"])
+    snapshot = freeze_evidence([fact], target_date=target, scope=machine_name or "設定推測",
+        missing=["続行・撤退判定は元の設定推測画面で確認してください"])
+    # These are personal live-session values; keep this path entirely local.
+    return answer(snapshot, question="入力された推測結果を確認", client=None)
 
-{theory_text}
 
-上記の推測結果について、4〜5文で実践的にコメントしてください:
-1. 現在のデータが示す設定の可能性（理論値との比較を使って）
-2. このゲーム数での信頼性（信用区間と識別力の高い要素に言及）
-3. 続行・撤退の具体的判断ポイント
-4. 追加で観察すべき最重要要素（識別力ランキングから選ぶ）"""
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
-    ]
-    try:
-        return _call(client, messages, max_tokens=400)
-    except Exception:
-        return ""
+def comment_estimate(*args, **kwargs) -> str:
+    return estimate_result(*args, **kwargs)["summary"]

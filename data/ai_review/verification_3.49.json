@@ -1,0 +1,581 @@
+{
+  "schema": "ai-release-verification-1.0",
+  "protocol": "ai-adoption-review-1.0",
+  "app_version": "3.49.0",
+  "verified_at": "2026-09-20T17:09:41.697735+00:00",
+  "verification_kind": "local_automated",
+  "external_ai_measured": false,
+  "source_hashes": {
+    "app_version.py": "c009a21ed2b3f827e5495f281c0c931702ba83f9af34082a47a745cce745ec9f",
+    "config.py": "abc15c5756d27c8c885435f4f5bebc2c6519c0865c733c83789771bc244b61be",
+    "api/ai_provider.py": "5bdfea80ffa1d89272e8d11f1e85783c8ee702df39b2fcbfe49b15e169fdff9f",
+    "api/ai_service.py": "d92ed34f835b482da78fed94874de8b77c0f689be9ed24ac03daba6542c68f47",
+    "api/ai_comparison.py": "6f9648f7fe49741d4646680ccaa7180a6bbf849669647197eaa39990645a9438",
+    "api/ai_evaluation.py": "0193f3fe240b6be3179f4a426faedd92530d7c696c91abeb0bdd2c1605a768bc",
+    "api/ai_governance.py": "d21fd4be3a549526eb373c52cdb2a635a204c45d65aac882e8ae62256d84a3d5",
+    "api/ai_evidence.py": "79d40c1952278761788f34d662034f862e564ecf507b2ad3c4119a091883f276",
+    "api/ai_guard.py": "a82923dc47e2cfc62df273fc4280c3975611c8aab1943d20408ce23b3986a2f0",
+    "api/ai_hall_analysis.py": "39fcc1d898ddbe4087f9734ae74ffbcbba16914b4a1ab8148b516e33ff10ab8b",
+    "api/ai_knowledge.py": "1a8b8091d86a88126861817ef528c365a2b1a7e67f8df91e1e17441997c7badf",
+    "api/ai_review.py": "ff41489eae59f1dbee30c3b1da821eb744fd1004167a1b0515c931882bbf45f3",
+    "api/routers/ai.py": "0eac48d4ff1a1c0705013251190eb2acabb9c117285b4f75de4a68b36e9af57c",
+    "api/image_analysis.py": "43ba5079ec75f610271540db105765c043a906f6ed46ccd7d297cbfa2b98c14e",
+    "api/routers/image_analysis.py": "9283b76ec2a1e1f84bcf34a0bdf36c318178b58a466a30d267f692f2846167a8",
+    "hall/names.py": "7cdbe3128e25aacb0da9878435d0a7c2a3d09c7094861583a1d0a5497cd9a5a0",
+    "hall/machine_scope.py": "98fc6d541cc20b62dec22e43801eeb822d3170d0f97cbb00a4547bc59aa1bf05",
+    "hall/collection_sources.py": "12f33c03831befb9da241368985e7b1830bef3e8afc8ed72d6ed37fc5450a9d1",
+    "hall/regions.py": "a941c4ba4c2133bf7dc1f38ffd8b0ff7a1000987b14649a866b4b9394e6571ea",
+    "hall/seat_history.py": "c3d116c29aa50cfc9d97b61bea037798c15d1b92c6e1f6cda40b72a8f382f2d8",
+    "requirements.txt": "b0db883eb4c73483cd5090264005bc118573807d489df0c57beb0a77402add64",
+    "mobile/ai-review.mjs": "3238c046e731e36df282fa3abbd3927de3dad50980d2f3650a11c2c11a5a250c",
+    "mobile/ai-evidence.mjs": "77406d2cee01c1a7bc09e8a6a553266714298f917738254a7e0d24a531cad6a9",
+    "mobile/ai-knowledge.mjs": "51aaaff0759e48e6ae946a05ee0acb774a5080422f4b1cd2021935c88bde155e",
+    "mobile/hall-ai.mjs": "863db7c4afce7a52cad292f114ada7f2d51c0a05919a037cac60b2fc06342ac6",
+    "mobile/ai-comparison.mjs": "c865b070ab74a252590a7d42f816880b522f91718e56fb124855b0ab23130cfa",
+    "mobile/ai-evaluation.mjs": "3acca935a571df66307c1c7b1ed3d6c21138397bf71a94eedba40e428e7e274a",
+    "mobile/image-analysis.mjs": "8ffc0ddfa0aec5d1c41c7ca34335ae914c9a5e7044e00436aa09ab20ea6e4d2f",
+    "mobile/ocr.mjs": "e9e6e5ff04bdab6886497ce7a1fb480ad9702c8ab631777d1c9959ee4410d400",
+    "mobile/app.js": "0493240ff987eb1d7ce356bd3e897e9c91dc133a34bdb274990a7ae251dcca7a",
+    "mobile/index.html": "3811f3e3b4ab05e647240850c14b5d93f44e3cc95ef07d50109cfdfef804cf3d",
+    "mobile/sw.js": "dac5954f64b576114968acb20f48811a888a117058644d476ccd3897904035af",
+    "web/js/app.js": "efa0cc57c96c299f99bfa7f8b7d4d2ae866fcbf5061a1b059ab8374391aa88b9",
+    "web/index.html": "987379dca1f7cbb6ad8a83a1b99129687cd0988bcf2ae6bc0fd4e234d3d9aa55",
+    "web/sw.js": "fc7b6dfa4124a041e77936a9e8710ea48f62d40cf610953c1e30112c8956dfec",
+    "pachi-tool.spec": "42e7a64e2dfa6f28fd327ace49519a9e1db6db2bc3af966b77c634139605561c",
+    "desktop/version_info.txt": "651c4f7bad7b335495e53bd576a1d273a19895f045bc09364bed8bc21c624643",
+    "data/ai_eval/suite_v2.json": "3d907364e785a5da8beed3282b67ccac7fcb2e1e17360fda8134713d03e1075e",
+    "data/knowledge/documents_v1.json": "1285811ee28ef0148b6766dd6e3c5528fca4f89360a256920baebcd287120bc6",
+    "data/knowledge/retrieval_cases_v1.json": "37931146364fd79bd79a16514df6e3272aef6d99c68731b3744f35779c67b507",
+    "data/opportunity_catalog.json": "c56922e83236f6ae744dc3ce7cbc32459a0ab1fdc0717b7787c976bfe88a2af9",
+    "scripts/verify_ai_release.py": "01d55e1cc6e81e8a7d5df70fbaf19c51be4c6eb0e85d28cd89a5647461264432",
+    "tests/test_ai_provider.py": "6752720380a600bf0b63ec9711dbf383247b3cc34c4ff47ebe414d4846943601",
+    "tests/test_ai_evidence.py": "118a2224e8790095c4d7b3834f3e4b36a27a724b0f20ffabdebf1d0bdfe22c18",
+    "tests/test_ai_event_forecast.py": "53675f1555cc9b56d6abe6c90abde3273687e621588c7f9e988b1e813de34cd9",
+    "tests/test_ai_hall_analysis.py": "aa94dc8f3fc8fe9cd12c068549ab5b4c51ecc4f88d92adbec28f12775bce0c13",
+    "tests/test_ai_comparison.py": "a2bbd40b1768f1b7804278fb0485306afd50dd48d7c81c072958b420459434a2",
+    "tests/test_ai_evaluation.py": "7c2a4376d13b1f0ee0367d34b6fa022ad37d324bf926daae12b60dee3639ad65",
+    "tests/test_ai_governance.py": "32f48c1fa5dd94d8a25f17e3ae918024b3d115bf8b4aae3e29911da11e7bf31a",
+    "tests/test_ai_guard.py": "6959157653ebccf64891d74383904e51b005528daafbbce3f358602297e714b1",
+    "tests/test_ai_knowledge.py": "5507686ee0cd8e21465954b40330c8b558ea14466d22328f768957b72bb13bf2",
+    "tests/test_image_analysis.py": "e96f31da8a2876d8fc0731db7c2b483368ef4a773910aab7a3e3cc0c14356ae3",
+    "tests/test_ai_review.py": "dc32cafb7d466f65a465eaf455b0b43a7a733dc989666b197e5cfc14b3f7125f",
+    "tests/ai_review_ui_test.mjs": "fbf2a76bcea20546f650bbc69b023b4e81c84b3c5e334a2a774f01c276c0f977",
+    "tests/ai_evidence_ui_test.mjs": "953898996a5cb26539feb01166a967d67771b820cd3c94034d9d37e6d6d77835",
+    "tests/ai_knowledge_ui_test.mjs": "513f48d2206fef78400ffef8a7358c488f0267e241db1eb9de02fffbc52dcd7c",
+    "tests/hall_ai_ui_test.mjs": "fe6ce4a3d1d39a415869f64d59b6fc103c43d7f848737a92ad4788712dee123e",
+    "tests/ai_comparison_ui_test.mjs": "a1e022a71b535c3df9b1e82eebbaadb43e0f32fad61dcad69125bd6b14b995e1",
+    "tests/ai_evaluation_ui_test.mjs": "a4e295de9dc47566ed6830c0a8ccc9a8f3f0c547818b8a4bd7b36ca5c5a9da36",
+    "tests/image_analysis_ui_test.mjs": "bbc0072c703b19b3bcae7258effda43fa5276d190f497352962d55afcd02ca2d",
+    "tests/mobile_ui_contract_test.mjs": "06a139d1c011195c6310bd9f3aac53bd9c708def3992e8452b7c8384b610d696",
+    "tests/web_ui_contract_test.mjs": "1c5d0f483f70cd62d87ac2c93b784a061d841085a4ded10b708b03a64045cffb",
+    "tests/asset_version.mjs": "1ef1016b434f264fa5804f780dff4bca9dce0ec1788c74054b21975d20e97ae2",
+    "api/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "api/deps.py": "802765b167781d431594b1d36831bf7175f819d8a45afaa119a13650ef09604a",
+    "api/main.py": "9eaeee4c200b40fcf35452e30cc0f280d2f1617331bde4ea743649673bd128cb",
+    "api/prediction_replay.py": "afec1aad6ccbe22af6b790f23509ef20e08cf5e63c0ff59d813ffb7b4eb604fb",
+    "api/routers/__init__.py": "baa51c3a2822962b509c305fc4a43d00bd111a3b577dbac5ab34ec1ca5a0bfa0",
+    "api/routers/admin.py": "4477f0198e29cf25f3d4abc7a63b2161b5197e33c26ce7fd6d6ba74fe6109104",
+    "api/routers/estimate.py": "c093b58a9383acd4a38a04df57586b10b829493a7456d2c79e529716713c9f51",
+    "api/routers/events.py": "b4006ddc0912eb499e86c74e0ff1720e2b81b5d8328385033fb8a3cdabc92c84",
+    "api/routers/hall.py": "38502dfcd5becf405849636cc7c8dc3401a95f93c28d2491be6d0cfe3cf78bda",
+    "api/routers/juggler.py": "17ecab931bc81717086f73654807971ce163c836ce9aae315df6110e88d3121b",
+    "api/routers/layout.py": "689e6aad742340d3bc45eb4a5eaa6e6d981b14909d763a5d08a72c5831c13f5f",
+    "api/routers/machines.py": "3db04f4e1ebddad7fdba1f1d879b9b873ccecefe5858519aea6302cc3880f85f",
+    "api/routers/map.py": "a37cb4b70998589b7729ba98b97d049f9385dd6530fc78ebe0e1db228745e10a",
+    "api/routers/occupancy.py": "41cbf904b69c0a9080ab7ad0dbc398f58dceb8f7280e106bbdd6332b73616074",
+    "api/routers/opportunity.py": "f1faec2dec9dce83cd262f6bc7f1671a85aa6bf3bbe7cf62c6f1cf7a105c2ef5",
+    "api/routers/predictions.py": "4ffaf21b4bfab0d6b63b6871cbbd7491f52ca99695937d29f0991227fddb6382",
+    "api/routers/scrape.py": "a461787ff7887f48d1710a38dd4005010633834e7968aaa902079fe34945d701",
+    "api/routers/sessions.py": "f8684057620757e79abc3a41f8df434acdf939c9ca5bf775c5715ae6dee5609f",
+    "api/routers/version.py": "13f5d820b579f48be5faf718bb43fbd154c9c0f246860b7c78ceb4ccc3ddade9",
+    "api/scheduler.py": "49272731b0ae96c3be5f8c8ba6790d1775fb5b3ce8d9874ed113f742a606f530",
+    "hall/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "hall/candidate_evaluation.py": "cbdfccb49428853f34b886c7459ad57932ae5a11eb7e49b500ed11bdaa3bd325",
+    "hall/event_prediction.py": "7df5680d65ea43cf7091a48972bcd105bf4d10fe1fd3fba47ff8188df96dddf7",
+    "hall/machine_prediction.py": "a0626e0cee65efb5cdd05bba5c9280de1ce8d889a668583fee58d93d9c68885e",
+    "hall/model_selection.py": "ef2b583b6760684b886ece7ae3dde1119fa75b5004e15d440f892aa4d5a2afb5",
+    "hall/occupancy.py": "250ee96c1b1ad627135c686c28cd3dfcb5b0be8f907b360754d5a187b30005ce",
+    "hall/placement_analysis.py": "fa0e6ab47a7481a5dbfa8eb0c85ffc3d3976eb95cf4575136e2d77471fd8825e",
+    "hall/prediction_benchmark.py": "059685efa71ecdb7c28e17bb4373874c06b2f96335d1465d00ca80636b1ef87e",
+    "hall/prediction_log.py": "a11fdd213158a5abe4dc985a3ecdfeccc060ead7a8a2a16191ea661d7cd397c8",
+    "hall/prediction_monitor.py": "b2729ad0f01e1a1e64fe35cb8a6fa4b8b6fa44e3953607d99a041ec801de0711",
+    "hall/prediction_quality.py": "1a1a05181da97bb192b035bf4aebe410742ab29ce1e5923acf46130e76ce05cd",
+    "hall/prior.py": "4f3712a683a70b0116bf4b173d5567aef198dcaa9fe06105ee3de56ee501d3be",
+    "hall/probability_validation.py": "820e56e9e68ae8c862c7c58f67924127eded8640b7090006ca6d891823a5342c",
+    "hall/seat_prediction.py": "ca5bc3178b7889accd22ad28e2cd08c4d896ed538d95cb4210ff7a8f15f44868",
+    "hall/target_validation.py": "eb2e1613fad13cac64b605904ba10afc36bb17dfb13106208a36fd81902d09db",
+    "mobile/app.css": "e6869804419172fda7e2a44bb96ed0a7eafb942a1e8b28418c737500a582c197",
+    "mobile/candidate-evaluation.mjs": "60d68f7f9fe098d29097749f37ee921fe93703f8c821d646dfa526b55fcc1685",
+    "mobile/core.mjs": "0e2a143bed34dcc60267ff3dd189cc6f145dde1f932ee55bbcc6d2c468143177",
+    "mobile/model-review.mjs": "b6cc7eba1a7dbd6f5d66e94a3244086f673e22f29fbe44b24e555a39c0d35f66",
+    "mobile/placement-analysis.mjs": "bb3d1bc58c474ecacb2add6741da68b190a7a5801c3e8c2c9a2612789926077c",
+    "mobile/prediction-monitor.mjs": "9b89c340e63350d9a0d4a576d7d4f92579de97c85d4f5ae161938fd6899daf85",
+    "mobile/prediction-verification.mjs": "82aba67e6e961a60d7af74d102ddc1aaf55ed5bb5816a3ab8ebb7d827397f043",
+    "mobile/probability-validation.mjs": "3f6192b41509edbfc3dc6583d163cac1ab01640f4ebe0ff5910e4039cd3e2918",
+    "records/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "records/models.py": "4ba86179f87daa5bfcf185ea24f5130b5d8586ef75780f196d47e3f168cff669",
+    "scraper/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "scraper/anaslo.py": "1871adfb297e37c882931651717c4e726906c0aec9218c74a58dda40c2a03e81",
+    "scraper/anaslo_batch.py": "9b71e81f38d4a47718993fe9e47c3e32c3478e20d42a193171105ecfcbcd85e2",
+    "scraper/anoslot_public.py": "2833b0c6dad4aeaba329d56a245cd466521ec5cfa2dc1a1284bfa2b31fc36858",
+    "scraper/bulk.py": "40a54dcce7e0b56b7cb5e4b8a876c141ffd3392706a515d527e5cd19d02067e1",
+    "scraper/cf_bypass.py": "69b6c1f3800593126dbda029c7fec8fe8e63b0106a81ffa60a2f15fb9805c0c3",
+    "scraper/chonborista.py": "d0c8a0ede9cdb6c085d8f27e9d6fb8f458c96fd8f1e080b36fbe50a906c0a940",
+    "scraper/collection_health.py": "e43c46d338aa7ce643d1314719db40a3a25c2c113659734f99517d5ac20cd798",
+    "scraper/dmm_snapshot.py": "95a49853d2ea655e6b58c05d603fbd83075902e911e1a971f6bc06a93c68a4a0",
+    "scraper/events.py": "f6944a44322e2e78293b87f819864f4a4ec0f6b8853d5306b919ea89826e1cd4",
+    "scraper/http_support.py": "5bfde725500ba51edb1534c57a2bf65caec16e4c606c0394515d0a8b6ec90c96",
+    "scraper/minrepo.py": "896e6cca00eb86bbed5c1dec27dc5466d751ebbbf0689d297216735ebe58820c",
+    "scraper/minrepo_archive.py": "990cf7b50dc1a2495057f293d34eacecf1241a2f817226c580b00c09431f08c6",
+    "scraper/opportunity_crawler.py": "bd484093a3de4057087f9cd814e09906e02c09aef22768875c9637d428272a5c",
+    "scraper/pachireview.py": "dc9cb82f333554161279c9a94752bf2ee5675a6ab2b2aa9b5073c84ccf4bed76",
+    "scraper/pachiseven.py": "02ebaa8e15e1e237f715ae4964b49f726275f783243a5c0685698c17df89304e",
+    "scraper/pekasen.py": "b7731c14294b140c9698aeadf81e50644cd130ef395667d1c14305644992fdb3",
+    "scraper/pworld_snapshot.py": "23df85cb0c1f76fa15055df14047a0f9764a7c148138b0fa9947290871c330d1",
+    "tests/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tests/candidate_evaluation_ui_test.mjs": "221a0498b1f2d2858ee57219bf7b63d58289c6cdb71603cbc0d35ec7784cbe7f",
+    "tests/mobile_core_test.mjs": "22df8c6239383fb51b1aa1959e536962c659b02daa4f548238bcf7ae8d654169",
+    "tests/model_review_ui_test.mjs": "76d6810f0d3d1f64e2a2fbf907754e45e5741b5685d507f48067933382ef3a19",
+    "tests/placement_analysis_ui_test.mjs": "b27c872a0d0bea8201884e84269878b977e1591cc1ad9eb07f51815e03725984",
+    "tests/prediction_monitor_ui_test.mjs": "d2b34c258a65ea61667e24d550363ac25beb0cc4cfd52da8bbf5a1b3bd285344",
+    "tests/prediction_verification_ui_test.mjs": "5bfefbe7f9c08100536c7bdda208b6e0c63a9e3b9a0bae6b7776f63aca98adb2",
+    "tests/probability_validation_ui_test.mjs": "a962ea09316d2bba866c5fd0af36f5258ebdd74ea755fa944105586841646e13",
+    "tests/test_anaslo_scraper.py": "ac749375f42e59a527e9d5496808d95b69c6784cec157556a56e6346f3fde275",
+    "tests/test_anoslot_public.py": "e0c4f4720c74213b3edc23d8a25628273737db7c0021c3a73bcc45ebaba7ce36",
+    "tests/test_api.py": "71449fd93c379672efd30c6c38e84a2b6ac17fc8c7e69d7c364fda82961ee7d9",
+    "tests/test_candidate_evaluation.py": "379efd37f636b4bbd92374bc5a4ab91c71a8f7b96c5cec742b848921207f1932",
+    "tests/test_catalog_data.py": "eec0e356c3cf8802810ca79b61e08d12c0d0aff4bb1ba759b32686379cc3e22f",
+    "tests/test_collection_health.py": "c843d273d17f3673a3db8964bbfabdde9d5c746142adcaa126a81d6585784df6",
+    "tests/test_collection_sources.py": "1fcd31dc7ae630e49072091162266bed4f301bc5c4f53058d5b9734b67453b9d",
+    "tests/test_data_coverage.py": "54d705f21d2af257a68b1eb3aee3f911ca81e5fbf6aa56a20a98e5aa9909338e",
+    "tests/test_desktop_app.py": "63a95e657822a9b27eb9e8ef888df161a60b0b8f344a01e5ba6d8bc9b43d845c",
+    "tests/test_dev_data.py": "b6c64cbc33407df7609a4fac6a874a65f1fb726870f945bc98adc2731fadfef0",
+    "tests/test_dmm_snapshot.py": "d538efef543388c34eed590c51d9c64f9db5382a4aa9a961b00d9615466722bf",
+    "tests/test_engine.py": "94ca54551e8b3dfc74208adbdf46f992ac9fad16d8d8760597073711351ad7be",
+    "tests/test_event_prediction.py": "83be084c917cd2907ba9abfa06e6c38a45996d1f09d82337d4157b63401f37df",
+    "tests/test_event_quality_api.py": "ac600bdd5dccc3cf1180c8827d7fcd1868673b1afc6712b21123d8bcd214ff4b",
+    "tests/test_events_scraper.py": "3642dbef2127051a41300f25d1ecc1878847ee1090f9f008e67b03e033a4a174",
+    "tests/test_hall_names.py": "b3f0bad5b7b74c5e421885daabc5f298cde6acbb768208502ff89ec90c94ef25",
+    "tests/test_http_support.py": "4d28bbcc631c5eba6aa21ec6df0d2befac4c5a29ec2b3c5f17bfbdfde9383dfd",
+    "tests/test_juggler.py": "486fd58cec26f3320ab2d408bde148b3d3ae27d4c535d0be79ddc9cab374f8ca",
+    "tests/test_layout_api.py": "468eba8acd1df0a359a2fb010a2da8191dedf29d94a03e82fdce610ab1ea42f9",
+    "tests/test_machine_prediction.py": "f696c6dc5604f71e4f2bcaa7438fa16ffc73dcfc245f58aab8b473c4edb78f8d",
+    "tests/test_machine_scope.py": "32be233f703f9f891ebd84684f0d715351aeaf970de53772aec3487ebed6399c",
+    "tests/test_minrepo_archive.py": "618f7ca578bd320d395bcf38bb7f1c4ce7e13bb65b847b0e5c16f7a1838da507",
+    "tests/test_minrepo_scraper.py": "19e1b75d1cf0667632a5ef2605d8b86835246b1b208a93e7776a1e230eedd5c5",
+    "tests/test_mobile_sync.py": "60472901d5ac1ac27e61e74df1ca71630917030a99dafa5e7329689f26ce7227",
+    "tests/test_model_selection.py": "7694ba59b5545f99c31b782ef36e8d3f5219a4ed3fc532deb82f13bac8d29aea",
+    "tests/test_nagano_halls.py": "4d155ad3b0e818017c0c70cac719e0bef93823a79e79ae29dd7547c31a706b0d",
+    "tests/test_occupancy.py": "5f3eab223386ab5991caa8e63e9dc1638617fee4b4efe0614a685dd88774c916",
+    "tests/test_opportunity.py": "2be433b8339085940a2be40f358550312ace474173de968fd08d6858626e9d77",
+    "tests/test_opportunity_crawler.py": "1dacee01923c5014a892a85c6739c0cc80b81e2831e5668fc511e679973e80b4",
+    "tests/test_opportunity_models_v24.py": "e331f0225ac6e93e21aafbb9c9dc3a63309cd4b13a47731b652c9aa163f24929",
+    "tests/test_pachireview.py": "c5e300b474e6ccf3913c9b81dd25dfc26a2979142820073a7bebedb1aebf2576",
+    "tests/test_pekasen.py": "04e53e898e5d10f43b5ff0f7e873c1422a3f26d36f1c8172789921bdca55036e",
+    "tests/test_placement_analysis.py": "a4cb19f8afc48122a3fc9679d0cd168af8ddf8f1b16149425e41d2a1d8bd20b0",
+    "tests/test_prediction_benchmark.py": "d288b3e13cd5546482819c1fbd6345bcb3f16b08611109081f4b73ad0728ae30",
+    "tests/test_prediction_log.py": "f7affd652c61e1deb18dd7dbc1180b5ef9e361bb193549a11185b355f74cc508",
+    "tests/test_prediction_monitor.py": "98f18cdf4a12c172205734dc96d6c07e6bfcc45efcce5578cb05ea3c8988126e",
+    "tests/test_prediction_quality.py": "10474dbfae6088ac00d17fe7eb0e58090b08852682fb0904ceb8c3b2047c3250",
+    "tests/test_prediction_replay_api.py": "8eac6ccf689a00105189853724aac7b0385fdedab1cbccae7baec85763c134d4",
+    "tests/test_predictions_api.py": "4c991eb54ef9d2a0e61f616db710769564a3c25ca28b8d9226336036da363ce7",
+    "tests/test_probability_validation.py": "d56bc2f6a9d59392916701ecce5685b2108db059e7703bfa873fd4656750af2a",
+    "tests/test_pworld_snapshot.py": "3612ee0397b93a481519cd05354e4297049d9d9dda42e288e13e13b18b22097d",
+    "tests/test_scrape_hall_resolution.py": "ce7aa7f3a35be9388d91521e9f621e75fa05ce3d4184261ad5f4bc87f570d9e9",
+    "tests/test_seat_history.py": "c9dcde75f6392cd559e2c502ee783c3c50095b328fbc89525e67d7c2e0d01e9b",
+    "tests/test_seat_prediction.py": "ab0f3ee09b174e4888af87219197299983fdbffad8416599f0822fa7aa2a91be",
+    "tests/test_sync_region_history.py": "b9670d3d835849ca5f5b095181e28c39ccce08a4ff633e2f6d9acef3d3f496d7",
+    "tests/test_target_search.py": "6064202d8f1934c8bd895f9363ca5f34d19c006659327670f0c43b63c8f0dcae",
+    "tests/test_target_validation.py": "e17ac3d100642d6ede68a2766d14e7573e8021e61a22a6b5a519260a1b7ac77d",
+    "tests/test_version_api.py": "35c5adfc18dfb46d6ad51496712ff671a04d2265e4734d03630701cd34016432",
+    "web/css/style.css": "57b7d6096a616f8d506d669f90b2c9fb4ded7d17c059edd1850cf9fb9021c666"
+  },
+  "python": {
+    "exit_code": 0,
+    "passed": 716,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": {
+      "tests/test_ai_comparison.py": {
+        "passed": 13,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_evaluation.py": {
+        "passed": 26,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_event_forecast.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_evidence.py": {
+        "passed": 20,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_governance.py": {
+        "passed": 36,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_guard.py": {
+        "passed": 35,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_hall_analysis.py": {
+        "passed": 23,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_knowledge.py": {
+        "passed": 60,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_provider.py": {
+        "passed": 9,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_ai_review.py": {
+        "passed": 21,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_anaslo_scraper.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_anoslot_public.py": {
+        "passed": 6,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_api.py": {
+        "passed": 16,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_candidate_evaluation.py": {
+        "passed": 23,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_catalog_data.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_collection_health.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_collection_sources.py": {
+        "passed": 2,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_data_coverage.py": {
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_desktop_app.py": {
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_dev_data.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_dmm_snapshot.py": {
+        "passed": 2,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_engine.py": {
+        "passed": 33,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_event_prediction.py": {
+        "passed": 8,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_event_quality_api.py": {
+        "passed": 12,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_events_scraper.py": {
+        "passed": 9,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_hall_names.py": {
+        "passed": 2,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_http_support.py": {
+        "passed": 1,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_image_analysis.py": {
+        "passed": 23,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_juggler.py": {
+        "passed": 11,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_layout_api.py": {
+        "passed": 14,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_machine_prediction.py": {
+        "passed": 9,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_machine_scope.py": {
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_minrepo_archive.py": {
+        "passed": 6,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_minrepo_scraper.py": {
+        "passed": 9,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_mobile_sync.py": {
+        "passed": 2,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_model_selection.py": {
+        "passed": 23,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_nagano_halls.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_occupancy.py": {
+        "passed": 13,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_opportunity.py": {
+        "passed": 12,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_opportunity_crawler.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_opportunity_models_v24.py": {
+        "passed": 4,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_pachireview.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_pekasen.py": {
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_placement_analysis.py": {
+        "passed": 22,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_prediction_benchmark.py": {
+        "passed": 17,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_prediction_log.py": {
+        "passed": 15,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_prediction_monitor.py": {
+        "passed": 20,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_prediction_quality.py": {
+        "passed": 14,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_prediction_replay_api.py": {
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_predictions_api.py": {
+        "passed": 2,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_probability_validation.py": {
+        "passed": 28,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_pworld_snapshot.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_scrape_hall_resolution.py": {
+        "passed": 2,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_seat_history.py": {
+        "passed": 12,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_seat_prediction.py": {
+        "passed": 15,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_sync_region_history.py": {
+        "passed": 1,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_target_search.py": {
+        "passed": 16,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_target_validation.py": {
+        "passed": 16,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "tests/test_version_api.py": {
+        "passed": 3,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "ui": {
+    "failed": 0,
+    "passed_suites": [
+      "tests/ai_comparison_ui_test.mjs",
+      "tests/ai_evaluation_ui_test.mjs",
+      "tests/ai_evidence_ui_test.mjs",
+      "tests/ai_knowledge_ui_test.mjs",
+      "tests/ai_review_ui_test.mjs",
+      "tests/candidate_evaluation_ui_test.mjs",
+      "tests/hall_ai_ui_test.mjs",
+      "tests/image_analysis_ui_test.mjs",
+      "tests/mobile_core_test.mjs",
+      "tests/mobile_ui_contract_test.mjs",
+      "tests/model_review_ui_test.mjs",
+      "tests/placement_analysis_ui_test.mjs",
+      "tests/prediction_monitor_ui_test.mjs",
+      "tests/prediction_verification_ui_test.mjs",
+      "tests/probability_validation_ui_test.mjs",
+      "tests/web_ui_contract_test.mjs"
+    ],
+    "syntax_checked": [
+      "mobile/app.js",
+      "web/js/app.js"
+    ]
+  }
+}

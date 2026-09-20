@@ -6,7 +6,9 @@ from hall.target_validation import (
     compare_prediction_models,
     date_weighted_estimate,
     decide_action,
+    finalize_prediction_estimate,
     grade_policy,
+    weighted_ensemble_estimate,
     walk_forward_backtest,
 )
 
@@ -21,6 +23,7 @@ def test_walk_forward_backtest_can_certify_consistent_signal():
     assert validation["status"] == "validated"
     assert validation["direction_accuracy_pct"] == 100
     assert validation["recommendation_success_pct"] == 100
+    assert "高設定的中率" in validation["success_definition"]
     assert validation["trust_level"] == "90%級"
     action, reason = decide_action(300, 1, validation)
     assert action == "狙う・90%級"
@@ -28,6 +31,7 @@ def test_walk_forward_backtest_can_certify_consistent_signal():
 
 
 def test_policy_exposes_seventy_percent_practical_gate():
+    assert "高設定" not in grade_policy()["success_definition"]
     assert grade_policy()["70%実戦基準"] == {
         "recommended_days": 15,
         "success_pct": 70,
@@ -152,6 +156,79 @@ def test_model_selection_and_event_adjustment_never_read_target_or_future():
     assert estimate["event_day"] is True
     assert estimate["historic_event_days"] == 5
     assert "event_adjustment_coins" in estimate
+
+
+def test_weighted_ensemble_uses_only_prior_data_and_exposes_consensus():
+    target = date(2026, 4, 1)
+    history = _points([500, -100, 350, 200, -50] * 18)
+    leaked = history + [(target, -9999), (target + timedelta(days=1), 9999)]
+    selection = compare_prediction_models(history, target)
+    clean = weighted_ensemble_estimate(
+        history, target, model_weights=selection["ensemble_weights"]
+    )
+    dirty = weighted_ensemble_estimate(
+        leaked, target, model_weights=selection["ensemble_weights"]
+    )
+
+    assert dirty == clean
+    assert clean["model"] == "ensemble"
+    assert clean["model_label"] == "検証加重アンサンブル"
+    assert 0 <= clean["model_consensus_pct"] <= 100
+    assert 99 <= sum(clean["model_weights"].values()) <= 101
+    assert selection["prediction_method"] == "weighted_ensemble"
+
+
+def test_action_rejects_model_disagreement_even_when_other_gates_pass():
+    validation = walk_forward_backtest(_points([350] * 70))
+    action, reason = decide_action(
+        300,
+        1,
+        validation,
+        70,
+        {
+            "signal_agreement_pct": 80,
+            "model_consensus_pct": 50,
+            "risk_adjusted_projected": 250,
+            "severe_loss_rate_pct": 0,
+        },
+    )
+    assert action == "見送り"
+    assert "モデル同士" in reason
+
+
+def test_probability_calibration_and_forecast_interval_are_out_of_sample():
+    target = date(2026, 5, 1)
+    history = _points([450, 300, -250, 500, -100] * 24)
+    selection = compare_prediction_models(history, target)
+    estimate = weighted_ensemble_estimate(
+        history, target, model_weights=selection["ensemble_weights"]
+    )
+    validation = walk_forward_backtest(history, model="auto")
+    final = finalize_prediction_estimate(estimate, validation)
+
+    assert validation["calibration_method"].startswith("過去時点まで")
+    assert validation["calibration_bins"]
+    assert validation["raw_brier_score"] is not None
+    assert validation["brier_score"] is not None
+    assert final["probability_calibration"]["raw_pct"] == estimate["positive_rate"]
+    assert 5 <= final["calibrated_positive_rate_pct"] <= 95
+    assert final["forecast_interval_coins"]["low"] is not None
+    assert final["forecast_interval_coins"]["high"] is not None
+
+
+def test_recent_regime_shift_blocks_current_recommendation():
+    target = date(2026, 3, 1)
+    history = _points([450] * 35 + [-900] * 14)
+    estimate = date_weighted_estimate(history, target)
+    validation = walk_forward_backtest(_points([350] * 70))
+    action, reason = decide_action(
+        300, 1, validation, 70, {**estimate, "model_consensus_pct": 100}
+    )
+
+    assert estimate["regime_shift_detected"] is True
+    assert estimate["regime_stability_pct"] < 55
+    assert action == "要確認"
+    assert "変化中" in reason
 
 
 def test_auto_model_backtest_records_only_prior_selected_models():

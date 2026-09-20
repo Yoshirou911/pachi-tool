@@ -26,6 +26,8 @@ MACHINES_DIR = ROOT / "data" / "machines"
 SESSIONS_DB  = DATA_DIR / "sessions.db"
 OPPORTUNITIES_DB = DATA_DIR / "opportunities.db"
 HALL_REPORTS_DB = DATA_DIR / "hall_reports.db"
+IMAGE_ANALYSIS_DB = DATA_DIR / "image_analysis.db"
+AI_USAGE_DB = DATA_DIR / "ai_usage.db"
 
 # サーバー設定
 PORT = int(os.environ.get("PORT", 8000))

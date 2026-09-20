@@ -1,3 +1,10 @@
+import { renderAiEvidence } from './ai-evidence.mjs?v=3.49.0';
+import { mountHallAi } from './hall-ai.mjs?v=3.49.0';
+import { mountAiComparison } from './ai-comparison.mjs?v=3.49.0';
+import { mountAiEvaluation } from './ai-evaluation.mjs?v=3.49.0';
+import { mountKnowledge } from './ai-knowledge.mjs?v=3.49.0';
+import { mountAiReview } from './ai-review.mjs?v=3.49.0';
+import { mountImageAnalysis, buildImageMapDraft } from './image-analysis.mjs?v=3.49.0';
 import {
   JUDGMENT_LABELS,
   applyPersonalCalibration,
@@ -8,10 +15,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.10.1';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.10.1';
+} from './core.mjs?v=3.49.0';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.49.0';
 
-const APP_VERSION = '3.10.1';
+const APP_VERSION = '3.49.0';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -32,13 +39,13 @@ function setTargetRegion(region) {
 }
 let releaseInfo = {
   version: APP_VERSION,
-  released_on: '2026-08-25',
+  released_on: '2026-09-21',
   channel: '公開版',
   patch_notes: [{
     version: APP_VERSION,
-    released_on: '2026-08-25',
-    title: '収集・分析対象を四條畷駅周辺へ一本化',
-    items: ['自動収集を周辺8店舗へ限定', '長野の取得済みデータは削除せず保管', '全画面の地域を四條畷駅周辺に固定'],
+    released_on: '2026-09-21',
+    title: 'AI機能の採用範囲を点検・審査結果を表示',
+    items: ['設定からAI機能ごとの採用範囲と未確認事項を確認', '二重送信・料金予約・画像候補保存・古い資料の扱いを修正', '外部AIの実品質と予測精度は未測定。自動採用や予測変更はしません'],
   }],
 };
 const DB_NAME = 'pachi-tool-mobile';
@@ -68,6 +75,7 @@ let lastAssessment = null;
 let dbPromise = null;
 let toastTimer = null;
 let targetSearchData = null;
+let eventAnalysisData = null;
 let jugglerCatalog = [];
 let jugglerTargetData = null;
 let settingMachineNames = [];
@@ -667,12 +675,14 @@ function renderTargetContext(hall) {
   const model = hall.prediction_model || {};
   const activity = hall.data_quality?.activity_filter || {};
   const event = hall.event_context || {};
+  const eventTrust = [...new Set((event.events || []).map(item => item.source_trust).filter(Boolean))].join('/');
+  const eventTitle = (event.events || []).map(item => item.title).filter(Boolean).slice(0, 2).join('・');
   const seats = hall.seat_patterns || {};
   const profit = hall.personal_profit_validation?.all || {};
   return `<div class="target-context-grid">
     <span><small>店舗別モデル</small><b>${esc(model.selected_label || 'バランス型')}</b><em>過去成績から自動選択</em></span>
     <span><small>低稼働除外</small><b>${activity.excluded_low_activity_rows ?? 0}行</b><em>${activity.reduced_weight_rows ?? 0}行を減量</em></span>
-    <span><small>イベント</small><b>${event.is_event_day ? `${event.events?.length || 0}件あり` : '登録なし'}</b><em>${event.is_event_day ? `安全側補正 ${signedCoins(event.adjustment_coins)}` : `過去${event.historic_event_days || 0}日`}</em></span>
+    <span><small>イベント</small><b>${event.is_event_day ? `${event.events?.length || 0}件・信頼${esc(eventTrust || '未確認')}` : '登録なし'}</b><em>${event.is_event_day ? `${esc(eventTitle || '予定あり')}・補正 ${signedCoins(event.adjustment_coins)}` : `過去${event.historic_event_days || 0}日`}</em></span>
     <span><small>自分の朝一収支</small><b>${profit.count ? `${profit.count}件` : '未蓄積'}</b><em>${profit.count ? `平均 ${money(profit.avg_yen, true)}` : '実戦記録から育ちます'}</em></span>
   </div>
   <div class="seat-pattern-strip">
@@ -687,7 +697,7 @@ function renderSeatCandidates(machine) {
   if (!rows.length) return `<span class="machine-seat-candidates"><i class="seat-candidate-watch"><b>台番号未特定</b>${esc(machine.seat_prediction?.notice || '現在配置と台別履歴がありません')}</i></span>`;
   return `<span class="machine-seat-candidates">${rows.map(row => {
     const role = row.seat_role || '比較対象';
-    const tone = role === '避ける' ? 'avoid' : role === '第一候補' ? 'first' : role === '第二候補' ? 'second' : 'watch';
+    const tone = role === '避ける' ? 'avoid' : role === '第一候補' ? 'first' : role === '第二候補' ? 'second' : role.startsWith('参考') ? 'reference' : 'watch';
     return `<i class="seat-candidate-${tone}"><b>${esc(role)}</b>${row.seat_number}番・${esc(row.status)}・過去${row.validation?.recommendation_success_pct ?? '--'}%・安全側${signedCoins(row.risk_adjusted_diff_coins ?? row.avg_diff_coins)}</i>`;
   }).join('')}</span>`;
 }
@@ -720,26 +730,31 @@ function selectTargetConclusion(data) {
   if (!hall) return null;
   const machine = selectTargetMachine(hall, true) || selectTargetMachine(hall);
   const seats = machine?.seat_candidates || [];
-  const seat = seats.find(item => item.seat_role === '第一候補' && item.status === '検証済み')
+  const verifiedSeat = seats.find(item => item.seat_role === '第一候補' && item.status === '検証済み')
     || seats.find(item => item.status === '検証済み') || null;
+  const referenceSeat = seats.find(item => item.seat_role === '参考1位')
+    || seats.find(item => item.seat_role?.startsWith('参考')) || null;
+  const seat = verifiedSeat || referenceSeat;
   const action = hall.action === '見送り'
     ? '見送り'
     : hall.action?.startsWith('狙う') && machine?.action?.startsWith('狙う')
       ? '狙う'
       : '要確認';
   const tone = action === '狙う' ? 'go' : action === '見送り' ? 'stop' : 'check';
-  return { hall, machine, seat, action, tone };
+  return { hall, machine, seat, seatVerified: Boolean(verifiedSeat), action, tone };
 }
 
 function renderTargetConclusion(data) {
   const result = selectTargetConclusion(data);
   if (!result) return '';
-  const { hall, machine, seat, action, tone } = result;
+  const { hall, machine, seat, seatVerified, action, tone } = result;
   const dateParts = String(data.visit_date || '').split('-');
   const dateLabel = dateParts.length === 3 ? `${Number(dateParts[1])}/${Number(dateParts[2])}の結論` : '行く日の結論';
-  const seatLabel = seat ? `${seat.seat_number}番台` : '70%検証データ不足';
+  const seatLabel = seat ? `${seat.seat_number}番台${seatVerified ? '' : '（参考）'}` : '台番号未特定';
   const reason = action === '見送り'
-    ? '安全基準を通る店舗・機種がありません'
+    ? seat && !seatVerified
+      ? '実戦基準は未達です。台番号は比較上の参考順位で、着席許可ではありません'
+      : '安全基準を通る店舗・機種がありません'
     : action === '狙う'
       ? '店舗と機種の両方が安全基準を通過'
       : hall.action_reason || machine?.action_reason || 'データを確認してから着席';
@@ -757,6 +772,22 @@ function renderTargetConclusion(data) {
   </section>`;
 }
 
+function renderRegionDecisionBoard(board) {
+  const halls = board?.halls || [];
+  const summary = board?.summary || {};
+  if (!halls.length) return '';
+  return `<section class="region-decision-board">
+    <header><div><span class="page-step">四條畷周辺8店舗</span><h2>候補外も含めた分析状況</h2></div><b>${summary.actionable_halls || 0}店候補</b></header>
+    <p>参考${summary.reference_halls || 0}店・データ不足${summary.insufficient_halls || 0}店・現地/CSV補完${summary.manual_required_halls || 0}店</p>
+    <div>${halls.map(item => `<article class="region-decision-${esc(item.state)}">
+      <span>${item.state === 'actionable' ? '候補' : item.state === 'reference' ? '参考' : '不足'}</span>
+      <div><strong>${esc(item.hall_name)}</strong><small>${esc(item.machine_name)}${item.event_names?.length ? `・${esc(item.event_names.join('・'))}` : ''}</small><small>${esc(item.reason)}</small><em>${esc(item.collection_label)}／次：${esc(item.next_action)}</em>${['not_disclosed', 'manual_required', 'configured_empty'].includes(item.collection_state) ? `<button type="button" data-collect-hall="${esc(item.hall_name)}">この店のデータを補完</button>` : ''}</div>
+      <b>${item.coverage_score}点</b>
+    </article>`).join('')}</div>
+    <small>${esc(board.notice || '')}</small>
+  </section>`;
+}
+
 function renderTargetSearch() {
   const container = byId('target-search-results');
   if (!targetSearchData) {
@@ -766,31 +797,40 @@ function renderTargetSearch() {
   const halls = targetSearchData.halls || [];
   const insufficient = targetSearchData.insufficient_halls || [];
   const accuracy = targetSearchData.accuracy_summary || {};
-  const accuracyCard = `<section class="accuracy-gate-card"><div><span>${accuracy.target_pct || 70}%精度優先</span><strong>実戦候補 店舗${accuracy.actionable_halls || 0}・機種${accuracy.actionable_machines || 0}</strong></div><p>検証通過：70%級 店舗${accuracy.hall_70_count || 0}・機種${accuracy.machine_70_count || 0} ／ 80%級 店舗${accuracy.hall_80_count || 0}・機種${accuracy.machine_80_count || 0}</p><small>${esc(accuracy.message || '基準未達は自動で見送ります。')}</small></section>`;
+  const audit = targetSearchData.prediction_audit || {};
+  const regionBoard = renderRegionDecisionBoard(targetSearchData.region_board);
+  const accuracyCard = `<section id="prediction-verification" class="accuracy-gate-card"></section>` + `<section class="accuracy-gate-card"><div><span>${accuracy.target_pct || 70}%精度優先</span><strong>実戦候補 店舗${accuracy.actionable_halls || 0}・機種${accuracy.actionable_machines || 0}</strong></div><p>比較用：店舗TOP${accuracy.reference_halls || 0}・機種TOP${accuracy.reference_machines || 0}・参考台番号${accuracy.reference_seats || 0}件</p><p>検証通過：70%級 店舗${accuracy.hall_70_count || 0}・機種${accuracy.machine_70_count || 0} ／ 80%級 店舗${accuracy.hall_80_count || 0}・機種${accuracy.machine_80_count || 0}</p><p>予測監査：${audit.evaluated_models || 0}モデル・先読みなし${audit.out_of_sample_days || 0}日・確率補正${audit.calibrated_models || 0}件・相場変化${audit.regime_shift_models || 0}件</p><small>${esc(accuracy.message || '基準未達でも比較順位は表示します。')}<br>画面の成功率＝推奨日の平均差枚がプラスだった率（高設定的中率・本人勝率ではありません）</small></section>`;
+  import('./prediction-verification.mjs?v=3.49.0').then(({mountVerification}) => {
+    return mountVerification(document.getElementById('prediction-verification'), mobileArchiveRequest, targetSearchData);
+  }).catch(() => {
+    const panel = document.getElementById('prediction-verification');
+    if (panel) panel.textContent = '検証画面を読み込めません。アプリを更新してください。';
+  });
   if (!halls.length) {
-    container.innerHTML = `${accuracyCard}<div class="target-empty"><strong>${esc(targetSearchData.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(targetSearchData.notice || '取得日数が増えるまでお待ちください。')}</span></div>
+    container.innerHTML = `${accuracyCard}${regionBoard}<div class="target-empty"><strong>${esc(targetSearchData.region_label || '選択地域')}に表示できる候補がありません</strong><span>${esc(targetSearchData.notice || '取得日数が増えるまでお待ちください。')}</span></div>
       ${insufficient.length ? `<details class="insufficient-halls" open><summary>除外・データ不足 ${insufficient.length}店</summary><div>${insufficient.map(item => `<span>${esc(item.hall_name)}：${esc(item.reason)}</span>`).join('')}</div></details>` : ''}`;
     return;
   }
   container.innerHTML = `
     ${accuracyCard}
     ${renderTargetConclusion(targetSearchData)}
+    ${regionBoard}
     <div class="target-result-heading"><div><span class="page-step">${esc(targetSearchData.region_label || '')}・${esc(targetSearchData.visit_date)} ${esc(targetSearchData.weekday)}曜日</span><h2>店舗・狙い機種ランキング</h2></div><span class="count-badge">${halls.length}店</span></div>
     ${halls.map((hall, hallIndex) => `<article class="target-hall-card">
       <div class="target-action target-action-${hall.action?.startsWith('狙う') ? 'go' : hall.action === '見送り' ? 'stop' : 'check'}"><b>${esc(hall.action || '要確認')}</b><span>${esc(hall.action_reason || '')}</span></div>
       <div class="target-hall-head">
-        <span class="target-rank">${hall.rank}</span>
+        <span class="target-rank">${hall.action?.startsWith('狙う') ? hall.rank : `参考${hall.reference_rank || hall.rank}`}</span>
         <div><strong>${esc(hall.hall_name)}</strong><small>${esc(hall.basis)}・最終 ${esc(hall.latest_date)}</small></div>
         <div class="target-score"><b>${hall.score}</b><small>点</small></div>
       </div>
-      <div class="target-metrics"><span><small>安全側推定</small><b class="${(hall.prediction_diagnostics?.risk_adjusted_projected ?? hall.avg_diff) >= 0 ? 'money-up' : 'money-down'}">${signedCoins(hall.prediction_diagnostics?.risk_adjusted_projected ?? hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>狙い時成功</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
-      <div class="target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}・品質${hall.validation?.quality_score ?? 0}点</b><span>推奨 ${hall.validation?.recommended_days ?? 0}回（見送り ${hall.validation?.skipped_days ?? 0}日）／ 95%下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}% ／ 直近 ${hall.validation?.recent_recommendation_success_pct ?? '--'}% ／ 根拠一致 ${hall.prediction_diagnostics?.signal_agreement_pct ?? '--'}% ／ 下側25% ${signedCoins(hall.prediction_diagnostics?.downside_q25_coins ?? 0)}</span></div>
+      <div class="target-metrics"><span><small>安全側推定</small><b class="${(hall.prediction_diagnostics?.risk_adjusted_projected ?? hall.avg_diff) >= 0 ? 'money-up' : 'money-down'}">${signedCoins(hall.prediction_diagnostics?.risk_adjusted_projected ?? hall.avg_diff)}</b></span><span><small>プラス日率</small><b>${hall.positive_rate}%</b></span><span><small>過去検証</small><b>${hall.validation?.test_days || 0}日</b></span><span><small>推奨日平均＋率</small><b>${hall.validation?.recommendation_success_pct == null ? '--' : `${hall.validation.recommendation_success_pct}%`}</b></span></div>
+      <div class="target-validation"><b>${esc(hall.validation?.trust_level || 'データ不足')}・品質${hall.validation?.quality_score ?? 0}点</b><span>推奨 ${hall.validation?.recommended_days ?? 0}回（見送り ${hall.validation?.skipped_days ?? 0}日）／ 95%下限 ${hall.validation?.recommendation_lower_bound_pct ?? '--'}% ／ 直近 ${hall.validation?.recent_recommendation_success_pct ?? '--'}% ／ 確率補正 ${hall.prediction_diagnostics?.raw_positive_rate_pct ?? '--'}→${hall.prediction_diagnostics?.calibrated_positive_rate_pct ?? '--'}% ／ モデル一致 ${hall.prediction_diagnostics?.model_consensus_pct ?? '--'}% ／ 相場安定 ${hall.prediction_diagnostics?.regime_stability_pct ?? '--'}% ／ 80%予測幅 ${hall.prediction_diagnostics?.forecast_interval_coins?.low == null ? '--' : `${signedCoins(hall.prediction_diagnostics.forecast_interval_coins.low)}〜${signedCoins(hall.prediction_diagnostics.forecast_interval_coins.high)}`}</span></div>
       ${renderTargetContext(hall)}
       <details class="target-backtest"><summary>直近の自動答え合わせを見る</summary><div>${renderBacktestAnswers(hall.validation)}</div></details>
       <div class="target-reasons">${(hall.reasons || []).map(reason => `<span>${esc(reason)}</span>`).join('')}</div>
       <div class="target-machine-list">
         ${(hall.target_machines || []).slice(0, 3).map((machine, machineIndex) => `<div class="target-machine-row">
-          <div><strong>${esc(machine.machine_name)}</strong><small>${esc(machine.action || '要確認')}・狙い時${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${machine.sample_days}日・${esc(machine.installation_status || '設置未確認')}・安全側${signedCoins(machine.risk_adjusted_avg_diff ?? machine.avg_diff)}</small>${renderSeatCandidates(machine)}</div>
+          <div><strong>${esc(machine.reference_label || `参考${machineIndex + 1}位`)}・${esc(machine.machine_name)}</strong><small>実戦判定 ${esc(machine.action || '要確認')}／機種単体 ${esc(machine.standalone_action || machine.action || '要確認')}・推奨日平均＋率${machine.validation?.recommendation_success_pct == null ? '--' : `${machine.validation.recommendation_success_pct}%`}・${machine.sample_days}日・機種固有${machine.prediction_diagnostics?.hierarchical_shrinkage?.machine_weight_pct ?? '--'}%・${esc(machine.installation_status || '設置未確認')}・安全側${signedCoins(machine.risk_adjusted_avg_diff ?? machine.avg_diff)}</small>${renderSeatCandidates(machine)}</div>
           <span>${machine.score}点</span>
           <button type="button" data-target-hall-index="${hallIndex}" data-target-machine-index="${machineIndex}" ${machine.action?.startsWith('狙う') ? '' : 'disabled'}>${machine.action?.startsWith('狙う') ? '朝一候補に保存' : '保存不可'}</button>
         </div>`).join('') || '<p class="fine-print">機種別候補はまだ材料不足です。</p>'}
@@ -925,6 +965,121 @@ async function loadTargetHallOptions() {
   if ([...scanHall.options].some(option => option.value === state.settings.scan_hall)) scanHall.value = state.settings.scan_hall;
   return targetHallOptions;
 }
+
+function eventGradeTone(grade) {
+  return grade === 'S' || grade === 'A' ? 'hot' : grade === 'B' ? 'warm' : grade === 'D' ? 'cold' : 'watch';
+}
+
+function renderEventModelAudit(comparison) {
+  const target = byId('event-model-audit');
+  if (!target) return;
+  const baseline = comparison?.baseline;
+  if (!baseline) {
+    target.textContent = '自動答え合わせの結果はまだありません。';
+    return;
+  }
+  const rate = baseline.success_pct == null ? '算出前' : `${baseline.success_pct}%`;
+  const lower = baseline.lower_bound_pct == null ? '算出前' : `${baseline.lower_bound_pct}%`;
+  const live = comparison.production_audit || {};
+  const liveText = live.recommended_resolved
+    ? `本番 ${live.hits}/${live.recommended_resolved}件・95%下限${live.lower_bound_pct}%`
+    : `本番は記録開始（予測${live.predictions || 0}件・結果待ち${live.unresolved || 0}件）`;
+  target.innerHTML = `<b>現行：${esc(baseline.model)}</b><br>従来の過去検証（予定の取得時点は未監査） ${baseline.hits}/${baseline.recommended_trials}件・的中${rate}・95%下限${lower}<br>${liveText}<br>AIの判定変更 0件・${esc(comparison.promotion_gate?.status || '現行モデルを維持')}`;
+}
+
+function renderEventAnalysis() {
+  const container = byId('event-analysis-results');
+  if (!container) return;
+  if (!eventAnalysisData) {
+    container.innerHTML = '<p class="empty">イベント予定を読み込むと、過去成績と強かった機種を表示します。</p>';
+    return;
+  }
+  const upcoming = eventAnalysisData.upcoming || [];
+  const analyses = eventAnalysisData.event_analysis || [];
+  const summary = eventAnalysisData.summary || {};
+  renderEventModelAudit(eventAnalysisData.model_comparison);
+  const upcomingHtml = upcoming.length ? upcoming.map(item => {
+    const resultText = item.grade === '未検証'
+      ? `未検証・実績${item.matched_days}回`
+      : `${esc(item.grade)}評価・通常日比 ${signedCoins(item.lift_vs_normal)}・プラス${item.positive_rate_pct}%${item.backtest?.success_pct == null ? '' : `・過去成功${item.backtest.success_pct}%`}`;
+    const forecastText = `基準点${item.baseline_forecast?.score || 0}・${esc(item.baseline_forecast?.decision || '参考止まり')}`;
+    return `<article class="event-upcoming-card event-grade-${eventGradeTone(item.grade)}">
+      <div class="event-upcoming-date"><b>${esc(item.event_date.slice(5).replace('-', '/'))}</b><small>信頼${esc(item.source_trust)}</small></div>
+      <div><strong>${esc(item.hall_name)}</strong><span>${esc(item.event_name)}</span><small>${resultText}<br>${forecastText}</small></div>
+      <em>${esc(item.baseline_forecast?.decision === '実戦候補' ? '候補' : item.grade)}</em>
+    </article>`;
+  }).join('') : '<p class="empty">指定日から31日以内に、信頼A〜Cの公開予定はありません。</p>';
+  const analysisHtml = analyses.length ? analyses.slice(0, 6).map(item => `
+    <details class="event-pattern-card event-grade-${eventGradeTone(item.grade)}">
+      <summary><span><b>${esc(item.grade)}</b><strong>${esc(item.hall_name)}</strong><small>${esc(item.event_name)}・実績${item.matched_days}回</small></span><em>${item.grade === '未検証' ? '判定保留' : `通常日比 ${signedCoins(item.lift_vs_normal)}`}</em></summary>
+      <div><p>${esc(item.grade_reason)}／安全側 ${signedCoins(item.lower_bound_lift)}／プラス${item.positive_rate_pct}%</p><p>${esc(item.history_basis || '記録済みの公開予定だけを使用')}</p><p>判定に使った実績：${esc(item.performance_basis || '機種別の公開実績を集計')}・照合${item.eligible_evidence_records || 0}件</p><p>品質ゲート：${esc(item.quality_gate?.status || '参考止まり')} ${item.quality_gate?.quality_score || 0}点${item.quality_gate?.blockers?.length ? `（不足：${item.quality_gate.blockers.map(esc).join('・')}）` : ''}</p><p>${item.backtest?.recommended_days ? `先読み答え合わせ ${item.backtest.hits}/${item.backtest.recommended_days}回成功（${item.backtest.success_pct}%・95%下限${item.backtest.lower_bound_pct}%）` : '先読み答え合わせはまだデータ不足です。'}</p>${(item.strong_machines || []).length ? `<ul>${item.strong_machines.slice(0, 3).map(machine => `<li><b>${esc(machine.machine_name)}</b><span>通常日比 ${signedCoins(machine.lift_vs_normal)}・${machine.matched_days}回・${esc(machine.status)}</span></li>`).join('')}</ul>` : '<p>機種別実績はまだ不足しています。</p>'}</div>
+    </details>`).join('') : '<p class="empty">過去実績と結び付けられるイベントがまだありません。</p>';
+  container.innerHTML = `<div class="event-analysis-summary"><span><small>今後31日</small><b>${summary.upcoming_count || 0}件</b></span><span><small>品質通過</small><b>${summary.quality_passed_patterns || 0}件</b></span><span><small>実戦候補</small><b>${summary.actionable_upcoming || 0}件</b></span><span><small>結果照合</small><b>${summary.eligible_evidence_records || 0}件</b></span></div><div class="event-subheading"><b>今後の予定</b><small>公式・公開媒体で確認できたもの</small></div>${upcomingHtml}<div class="event-subheading"><b>イベント別の過去成績</b><small>同じ店の通常日と比較</small></div>${analysisHtml}<p class="fine-print">この欄は従来集計です。規則から補完した日も含み、3.26の店舗×イベント比較とは別です。実績3回未満は「未検証」です。イベント名だけで高設定を保証する機能ではありません。</p>`;
+}
+
+async function loadEventAnalysis() {
+  const button = byId('event-analysis-button');
+  const status = byId('event-analysis-status');
+  const visitDate = byId('target-visit-date').value || tomorrowValue();
+  const region = setTargetRegion(byId('target-search-region').value);
+  if (button) { button.disabled = true; button.textContent = 'イベント分析中…'; }
+  if (status) status.textContent = '公開予定と過去実績を照合しています…';
+  try {
+    const response = await fetch(apiUrl(`/api/events/analysis?visit_date=${encodeURIComponent(visitDate)}&region=${encodeURIComponent(region)}&history_days=730&future_days=31`));
+    if (!response.ok) throw new Error(`イベント分析API ${response.status}`);
+    eventAnalysisData = await response.json();
+    renderEventAnalysis();
+    if (status) status.textContent = `${eventAnalysisData.region_label}・${eventAnalysisData.reference_date}までの実績で分析`;
+  } catch (error) {
+    eventAnalysisData = null;
+    renderEventAnalysis();
+    if (status) status.textContent = `イベント分析に接続できません：${error.message}`;
+  } finally {
+    if (button) { button.disabled = false; button.textContent = 'イベント予定を更新'; }
+  }
+}
+
+function renderEventAiAnswer(data) {
+  const output = byId('event-ai-output');
+  if (!output) return;
+  output.innerHTML = `<p>${esc(data.summary || '説明を取得できませんでした。').replace(/\n/g, '<br>')}</p><small>${esc(data.engine || '統計エンジン')}・判定元 ${esc(data.decision_source || '説明可能ベースライン v1')}・AIによる判定変更なし</small>`;
+  output.insertAdjacentHTML('beforeend', renderAiEvidence(data));
+}
+
+async function askEventAi(message = '') {
+  const output = byId('event-ai-output');
+  const visitDate = byId('target-visit-date').value || tomorrowValue();
+  const region = setTargetRegion(byId('target-search-region').value);
+  output.innerHTML = '<p>品質ゲート済みの数値から説明を作成中…</p>';
+  try {
+    const options = message ? {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, visit_date: visitDate, region }),
+    } : {};
+    const path = message
+      ? '/api/ai/event_ask'
+      : `/api/ai/event_forecast?visit_date=${encodeURIComponent(visitDate)}&region=${encodeURIComponent(region)}`;
+    const response = await fetch(apiUrl(path), options);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || `AI説明API ${response.status}`);
+    renderEventAiAnswer(data);
+  } catch (error) {
+    output.innerHTML = `<p>説明を取得できません：${esc(error.message)}</p><small>イベント分析の点数と品質ゲートはそのまま確認できます。</small>`;
+  }
+}
+
+byId('event-ai-summary-button')?.addEventListener('click', () => askEventAi());
+byId('event-ai-form')?.addEventListener('submit', event => {
+  event.preventDefault();
+  const input = byId('event-ai-input');
+  const message = input.value.trim();
+  if (!message) return;
+  askEventAi(message);
+});
+document.querySelectorAll('[data-event-ai-question]').forEach(button => button.addEventListener('click', () => {
+  byId('event-ai-input').value = button.dataset.eventAiQuestion;
+  askEventAi(button.dataset.eventAiQuestion);
+}));
 
 const SETTING_DRAFT_KEY = 'pachi-setting-live-draft-v1';
 
@@ -1462,6 +1617,7 @@ async function loadTrendProfile() {
     const matrixData = matrixResponse?.ok ? await matrixResponse.json() : null;
     renderDataCoverage('trend-data-coverage', coverageResponse?.ok ? await coverageResponse.json() : null);
     renderTrendProfile(aiData, matrixData);
+    byId('trend-results').querySelector('.ai-insight-card')?.insertAdjacentHTML('beforeend', renderAiEvidence(aiData));
     status.textContent = `${trendData.sample_days || 0}日分・信頼度${trendData.confidence || '不足'}で分析`;
   } catch (error) {
     renderDataCoverage('trend-data-coverage', null);
@@ -1512,7 +1668,21 @@ async function loadFloorHeat() {
     const response = await fetch(apiUrl(`/api/layouts/seat_heat?hall_name=${encodeURIComponent(hall)}&visit_date=${encodeURIComponent(visitDate)}&days=${encodeURIComponent(days)}`));
     if (!response.ok) throw new Error(`座席API ${response.status}`);
     floorData = await response.json();
+    if (!floorData.layout) {
+      floorEditorSeats = [];
+      byId('floor-rows').value = '';
+      renderFloorMap();
+      status.textContent = '確認済みマップはまだありません。下の登録欄から追加できます。';
+      return;
+    }
     floorEditorSeats = floorData.seats.map(seat => ({ seat_number: seat.seat_number, machine_name: seat.machine_name || '', island_name: seat.island_name || '', x: seat.x, y: seat.y, width: seat.width, height: seat.height, rotation: seat.rotation || 0 }));
+    floorEditorSeats.forEach(seat => {
+      const original = floorData.seats.find(s => s.seat_number === seat.seat_number);
+      seat.row_name = original.row_name || '';
+      seat.row_order = original.row_order ?? null;
+    });
+    const {serializePlacement} = await import('./placement-analysis.mjs?v=3.49.0');
+    byId('floor-rows').value = serializePlacement(floorEditorSeats);
     byId('floor-valid-from').value = floorData.layout.valid_from || todayValue();
     byId('floor-source-label').value = floorData.layout.source_label || '';
     byId('floor-source-url').value = floorData.layout.source_url || '';
@@ -1521,6 +1691,7 @@ async function loadFloorHeat() {
     byId('floor-notes').value = floorData.layout.notes || '';
     renderFloorMap();
     status.textContent = `${floorData.status}・${floorData.data_coverage.history_rows}件の台番号実績を使用`;
+    await Promise.all([loadSeatResultStatus(hall), loadFloorDailyResults()]);
     if (!floorData.seats.length) document.querySelector('.floor-editor').open = true;
   } catch (error) {
     status.textContent = `座席マップを取得できません：${error.message}`;
@@ -1547,6 +1718,7 @@ function createAutoFloorSeats() {
   floorData = { hall_name: byId('floor-hall').value, status: '仮配置', notice: '公式マップまたは現地で位置を確認してください。', data_coverage: { history_rows: 0, seat_count: 0 }, layout: { id: null, hall_name: byId('floor-hall').value, floor_name: 'スロットフロア', valid_from: byId('floor-valid-from').value || todayValue(), width: 1000, height, source_url: byId('floor-source-url').value, source_label: byId('floor-source-label').value || '利用者登録マップ', source_kind: byId('floor-source-kind').value, verification_status: byId('floor-verification').value, notes: byId('floor-notes').value, generated: false }, seats: floorEditorSeats.map(seat => ({ ...seat, score: null, color: '#64748b', heat_level: 'データ不足', reasons: ['配置確認待ち'], sample_days: 0 })) };
   renderFloorMap();
   showToast(`${numbers.length}台を仮配置しました`);
+  byId('floor-rows').value = '';
 }
 
 async function saveFloorLayout(event) {
@@ -1556,19 +1728,24 @@ async function saveFloorLayout(event) {
     return;
   }
   const sourceUrl = byId('floor-source-url').value.trim();
+  let placementSeats;
+  try {
+    const {applyPlacement} = await import('./placement-analysis.mjs?v=3.49.0');
+    placementSeats = applyPlacement(floorEditorSeats, byId('floor-rows').value);
+  } catch (error) { return showToast(error.message); }
   const sourceLabel = byId('floor-source-label').value.trim();
   const body = {
     hall_name: byId('floor-hall').value,
-    floor_name: 'スロットフロア',
+    floor_name: floorData?.layout?.floor_name || 'スロットフロア',
     valid_from: byId('floor-valid-from').value || todayValue(),
-    width: 1000,
+    width: floorData?.layout?.width || 1000,
     height: floorData?.layout?.height || 700,
     source_url: sourceUrl,
     source_label: sourceLabel || (sourceUrl ? '公開店内マップ' : '利用者登録マップ'),
     source_kind: byId('floor-source-kind').value,
     verification_status: byId('floor-verification').value,
     notes: byId('floor-notes').value.trim(),
-    seats: floorEditorSeats,
+    seats: placementSeats,
   };
   byId('floor-save-layout').disabled = true;
   try {
@@ -1615,7 +1792,25 @@ function parseFloorResultCsv(text) {
   });
 }
 
-async function saveFloorResults(rows, sourceLabel = '') {
+async function loadFloorDailyResults() {
+  const hall = byId('floor-hall').value;
+  const reportDate = byId('floor-result-date').value || todayValue();
+  const progress = byId('floor-daily-progress');
+  const recent = byId('floor-recent-results');
+  if (!hall) return;
+  try {
+    const response = await fetch(apiUrl(`/api/layouts/seat_results?hall_name=${encodeURIComponent(hall)}&report_date=${encodeURIComponent(reportDate)}&ts=${Date.now()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error(`当日データAPI ${response.status}`);
+    const data = await response.json();
+    progress.textContent = `${reportDate}：${data.count}台登録済み${data.count ? '・次の台を続けて入力できます' : '・最初の台を入力してください'}`;
+    recent.innerHTML = (data.rows || []).slice(-5).reverse().map(row => `<div><b>${row.seat_number}番</b><span>${esc(row.machine_name)}</span><em class="${row.diff_coins >= 0 ? 'money-up' : 'money-down'}">${signedCoins(row.diff_coins)}</em></div>`).join('');
+  } catch (error) {
+    progress.textContent = `当日の登録状況を取得できません：${error.message}`;
+    recent.innerHTML = '';
+  }
+}
+
+async function saveFloorResults(rows, sourceLabel = '', refreshHeat = false) {
   const status = byId('floor-result-status');
   status.textContent = `${rows.length}件を保存中...`;
   const response = await fetch(apiUrl('/api/layouts/seat_results'), {
@@ -1631,7 +1826,8 @@ async function saveFloorResults(rows, sourceLabel = '') {
   if (!response.ok) throw new Error(result.detail || `保存API ${response.status}`);
   status.textContent = `${result.report_date}・${result.message}`;
   showToast(result.message);
-  await loadFloorHeat();
+  if (refreshHeat) await loadFloorHeat();
+  else await Promise.all([loadSeatResultStatus(), loadFloorDailyResults()]);
 }
 
 function startTargetSearchProgress() {
@@ -1688,6 +1884,7 @@ async function runTargetSearch() {
     if (!response.ok) throw new Error(`分析API ${response.status}`);
     targetSearchData = await response.json();
     renderTargetSearch();
+    loadEventAnalysis();
     progress.complete();
     status.textContent = `${targetSearchData.region_label}・${targetSearchData.generated_at}時点の公開データで分析しました。`;
   } catch (error) {
@@ -1772,7 +1969,7 @@ function renderResults() {
     const gap = hasExpected ? net - Number(result.expected_value_yen) : null;
     const location = [result.hall_name, result.seat_number ? `${result.seat_number}番台` : ''].filter(Boolean).join('・');
     const detail = [result.outcome === 'hit' ? '当選' : result.outcome === 'closing' ? '閉店終了' : result.outcome === 'stop' ? '見切り' : '', result.hit_game != null ? `当選${result.hit_game}G` : '', result.end_state].filter(Boolean).join('・');
-    return `<article class="list-card"><div class="list-card-head"><div class="list-card-main"><strong>${esc(result.machine_name)}</strong><small>${esc(result.played_on)}・${result.played_minutes || 0}分${location ? `・${esc(location)}` : ''}</small></div><strong class="${net >= 0 ? 'result-profit' : 'result-loss'}">${money(net, true)}</strong></div><p class="card-meta">投資 ${money(result.investment_yen)}・回収 ${money(result.returns_yen)}${hasExpected ? `・期待値 ${money(result.expected_value_yen, true)}・差 ${money(gap, true)}` : '・期待値記録なし'}${detail ? `・${esc(detail)}` : ''}${result.notes ? `・${esc(result.notes)}` : ''}</p></article>`;
+    return `<article class="list-card"><div class="list-card-head"><div class="list-card-main"><strong>${esc(result.machine_name)}</strong><small>${esc(result.played_on)}・${result.played_minutes || 0}分${location ? `・${esc(location)}` : ''}</small></div><strong class="${net >= 0 ? 'result-profit' : 'result-loss'}">${money(net, true)}</strong></div><p class="card-meta">正解：本人収支 ${net > 0 ? 'プラス' : net < 0 ? 'マイナス' : '±0'}・設定 未確認<br>投資 ${money(result.investment_yen)}・回収 ${money(result.returns_yen)}${hasExpected ? `・着席前期待値 ${money(result.expected_value_yen, true)}・差 ${money(gap, true)}` : '・着席前期待値なし'}${detail ? `・${esc(detail)}` : ''}${result.notes ? `・${esc(result.notes)}` : ''}</p></article>`;
   }).join('');
 }
 
@@ -1958,6 +2155,7 @@ function showScreen(name) {
   if (name === 'scan' && !occupancyPriorityData) setTimeout(loadOccupancyPriorityList, 80);
   if (name === 'scan' && !hyenaStoreRankingData) setTimeout(loadHyenaStoreRanking, 100);
   if (name === 'target-map' && !targetMapData) setTimeout(loadTargetHeatMap, 80);
+  if (name === 'planner' && !eventAnalysisData) setTimeout(loadEventAnalysis, 100);
   if (name === 'trend' && !trendData) setTimeout(loadTrendProfile, 80);
   if (name === 'floor-map' && !floorData) setTimeout(loadFloorHeat, 80);
   if (name === 'juggler') {
@@ -2177,6 +2375,7 @@ byId('juggler-assess-form').addEventListener('submit', async event => {
   event.preventDefault();
   await runJugglerAssessment();
 });
+byId('event-analysis-button').addEventListener('click', loadEventAnalysis);
 
 byId('setting-assess-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -2236,9 +2435,16 @@ byId('floor-form').addEventListener('submit', async event => {
 
 byId('floor-auto-layout').addEventListener('click', createAutoFloorSeats);
 byId('floor-editor-form').addEventListener('submit', saveFloorLayout);
+byId('floor-diff-quick').addEventListener('click', event => {
+  const button = event.target.closest('[data-floor-diff]');
+  if (!button) return;
+  byId('floor-result-diff').value = button.dataset.floorDiff;
+  byId('floor-result-games').focus();
+});
 byId('floor-result-form').addEventListener('submit', async event => {
   event.preventDefault();
   const button = byId('floor-result-save');
+  const currentSeat = Number(byId('floor-result-number').value);
   button.disabled = true;
   try {
     await saveFloorResults([{
@@ -2247,17 +2453,22 @@ byId('floor-result-form').addEventListener('submit', async event => {
       diff_coins: Number(byId('floor-result-diff').value),
       games: byId('floor-result-games').value === '' ? null : Number(byId('floor-result-games').value),
     }]);
-    ['floor-result-number', 'floor-result-machine', 'floor-result-diff', 'floor-result-games'].forEach(id => { byId(id).value = ''; });
+    byId('floor-result-number').value = String(currentSeat + 1);
+    byId('floor-result-diff').value = '';
+    byId('floor-result-games').value = '';
+    byId('floor-result-diff').focus();
   } catch (error) { showToast(`保存できません：${error.message}`); }
   finally { button.disabled = false; }
 });
 byId('floor-result-csv').addEventListener('change', async event => {
   const file = event.target.files?.[0];
   if (!file) return;
-  try { await saveFloorResults(parseFloorResultCsv(await file.text()), `CSV: ${file.name}`); }
+  try { await saveFloorResults(parseFloorResultCsv(await file.text()), `CSV: ${file.name}`, true); }
   catch (error) { showToast(`CSVを読めません：${error.message}`); }
   finally { event.target.value = ''; }
 });
+byId('floor-result-date').addEventListener('change', loadFloorDailyResults);
+byId('floor-hall').addEventListener('change', loadFloorDailyResults);
 byId('floor-result-template').addEventListener('click', () => {
   const blob = new Blob(['台番号,機種名,差枚,G数\n501,スマスロ北斗の拳,1800,7200\n'], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
@@ -2305,6 +2516,11 @@ byId('floor-seat-detail').addEventListener('click', async event => {
 });
 
 byId('target-search-results').addEventListener('click', async event => {
+  const collectButton = event.target.closest('[data-collect-hall]');
+  if (collectButton) {
+    await openDataRecoveryForHall(collectButton.dataset.collectHall);
+    return;
+  }
   const button = event.target.closest('[data-target-hall-index]');
   if (!button || !targetSearchData) return;
   const hall = targetSearchData.halls?.[Number(button.dataset.targetHallIndex)];
@@ -2329,7 +2545,7 @@ byId('target-search-results').addEventListener('click', async event => {
     previous_games: null,
     strategy: 'setting',
     priority: hall.rank === 1 ? 1 : 2,
-    notes: `検証済み候補：${machine.action}／店舗${hall.score}点／機種${machine.score}点／狙い時成功${machine.validation?.recommendation_success_pct ?? '--'}%／平均${signedCoins(machine.avg_diff)}／${machine.sample_days}日`,
+    notes: `検証済み候補：${machine.action}／店舗${hall.score}点／機種${machine.score}点／推奨日平均＋率${machine.validation?.recommendation_success_pct ?? '--'}%／平均${signedCoins(machine.avg_diff)}／${machine.sample_days}日`,
     status: 'planned',
   });
   await writeLocalState();
@@ -2482,6 +2698,11 @@ byId('result-form').addEventListener('submit', async event => {
   const candidateId = byId('result-candidate-id').value;
   const candidate = state.candidates.find(item => item.id === candidateId);
   if (!candidate) return;
+  const investmentYen = Number(byId('result-investment').value);
+  const returnsYen = Number(byId('result-returns').value);
+  const expectedValueYen = candidate.expected_value_yen !== null && candidate.expected_value_yen !== undefined
+    ? Number(candidate.expected_value_yen) : null;
+  const playerNetYen = returnsYen - investmentYen;
   state.results.unshift({
     id: newId(),
     candidate_id: candidate.id,
@@ -2497,9 +2718,15 @@ byId('result-form').addEventListener('submit', async event => {
     reset_status: candidate.reset_status,
     profile_inputs: candidate.profile_inputs || {},
     played_on: byId('result-date').value,
-    expected_value_yen: candidate.expected_value_yen !== null && candidate.expected_value_yen !== undefined ? Number(candidate.expected_value_yen) : null,
-    investment_yen: Number(byId('result-investment').value),
-    returns_yen: Number(byId('result-returns').value),
+    expected_value_yen: expectedValueYen,
+    investment_yen: investmentYen,
+    returns_yen: returnsYen,
+    outcome_labels: {
+      player_profit: { status: playerNetYen > 0 ? 'positive' : playerNetYen < 0 ? 'negative' : 'break_even', recorded: true, value_yen: playerNetYen },
+      machine_diff: { status: 'unknown', recorded: false, value_coins: null },
+      expected_value: { status: expectedValueYen == null ? 'unknown' : expectedValueYen > 0 ? 'positive' : expectedValueYen < 0 ? 'negative' : 'break_even', recorded: expectedValueYen != null, value_yen: expectedValueYen },
+      high_setting: { status: 'unknown', confirmed: false },
+    },
     played_minutes: Number(byId('result-minutes').value || 0),
     outcome: byId('result-outcome').value,
     hit_game: byId('result-hit-game').value === '' ? null : Number(byId('result-hit-game').value),
@@ -2556,11 +2783,15 @@ async function loadCollectionHealth() {
   const target = byId('mobile-collection-health');
   if (!target) return;
   try {
-    const data = await mobileArchiveRequest('/api/scrape/health');
+    const [data, eventQuality, regionCoverage] = await Promise.all([
+      mobileArchiveRequest('/api/scrape/health'),
+      mobileArchiveRequest('/api/events/quality').catch(() => null),
+      mobileArchiveRequest('/api/hall/region_data_coverage?region=shijonawate').catch(() => null),
+    ]);
     const labels = {
       public_machine_daily: 'スマスロ・ジャグラー日次', pworld_snapshot: '設置機種',
       dmm_store_snapshot: '四條畷店・フロアマップ', minrepo_daily: '機種別差枚',
-      minrepo_startup: '起動時補完',
+      minrepo_startup: '起動時補完', shijonawate_coverage_audit: '8店舗の充足監査',
     };
     const rows = (data.sources || []).filter(item =>
       labels[item.source] || String(item.source).includes('キコーナ四條畷店')
@@ -2569,9 +2800,59 @@ async function loadCollectionHealth() {
     target.innerHTML = `<strong>${data.scheduler_running ? '自動収集ON' : '自動収集停止'}・${badge}</strong><br>${rows.length
       ? rows.map(item => `${item.status === 'success' ? '✓' : item.status === 'partial' ? '△' : '×'} ${esc(labels[item.source] || item.source)}：${esc(String(item.finished_at || '').replace('T', ' '))}・${Number(item.records || 0).toLocaleString('ja-JP')}件${item.error ? `（${esc(item.error)}）` : ''}`).join('<br>')
       : '実行履歴はまだありません。サーバー起動後の初回収集を待っています。'}`;
+    const eventTarget = byId('mobile-event-quality');
+    if (eventTarget) {
+      eventTarget.innerHTML = eventQuality
+        ? `<strong>イベント：予測対象 ${eventQuality.eligible || 0}件</strong><br>隔離 ${eventQuality.excluded || 0}件（実績掲載日 ${eventQuality.report_days || 0}件）<br>店舗全体差枚 ${eventQuality.day_summaries?.records || 0}日・結果照合 ${eventQuality.event_evidence?.eligible || 0}件<br>信頼A〜Cかつ対象範囲が確認できた数値だけを使用`
+        : 'イベント情報の品質を取得できません。';
+    }
+    const coverageTarget = byId('mobile-region-coverage');
+    if (coverageTarget) {
+      if (!regionCoverage) {
+        coverageTarget.textContent = '店舗別の充足度を取得できません。';
+      } else {
+        const summary = regionCoverage.summary || {};
+        coverageTarget.innerHTML = `<div class="region-coverage-summary"><strong>四條畷周辺：平均${summary.average_score || 0}点</strong><br>傾向分析 ${summary.trend_ready_halls || 0}/${summary.hall_count || 0}店・台番号 ${summary.seat_ready_halls || 0}/${summary.hall_count || 0}店・設置確認 ${summary.installation_ready_halls || 0}/${summary.hall_count || 0}店<br>公開実績あり ${summary.public_performance_ready_halls || 0}店・現地/CSV補完 ${summary.manual_required_halls || 0}店<br>機種名の別表記 ${regionCoverage.normalization?.machine_variant_group_count || 0}組を同一機種として集計</div>${(regionCoverage.halls || []).map(item => `<div class="region-coverage-row"><strong>${esc(item.hall_name)}</strong><b>${item.coverage_score || 0}点・${esc(item.coverage_label || '不足')}</b><em class="coverage-state-${esc(item.collection?.state || 'unknown')}">${esc(item.collection?.label || '取得経路確認中')}</em><small>日別${item.performance?.performance_days || 0}日／台番号${item.performance?.seat_days || 0}日／自動取得元${item.collection?.automatic_source_count || 0}個<br>次：${esc(item.next_action || '収集継続')}</small></div>`).join('')}`;
+      }
+    }
   } catch (error) {
     target.textContent = `収集状態を取得できません：${error.message}`;
   }
+}
+
+async function loadSeatResultStatus(hallName = byId('floor-hall').value) {
+  const target = byId('floor-collection-progress');
+  try {
+    const response = await fetch(apiUrl(`/api/layouts/seat_results/status?hall_name=${encodeURIComponent(hallName)}&ts=${Date.now()}`), { cache: 'no-store' });
+    if (!response.ok) throw new Error(`補完状況API ${response.status}`);
+    const data = await response.json();
+    const imports = (data.recent_imports || []).slice(0, 3);
+    const quality = data.quality_gate || {};
+    const metrics = quality.metrics || {};
+    const blockers = quality.blockers || [];
+    target.innerHTML = `<div class="collection-progress-head"><div><span class="page-step">現地・CSV補完</span><h2>${esc(data.hall_name)}</h2></div><b>${data.progress_pct}%</b></div>
+      <div class="collection-progress-track" role="progressbar" aria-label="30日分析までの進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${data.progress_pct}"><i style="width:${data.progress_pct}%"></i></div>
+      <div class="target-metrics"><span><small>登録日数</small><b>${data.days}/${data.target_days}日</b></span><span><small>台データ</small><b>${data.records}件</b></span><span><small>残り</small><b>${data.remaining_days}日</b></span></div>
+      <strong>${esc(data.readiness)}</strong><p>${esc(data.next_action)}</p>
+      <div class="collection-quality"><b>データ品質 ${quality.score ?? 0}点・${esc(quality.status || '収集中')}</b><span>1日平均${metrics.average_records_per_day ?? 0}台／G数${metrics.games_coverage_pct ?? 0}%／${metrics.machine_count ?? 0}機種</span><small>${blockers.length ? `不足：${blockers.map(esc).join('・')}` : '日数・台数・機種数・G数・鮮度の基準を通過しています。'}</small></div>
+      ${imports.length ? `<details><summary>最近の取込 ${imports.length}件</summary>${imports.map(item => `<small>${esc(item.report_date)}・${esc(item.source_label)}・${item.inserted_rows}件追加${item.updated_rows ? `／${item.updated_rows}件更新` : ''}</small>`).join('')}</details>` : '<small>まだ取込履歴はありません。</small>'}
+      <small>${esc(data.notice)}</small>`;
+  } catch (error) {
+    target.innerHTML = `<p class="empty">補完状況を取得できません：${esc(error.message)}</p>`;
+  }
+}
+
+async function openDataRecoveryForHall(hallName) {
+  await loadTargetHallOptions();
+  const hallSelect = byId('floor-hall');
+  if ([...hallSelect.options].some(option => option.value === hallName)) hallSelect.value = hallName;
+  byId('floor-result-date').value = todayValue();
+  floorData = { loading: true };
+  showScreen('floor-map');
+  floorData = null;
+  byId('floor-result-entry').open = true;
+  await loadFloorHeat();
+  setTimeout(() => byId('floor-result-entry').scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
 }
 
 async function mobileArchiveRequest(path, options = {}) {
@@ -2623,6 +2904,25 @@ async function loadMobileArchiveCollector() {
     if (running && document.visibilityState === 'visible') mobileArchivePoll = setTimeout(loadMobileArchiveCollector, 3000);
   } catch (error) {
     statusEl.textContent = `進捗を取得できません：${error.message}。公開サーバーが最新版か確認してください。`;
+  }
+}
+
+async function loadMobileAiStatus() {
+  mountAiReview(byId('mobile-ai-review-panel'), {apiUrl});
+  const element = byId('mobile-ai-status');
+  if (!element) return;
+  try {
+    const response = await fetch(apiUrl('/api/ai/status'));
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const status = await response.json();
+    const connection = status.available ? '接続設定あり（品質未審査）' : (status.reason || '外部AI未設定');
+    const model = status.model ? `${status.provider_label || status.provider}・${status.model}` : '統計エンジンのみ';
+    const personal = status.personal_history_enabled ? '実戦履歴の送信：許可済み' : '実戦履歴の送信：なし';
+    const activeBudget=(status.governance?.providers || []).find(item=>item.provider===status.provider);
+    const budget=activeBudget ? `月上限：${activeBudget.monthly_limit_usd == null ? '未設定（有料呼出し停止）' : '$'+activeBudget.monthly_limit_usd} / 予約済み：$${activeBudget.month_reserved_usd}` : '費用管理：統計エンジンのみ';
+    element.innerHTML = `<strong>${esc(connection)}</strong><br>${esc(model)}<br>${esc(personal)}<br>${esc(budget)}<br>外部AIは毎回確認・本文保存なし・重複課金防止`;
+  } catch (error) {
+    element.textContent = `AI接続を確認できません：${error.message}`;
   }
 }
 
@@ -2738,7 +3038,7 @@ byId('patch-notes-group').addEventListener('toggle', event => {
 
 async function initialize() {
   try {
-    [state] = await Promise.all([readLocalState(), loadCatalog(), loadVersionInfo()]);
+    [state] = await Promise.all([readLocalState(), loadCatalog(), loadVersionInfo(), loadMobileAiStatus()]);
     state = normalizeState(state);
     byId('plan-date').value = tomorrowValue();
     byId('target-visit-date').value = tomorrowValue();
@@ -2775,4 +3075,39 @@ async function initialize() {
   }
 }
 
+mountHallAi(byId('hall-ai-panel'), {apiUrl, getContext: () => ({
+  hall_name: byId('trend-hall').value,
+  visit_date: byId('trend-date').value,
+  days: byId('trend-days').value,
+})});
+mountAiComparison(byId('ai-comparison-panel'), {apiUrl, getContext: () => ({
+  hall_name: byId('trend-hall').value,
+  visit_date: byId('trend-date').value,
+  days: byId('trend-days').value,
+})});
+mountAiEvaluation(byId('ai-evaluation-panel'), {apiUrl});
+mountKnowledge(byId('ai-knowledge-panel'), {apiUrl, getContext: () => ({
+  hall_name: byId('trend-hall').value, visit_date: byId('trend-date').value,
+}), contextElements: [byId('trend-hall'), byId('trend-date')]});
+mountImageAnalysis(byId('image-analysis-panel'), {apiUrl, getContext: () => ({
+  hallName: byId('floor-hall').value,
+  observedOn: byId('floor-date').value || todayValue(),
+}), onApplyDataLamp: reviewed => {
+  if (reviewed.game_count != null) byId('quick-current').value = reviewed.game_count;
+  if (reviewed.seat_number != null) byId('quick-seat').value = reviewed.seat_number;
+}, onApplyMap: (numbers, record) => {
+  floorData = buildImageMapDraft(numbers, record);
+  floorEditorSeats = floorData.seats.map(({score, color, heat_level, reasons, sample_days, ...seat}) => seat);
+  byId('floor-seat-start').value = Math.min(...numbers);
+  byId('floor-seat-end').value = Math.max(...numbers);
+  byId('floor-source-kind').value = 'uploaded';
+  byId('floor-verification').value = '未確認';
+  byId('floor-source-label').value = '画像抽出（要現地確認）';
+  byId('floor-source-url').value = '';
+  byId('floor-valid-from').value = floorData.layout.valid_from;
+  byId('floor-notes').value = floorData.layout.notes;
+  byId('floor-rows').value = '';
+  renderFloorMap();
+  document.querySelector('.floor-editor').open = true;
+}});
 initialize();

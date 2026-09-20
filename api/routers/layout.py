@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.deps import HALL_REPORTS_DB, _get_reports_conn
 from hall.machine_scope import clean_machine_display_name, is_smartslot_machine, normalize_machine_key
+from hall.names import canonical_hall_name, hall_names_match
 from hall.regions import region_label, region_matches
 from hall.target_validation import compare_prediction_models, grade_policy, walk_forward_backtest
 
@@ -55,6 +56,8 @@ def init_layout_db() -> sqlite3.Connection:
             seat_number INTEGER NOT NULL,
             machine_name TEXT NOT NULL DEFAULT '',
             island_name TEXT NOT NULL DEFAULT '',
+            row_name TEXT NOT NULL DEFAULT '',
+            row_order INTEGER,
             x REAL NOT NULL,
             y REAL NOT NULL,
             width REAL NOT NULL DEFAULT 48,
@@ -64,8 +67,20 @@ def init_layout_db() -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS idx_layout_hall_date ON hall_layout(hall_name, valid_from);
         CREATE INDEX IF NOT EXISTS idx_layout_seats_layout ON hall_layout_seat(layout_id, seat_number);
+        CREATE TABLE IF NOT EXISTS hall_layout_revision (
+            id INTEGER PRIMARY KEY, layout_id INTEGER NOT NULL, recorded_at TEXT NOT NULL,
+            reason TEXT NOT NULL, payload TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_layout_revision ON hall_layout_revision(layout_id,id);
+        CREATE TRIGGER IF NOT EXISTS layout_revision_no_update BEFORE UPDATE ON hall_layout_revision
+          BEGIN SELECT RAISE(ABORT,'layout revision is immutable'); END;
+        CREATE TRIGGER IF NOT EXISTS layout_revision_no_delete BEFORE DELETE ON hall_layout_revision
+          BEGIN SELECT RAISE(ABORT,'layout revision is immutable'); END;
         """
     )
+    columns = {r[1] for r in conn.execute("PRAGMA table_info(hall_layout_seat)")}
+    for name, definition in {"row_name": "TEXT NOT NULL DEFAULT ''", "row_order": "INTEGER"}.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE hall_layout_seat ADD COLUMN {name} {definition}")
     conn.commit()
     return conn
 
@@ -74,6 +89,8 @@ class LayoutSeatInput(BaseModel):
     seat_number: int = Field(ge=1, le=99999)
     machine_name: str = Field(default="", max_length=120)
     island_name: str = Field(default="", max_length=80)
+    row_name: str = Field(default="", max_length=80)
+    row_order: int | None = Field(default=None, ge=1, le=1000)
     x: float = Field(ge=0, le=5000)
     y: float = Field(ge=0, le=5000)
     width: float = Field(default=48, ge=10, le=500)
@@ -113,6 +130,17 @@ class LayoutInput(BaseModel):
         numbers = [seat.seat_number for seat in value]
         if len(numbers) != len(set(numbers)):
             raise ValueError("同じ台番号を重複して登録できません")
+        positions = set()
+        for seat in value:
+            if bool(seat.row_name.strip()) != (seat.row_order is not None):
+                raise ValueError("列名と列内の順番は両方指定してください")
+            if seat.row_name.strip():
+                if not seat.island_name.strip():
+                    raise ValueError("並びを登録する台には島名も指定してください")
+                key = (seat.island_name.strip(), seat.row_name.strip(), seat.row_order)
+                if key in positions:
+                    raise ValueError("同じ島・列の順番が重複しています")
+                positions.add(key)
         return value
 
 
@@ -133,7 +161,9 @@ class SeatResultImportInput(BaseModel):
     @field_validator("report_date")
     @classmethod
     def _valid_report_date(cls, value: str) -> str:
-        date.fromisoformat(value)
+        parsed = date.fromisoformat(value)
+        if parsed > date.today():
+            raise ValueError("未来日の実績は登録できません")
         return value
 
     @field_validator("source_url")
@@ -332,6 +362,97 @@ def _hall_market_assessment(daily: list[dict], reference: date) -> dict:
         "recent30": {"avg_diff": round(recent_avg), "positive_day_rate": round(recent_positive, 1), "sample_days": len(recent)},
         "reasons": reasons,
         "notice": "公開実績上の傾向評価であり、店舗の営業方針や将来結果を断定するものではありません。",
+    }
+
+
+def _seat_result_quality(
+    *,
+    days: int,
+    records: int,
+    machine_count: int,
+    games_records: int,
+    latest_date: str | None,
+    daily_counts: list[int],
+    layout_seats: int = 0,
+) -> dict:
+    """現地入力を日数だけで過大評価しないための品質ゲート。"""
+    average_per_day = round(records / days, 1) if days else 0.0
+    games_coverage_pct = round(games_records / records * 100) if records else 0
+    if layout_seats:
+        daily_coverage_pct = min(100, round(average_per_day / layout_seats * 100))
+    else:
+        # レイアウト未登録時は、1日20台を暫定的な十分量として扱う。
+        daily_coverage_pct = min(100, round(average_per_day / 20 * 100))
+    recent_age_days = None
+    if latest_date:
+        recent_age_days = max(0, (date.today() - date.fromisoformat(latest_date)).days)
+    substantial_days = sum(count >= max(5, round(average_per_day * 0.5)) for count in daily_counts)
+    substantial_day_pct = round(substantial_days / len(daily_counts) * 100) if daily_counts else 0
+
+    day_points = min(35, round(days / 30 * 35))
+    volume_points = min(25, round(daily_coverage_pct / 100 * 25))
+    games_points = min(15, round(games_coverage_pct / 100 * 15))
+    machine_points = min(10, round(machine_count / 5 * 10))
+    freshness_points = (
+        15 if recent_age_days is not None and recent_age_days <= 7
+        else 10 if recent_age_days is not None and recent_age_days <= 14
+        else 5 if recent_age_days is not None and recent_age_days <= 30
+        else 0
+    )
+    score = min(100, day_points + volume_points + games_points + machine_points + freshness_points)
+
+    blockers = []
+    if days < 14:
+        blockers.append(f"営業日が{days}日（参考分析は14日以上）")
+    if average_per_day < 5:
+        blockers.append(f"1日平均{average_per_day}台（最低5台を推奨）")
+    if machine_count < 3:
+        blockers.append(f"機種が{machine_count}種類（最低3機種を推奨）")
+    if games_coverage_pct < 50:
+        blockers.append(f"G数入力率{games_coverage_pct}%（50%以上を推奨）")
+    if recent_age_days is None or recent_age_days > 14:
+        blockers.append("直近14日以内のデータがない")
+    if layout_seats and daily_coverage_pct < 30:
+        blockers.append(f"登録済み座席に対する日次カバー率{daily_coverage_pct}%（30%以上を推奨）")
+
+    reference_ready = (
+        days >= 14
+        and average_per_day >= 5
+        and machine_count >= 3
+        and games_coverage_pct >= 50
+        and recent_age_days is not None
+        and recent_age_days <= 14
+        and score >= 55
+    )
+    analysis_eligible = (
+        days >= 30
+        and average_per_day >= 10
+        and machine_count >= 5
+        and games_coverage_pct >= 60
+        and recent_age_days is not None
+        and recent_age_days <= 14
+        and (not layout_seats or daily_coverage_pct >= 40)
+        and score >= 70
+    )
+    status = "分析利用可" if analysis_eligible else "参考分析可" if reference_ready else "収集中"
+    label = "高" if score >= 80 else "中" if score >= 55 else "低"
+    return {
+        "status": status,
+        "passed": reference_ready,
+        "analysis_eligible": analysis_eligible,
+        "score": score,
+        "label": label,
+        "blockers": blockers,
+        "metrics": {
+            "average_records_per_day": average_per_day,
+            "daily_coverage_pct": daily_coverage_pct,
+            "games_coverage_pct": games_coverage_pct,
+            "machine_count": machine_count,
+            "unique_seats": 0,
+            "layout_seats": layout_seats,
+            "substantial_day_pct": substantial_day_pct,
+            "recent_age_days": recent_age_days,
+        },
     }
 
 
@@ -668,7 +789,7 @@ def get_machine_strength_matrix(
 
 def _serialize_layout(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
     seats = conn.execute(
-        """SELECT seat_number, machine_name, island_name, x, y, width, height, rotation
+        """SELECT seat_number, machine_name, island_name, x, y, width, height, rotation, row_name, row_order
            FROM hall_layout_seat WHERE layout_id=? ORDER BY seat_number""",
         (row["id"],),
     ).fetchall()
@@ -696,6 +817,7 @@ def list_layouts(hall_name: str = Query("")) -> list[dict]:
 
 @router.post("/api/layouts", tags=["layout"])
 def save_layout(body: LayoutInput) -> dict:
+    body = body.model_copy(update={"hall_name": canonical_hall_name(body.hall_name)})
     conn = init_layout_db()
     try:
         previous = conn.execute(
@@ -704,6 +826,13 @@ def save_layout(body: LayoutInput) -> dict:
         ).fetchone()
         if previous:
             layout_id = previous[0]
+            from hall.prediction_log import dumps, JST
+            old = conn.execute("SELECT * FROM hall_layout WHERE id=?", (layout_id,)).fetchone()
+            # Capture the pre-edit state once. Earlier overwritten edits cannot
+            # be reconstructed, so never backdate its recorded_at timestamp.
+            if not conn.execute("SELECT 1 FROM hall_layout_revision WHERE layout_id=?", (layout_id,)).fetchone():
+                conn.execute("INSERT INTO hall_layout_revision(layout_id,recorded_at,reason,payload) VALUES (?,?,?,?)",
+                             (layout_id, datetime.now(JST).isoformat(), "legacy_before_edit", dumps(_serialize_layout(conn, old))))
             conn.execute(
                 """UPDATE hall_layout SET width=?, height=?, source_url=?, source_label=?, source_kind=?,
                           verification_status=?, notes=?, updated_at=datetime('now','localtime') WHERE id=?""",
@@ -722,14 +851,18 @@ def save_layout(body: LayoutInput) -> dict:
             layout_id = cursor.lastrowid
         conn.executemany(
             """INSERT INTO hall_layout_seat
-               (layout_id,seat_number,machine_name,island_name,x,y,width,height,rotation)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+               (layout_id,seat_number,machine_name,island_name,x,y,width,height,rotation,row_name,row_order)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             [(layout_id, seat.seat_number, seat.machine_name, seat.island_name, seat.x, seat.y,
-              seat.width, seat.height, seat.rotation) for seat in body.seats],
+              seat.width, seat.height, seat.rotation, seat.row_name.strip(), seat.row_order) for seat in body.seats],
         )
-        conn.commit()
         row = conn.execute("SELECT * FROM hall_layout WHERE id=?", (layout_id,)).fetchone()
-        return _serialize_layout(conn, row)
+        result = _serialize_layout(conn, row)
+        from hall.prediction_log import dumps, JST
+        conn.execute("INSERT INTO hall_layout_revision(layout_id,recorded_at,reason,payload) VALUES (?,?,?,?)",
+                     (layout_id, datetime.now(JST).isoformat(), "correction" if previous else "new_layout", dumps(result)))
+        conn.commit()
+        return result
     finally:
         conn.close()
 
@@ -737,11 +870,12 @@ def save_layout(body: LayoutInput) -> dict:
 @router.post("/api/layouts/seat_results", tags=["layout"])
 def import_seat_results(body: SeatResultImportInput) -> dict:
     """現地入力またはCSVの台番号別結果を保存する。公開取得データは上書きしない。"""
+    hall_name = canonical_hall_name(body.hall_name)
     conn = init_layout_db()
     conn.row_factory = sqlite3.Row
     _ensure_seat_result_tables(conn)
     manual_sources = {"manual", "manual_csv", "field_entry"}
-    machine_by_seat = _layout_machine_by_seat(conn, body.hall_name, body.report_date)
+    machine_by_seat = _layout_machine_by_seat(conn, hall_name, body.report_date)
     inserted = 0
     updated = 0
     skipped = 0
@@ -752,7 +886,7 @@ def import_seat_results(body: SeatResultImportInput) -> dict:
             existing = conn.execute(
                 """SELECT machine_name, source FROM hall_day_seat
                    WHERE hall_name=? AND report_date=? AND seat_number=?""",
-                (body.hall_name, body.report_date, item.seat_number),
+                (hall_name, body.report_date, item.seat_number),
             ).fetchall()
             if any((row["source"] or "unknown") not in manual_sources for row in existing):
                 skipped += 1
@@ -766,14 +900,14 @@ def import_seat_results(body: SeatResultImportInput) -> dict:
             if existing:
                 conn.execute(
                     "DELETE FROM hall_day_seat WHERE hall_name=? AND report_date=? AND seat_number=?",
-                    (body.hall_name, body.report_date, item.seat_number),
+                    (hall_name, body.report_date, item.seat_number),
                 )
             conn.execute(
                 """INSERT INTO hall_day_seat
                    (hall_name,report_date,machine_name,seat_number,diff_coins,games,source,source_url)
                    VALUES (?,?,?,?,?,?,?,?)""",
                 (
-                    body.hall_name,
+                    hall_name,
                     body.report_date,
                     machine_name,
                     item.seat_number,
@@ -799,7 +933,7 @@ def import_seat_results(body: SeatResultImportInput) -> dict:
                (hall_name,report_date,source_label,source_url,submitted_rows,inserted_rows,updated_rows,skipped_rows)
                VALUES (?,?,?,?,?,?,?,?)""",
             (
-                body.hall_name,
+                hall_name,
                 body.report_date,
                 body.source_label.strip() or "現地入力",
                 body.source_url,
@@ -814,7 +948,7 @@ def import_seat_results(body: SeatResultImportInput) -> dict:
         conn.close()
     return {
         "ok": True,
-        "hall_name": body.hall_name,
+        "hall_name": hall_name,
         "report_date": body.report_date,
         "submitted": len(body.rows),
         "inserted": inserted,
@@ -832,6 +966,7 @@ def list_seat_results(
 ) -> dict:
     """指定日の台番号結果を、現地での確認用に返す。"""
     _parse_date(report_date, "report_date")
+    hall_name = canonical_hall_name(hall_name)
     conn = init_layout_db()
     conn.row_factory = sqlite3.Row
     _ensure_seat_result_tables(conn)
@@ -845,6 +980,142 @@ def list_seat_results(
     finally:
         conn.close()
     return {"hall_name": hall_name, "report_date": report_date, "count": len(rows), "rows": [dict(row) for row in rows]}
+
+
+@router.get("/api/layouts/seat_results/status", tags=["layout"])
+def get_seat_result_status(
+    hall_name: str = Query(..., min_length=1),
+) -> dict:
+    """現地・CSV補完が分析開始ラインまで何日分たまったかを返す。"""
+    hall_name = canonical_hall_name(hall_name)
+    conn = init_layout_db()
+    conn.row_factory = sqlite3.Row
+    _ensure_seat_result_tables(conn)
+    try:
+        stored_names = [
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT hall_name FROM hall_day_seat WHERE hall_name IS NOT NULL"
+            ).fetchall()
+            if hall_names_match(row[0], hall_name)
+        ]
+        if stored_names:
+            placeholders = ",".join("?" for _ in stored_names)
+            totals = conn.execute(
+                f"""SELECT COUNT(*) AS records,COUNT(DISTINCT report_date) AS days,
+                            MIN(report_date) AS first_date,MAX(report_date) AS latest_date,
+                            COUNT(DISTINCT machine_name) AS machine_count,
+                            COUNT(DISTINCT seat_number) AS unique_seats,
+                            SUM(CASE WHEN games IS NOT NULL AND games>0 THEN 1 ELSE 0 END) AS games_records
+                       FROM hall_day_seat
+                      WHERE hall_name IN ({placeholders}) AND seat_number>0
+                        AND diff_coins IS NOT NULL""",
+                stored_names,
+            ).fetchone()
+            recent_days = [
+                dict(row)
+                for row in conn.execute(
+                    f"""SELECT report_date,COUNT(*) AS records
+                           FROM hall_day_seat
+                          WHERE hall_name IN ({placeholders}) AND seat_number>0
+                            AND diff_coins IS NOT NULL
+                          GROUP BY report_date ORDER BY report_date DESC LIMIT 14""",
+                    stored_names,
+                ).fetchall()
+            ]
+            manual_records = conn.execute(
+                f"""SELECT COUNT(*) FROM hall_day_seat
+                      WHERE hall_name IN ({placeholders}) AND seat_number>0
+                        AND source IN ('manual','manual_csv','field_entry')""",
+                stored_names,
+            ).fetchone()[0]
+        else:
+            totals = {
+                "records": 0, "days": 0, "first_date": None, "latest_date": None,
+                "machine_count": 0, "unique_seats": 0, "games_records": 0,
+            }
+            recent_days = []
+            manual_records = 0
+        layout_names = [
+            row[0]
+            for row in conn.execute("SELECT DISTINCT hall_name FROM hall_layout").fetchall()
+            if hall_names_match(row[0], hall_name)
+        ]
+        layout_seats = 0
+        if layout_names:
+            layout_placeholders = ",".join("?" for _ in layout_names)
+            latest_layout = conn.execute(
+                f"""SELECT id FROM hall_layout WHERE hall_name IN ({layout_placeholders})
+                     ORDER BY valid_from DESC LIMIT 1""",
+                layout_names,
+            ).fetchone()
+            if latest_layout:
+                layout_seats = int(conn.execute(
+                    "SELECT COUNT(*) FROM hall_layout_seat WHERE layout_id=?",
+                    (latest_layout[0],),
+                ).fetchone()[0])
+        import_names = stored_names or [hall_name]
+        import_placeholders = ",".join("?" for _ in import_names)
+        recent_imports = [
+            dict(row)
+            for row in conn.execute(
+                f"""SELECT report_date,source_label,submitted_rows,inserted_rows,
+                            updated_rows,skipped_rows,created_at
+                       FROM seat_result_import
+                      WHERE hall_name IN ({import_placeholders})
+                      ORDER BY id DESC LIMIT 10""",
+                import_names,
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+
+    days = int(totals["days"] or 0)
+    records = int(totals["records"] or 0)
+    quality_gate = _seat_result_quality(
+        days=days,
+        records=records,
+        machine_count=int(totals["machine_count"] or 0),
+        games_records=int(totals["games_records"] or 0),
+        latest_date=totals["latest_date"],
+        daily_counts=[int(item["records"] or 0) for item in recent_days],
+        layout_seats=layout_seats,
+    )
+    quality_gate["metrics"]["unique_seats"] = int(totals["unique_seats"] or 0)
+    target_days = 30
+    remaining_days = max(0, target_days - days)
+    if days >= target_days and quality_gate["analysis_eligible"]:
+        readiness = "分析開始ライン到達"
+        next_action = "日次入力を継続し、曜日・イベント別の再現性を検証"
+    elif days >= target_days:
+        readiness = "30日到達・品質補完中"
+        next_action = "不足項目を補完：" + "、".join(quality_gate["blockers"][:3])
+    elif days >= 14:
+        readiness = "参考分析まであと少し"
+        next_action = f"あと{remaining_days}営業日分を追加して30日分析へ"
+    elif days:
+        readiness = "蓄積中"
+        next_action = f"まず14日、最終的にあと{remaining_days}営業日分を追加"
+    else:
+        readiness = "未登録"
+        next_action = "今日の台番号・機種名・差枚を1日分登録"
+    return {
+        "hall_name": hall_name,
+        "records": records,
+        "days": days,
+        "first_date": totals["first_date"],
+        "latest_date": totals["latest_date"],
+        "manual_records": int(manual_records or 0),
+        "target_days": target_days,
+        "remaining_days": remaining_days,
+        "progress_pct": min(100, round(days / target_days * 100)),
+        "readiness": readiness,
+        "next_action": next_action,
+        "quality_gate": quality_gate,
+        "recent_days": recent_days,
+        "recent_imports": recent_imports,
+        "notice": "30日は分析開始の目安です。台数・機種・イベント日の偏りも別に確認します。",
+    }
 
 
 def _generated_layout(seat_rows: list[sqlite3.Row], hall_name: str, valid_from: str) -> dict:
@@ -894,6 +1165,7 @@ def get_seat_heat(
     days: int = Query(90, ge=14, le=365),
 ) -> dict:
     """予測日時点で利用可能だったデータだけを使い、座席ごとの熱量を返す。"""
+    hall_name = canonical_hall_name(hall_name)
     target = _parse_date(visit_date)
     reference = min(target - timedelta(days=1), date.today())
     start = reference - timedelta(days=days - 1)
@@ -902,8 +1174,8 @@ def get_seat_heat(
     try:
         if _table_exists(conn, "hall_floor_map_snapshot"):
             latest_map_date = conn.execute(
-                "SELECT MAX(snapshot_date) FROM hall_floor_map_snapshot WHERE hall_name=?",
-                (hall_name,),
+                "SELECT MAX(snapshot_date) FROM hall_floor_map_snapshot WHERE hall_name=? AND snapshot_date<=?",
+                (hall_name, reference.isoformat()),
             ).fetchone()[0]
             if latest_map_date:
                 floor_map_sources = [
@@ -914,31 +1186,35 @@ def get_seat_heat(
                         (hall_name, latest_map_date),
                     ).fetchall()
                 ]
-        layout_row = conn.execute(
-            """SELECT * FROM hall_layout WHERE hall_name=? AND valid_from<=?
-               AND (valid_to IS NULL OR valid_to>=?) ORDER BY valid_from DESC LIMIT 1""",
-            (hall_name, target.isoformat(), target.isoformat()),
-        ).fetchone()
         if _table_exists(conn, "hall_day_seat"):
             history_rows = conn.execute(
-                """SELECT report_date,machine_name,seat_number,diff_coins,games,source_url
+                """SELECT hall_name,report_date,machine_name,seat_number,diff_coins,games,source_url
                    FROM hall_day_seat WHERE hall_name=? AND report_date BETWEEN ? AND ?
-                     AND seat_number>0 AND machine_name!='_NODATA_' AND diff_coins IS NOT NULL
+                     AND seat_number>0 AND machine_name!='_NODATA_'
                    ORDER BY report_date""",
                 (hall_name, start.isoformat(), reference.isoformat()),
             ).fetchall()
             exact_rows = conn.execute(
-                """SELECT seat_number,diff_coins,games FROM hall_day_seat
+                """SELECT hall_name,report_date,machine_name,seat_number,diff_coins,games,source_url FROM hall_day_seat
                    WHERE hall_name=? AND report_date=? AND seat_number>0 AND diff_coins IS NOT NULL""",
                 (hall_name, target.isoformat()),
             ).fetchall()
         else:
             history_rows = []
             exact_rows = []
-        if layout_row:
-            layout = _serialize_layout(conn, layout_row)
-        elif history_rows:
-            layout = _generated_layout(history_rows, hall_name, reference.isoformat())
+        from hall.seat_history import build_seat_history, layout_observations, known_layouts
+        from hall.prediction_quality import audit_rows
+        observed_layouts = [r for r in layout_observations(conn, reference) if r["hall_name"] == hall_name]
+        identity = build_seat_history(history_rows, observed_layouts, cutoff=reference)
+        history_rows, _ = audit_rows(identity["rows"], cutoff=reference, scope="seat")
+        exact_rows, _ = audit_rows(exact_rows, cutoff=target, scope="seat")
+        known = [item for item in known_layouts(conn, reference) if canonical_hall_name(item["hall_name"]) == hall_name and
+                 (not item.get("valid_to") or item["valid_to"] >= reference.isoformat())]
+        if known:
+            layout = {**max(known, key=lambda r: (r["valid_from"], r["id"])), "generated": False}
+        elif identity["seats"]:
+            # Keep unscored / conflicting known numbers visible as grey seats.
+            layout = _generated_layout(identity["seats"], hall_name, reference.isoformat())
         else:
             layout = {
                 "id": None, "hall_name": hall_name, "floor_name": "スロットフロア", "valid_from": reference.isoformat(),
@@ -951,7 +1227,7 @@ def get_seat_heat(
     by_seat: dict[int, list[sqlite3.Row]] = defaultdict(list)
     for row in history_rows:
         by_seat[int(row["seat_number"])].append(row)
-    actual_by_seat = {int(row["seat_number"]): {"diff": row["diff_coins"], "games": row["games"]} for row in exact_rows}
+    actual_by_seat = {(int(row["seat_number"]), normalize_machine_key(row["machine_name"])): {"diff": row["diff_coins"], "games": row["games"]} for row in exact_rows}
     weekday = target.weekday()
     digit = target.day % 10
     raw = {}
@@ -982,10 +1258,11 @@ def get_seat_heat(
     output = []
     for seat_number, seat in layout_seats_by_number.items():
         metric = raw.get(seat_number)
+        if metric and normalize_machine_key(metric["machine_name"]) != normalize_machine_key(seat.get("machine_name", "")):
+            metric = None  # old floor map must not relabel new-machine statistics
         if metric:
-            adjacent = [raw[number]["score"] for number in (seat_number - 1, seat_number + 1) if number in raw]
             machine_avg = _average(machine_scores.get(metric["machine_name"], [metric["score"]]))
-            final_score = round(metric["score"] * .75 + (_average(adjacent) if adjacent else metric["score"]) * .15 + machine_avg * .10)
+            final_score = round(metric["score"] * .90 + machine_avg * .10)
             level, color = _seat_level(final_score)
             reasons = [f"過去{metric['sample_days']}日・推定{metric['estimate']:+,}枚", f"プラス率{metric['positive_rate']}%"]
             if metric["weekday_days"]:
@@ -999,14 +1276,49 @@ def get_seat_heat(
             "estimate": metric["estimate"] if metric else None,
             "positive_rate": metric["positive_rate"] if metric else None,
             "sample_days": metric["sample_days"] if metric else 0,
-            "actual": actual_by_seat.get(seat_number),
+            "actual": actual_by_seat.get((seat_number, normalize_machine_key(seat.get("machine_name", "")))),
+            "seat_identity": next((s for s in identity["seats"] if s["seat_number"] == seat_number), None),
         })
     output.sort(key=lambda item: (item["score"] is not None, item["score"] or 0), reverse=True)
     return {
         "hall_name": hall_name, "visit_date": visit_date, "reference_date": reference.isoformat(), "analysis_days": days,
         "layout": {key: value for key, value in layout.items() if key != "seats"}, "seats": output,
         "floor_map_sources": floor_map_sources,
+        "seat_identity": {k: v for k, v in identity.items() if k != "rows"},
         "data_coverage": {"history_rows": len(history_rows), "seat_count": len(by_seat), "exact_result_count": len(exact_rows)},
         "status": "分析済み" if output and history_rows else "座席データ待ち" if layout["seats"] else "レイアウト未登録",
         "notice": layout["notes"] or "予測日より前の公開実績だけで計算しています。",
     }
+
+
+@router.get("/api/layouts/seat_history", tags=["layout"])
+def get_seat_history(hall_name: str = Query(..., min_length=1), as_of: str = Query(...),
+                     days: int = Query(365, ge=14, le=1095), seat_number: int = Query(0, ge=0, le=99999)):
+    """Read-only observed history; no invented replacement dates or deletion."""
+    from hall.seat_history import build_seat_history, layout_observations
+    from hall.prediction_log import jst_today
+    cutoff = _parse_date(as_of, "as_of")
+    if cutoff > jst_today():
+        raise HTTPException(400, "未来の配置は確認できません")
+    hall_name = canonical_hall_name(hall_name)
+    conn = sqlite3.connect(HALL_REPORTS_DB.resolve().as_uri() + "?mode=ro", uri=True) if HALL_REPORTS_DB.exists() else None
+    if conn:
+        conn.row_factory = sqlite3.Row
+    try:
+        rows, observations = [], []
+        if conn:
+            if _table_exists(conn, "hall_day_seat"):
+                names = [r[0] for r in conn.execute("SELECT DISTINCT hall_name FROM hall_day_seat") if canonical_hall_name(r[0]) == hall_name]
+                if names:
+                    rows = conn.execute(f"SELECT * FROM hall_day_seat WHERE hall_name IN ({','.join('?' for _ in names)}) AND report_date BETWEEN ? AND ?",
+                                        (*names, (cutoff-timedelta(days=days-1)).isoformat(), cutoff.isoformat())).fetchall()
+            observations = [r for r in layout_observations(conn, cutoff) if r["hall_name"] == hall_name]
+        if seat_number:
+            rows = [r for r in rows if r["seat_number"] == seat_number]
+            observations = [r for r in observations if r["seat_number"] == seat_number]
+        result = build_seat_history(rows, observations, cutoff=cutoff)
+        result.pop("rows")
+        return {**result, "hall_name": hall_name, "days": days}
+    finally:
+        if conn:
+            conn.close()

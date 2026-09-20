@@ -13,6 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from hall.machine_scope import is_supported_analysis_machine
+from hall.names import hall_names_match
 
 try:
     from config import HALL_REPORTS_DB as DB_PATH
@@ -143,7 +144,7 @@ def parse_store_page(html: str, expected_hall_name: str, source_url: str) -> lis
     if not text:
         return []
     published = re.search(r'"storeName":"([^"]+)"', text)
-    if not published or published.group(1) != expected_hall_name:
+    if not published or not hall_names_match(published.group(1), expected_hall_name):
         return []
 
     decoder = json.JSONDecoder()

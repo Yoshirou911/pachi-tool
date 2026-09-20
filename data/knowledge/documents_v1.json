@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "documents": [
+    {
+      "document_id": "term:expected-value", "revision": "1", "category": "glossary", "topic_key": "expected-value",
+      "title": "期待値と実収支は別", "keywords": ["期待値", "実収支", "収支のずれ"],
+      "content": "このアプリの期待値は、登録した条件での平均的な収支の目安です。一回の収支や本人の勝率ではありません。交換条件、開始時の状態、やめ時などが資料と違えば、その数値をそのまま使えません。積んだ期待値と実収支は分けて記録します。",
+      "source_label": "PACHI TOOLの指標定義", "source_locator": "DECISIONS.md#根拠を優先・数字を作らない",
+      "reviewed_on": "2026-09-19", "registered_on": "2026-09-19", "verification": "アプリ内の用語説明・機種別数値の出典ではない"
+    },
+    {
+      "document_id": "term:exchange", "revision": "1", "category": "glossary", "topic_key": "exchange",
+      "title": "等価・非等価と投資方法", "keywords": ["等価", "非等価", "現金ギャップ", "持ちメダル", "交換率"],
+      "content": "期待値条件では交換条件と投資方法を分けています。同じ機種でも等価、非等価の持ちメダル、非等価の現金では別資料です。『any』は登録された交換条件内の指定であり、他の交換条件でも使えるという意味ではありません。店舗の交換条件は別途確認してください。",
+      "source_label": "PACHI TOOL期待値条件の項目定義", "source_locator": "opportunity/models.py#opportunity_profiles",
+      "reviewed_on": "2026-09-19", "registered_on": "2026-09-19", "verification": "アプリ内の条件説明・個別店舗の交換率は未確認"
+    },
+    {
+      "document_id": "term:reset", "revision": "1", "category": "glossary", "topic_key": "reset",
+      "title": "リセット確定と推測の区別", "keywords": ["リセット", "据え置き", "設定変更"],
+      "content": "『リセット確定』の条件は、リセットを確認できた場合に限定する登録です。朝一であることや表示ゲーム数だけで自動的にこの条件へ切り替えません。通常・据え置き・不明とは区別し、判断根拠も記録します。",
+      "source_label": "PACHI TOOLのリセット条件定義", "source_locator": "opportunity/models.py#reset_status",
+      "reviewed_on": "2026-09-19", "registered_on": "2026-09-19", "verification": "アプリ内の条件説明・店舗の実際の変更は未確認"
+    },
+    {
+      "document_id": "term:closing", "revision": "1", "category": "glossary", "topic_key": "closing",
+      "title": "閉店欠損と消化時間", "keywords": ["閉店欠損", "閉店", "消化時間", "期待時給"],
+      "content": "閉店までに消化しきれない可能性は、時間制限のない期待値表と別に扱います。平均消化時間はその時間で必ず終わる保証ではありません。専用知識の引用画面は残り時間や閉店欠損を再計算しないため、現場判定側の条件も確認してください。",
+      "source_label": "PACHI TOOLの時間条件の扱い", "source_locator": "opportunity/machine_models.py#estimate_duration",
+      "reviewed_on": "2026-09-19", "registered_on": "2026-09-19", "verification": "アプリ内の用語説明・実測消化時間ではない"
+    },
+    {
+      "document_id": "term:games", "revision": "1", "category": "glossary", "topic_key": "games",
+      "title": "ゲーム数の種類", "keywords": ["AT間", "CZ間", "ボーナス間", "ゲーム数", "データランプ"],
+      "content": "ルールの『metric_name』が何を数える条件かを確認します。AT間、CZ間、ボーナス間の数値を置き換えてはいけません。画像で数字を読み取れても、その数字の種類までは確定しません。元画像と機種の表示仕様を確認してから入力します。",
+      "source_label": "PACHI TOOLの入力契約", "source_locator": "RELEASE_3.46.md#画像読取りの修正",
+      "reviewed_on": "2026-09-19", "registered_on": "2026-09-19", "verification": "アプリ内の入力説明・各データランプ仕様の保証なし"
+    },
+    {
+      "document_id": "term:skip", "revision": "1", "category": "glossary", "topic_key": "skip",
+      "title": "見送りと根拠不足", "keywords": ["見送り", "根拠不足", "判断不能", "不足"],
+      "content": "見送りや判断不能は、その条件で十分な根拠が揃わないことを含みます。負けることが確定した台、低設定が確定した台という意味ではありません。候補を増やすためだけに基準を下げず、不足情報を確認します。",
+      "source_label": "PACHI TOOLの根拠重視方針", "source_locator": "DECISIONS.md#数字を作らない",
+      "reviewed_on": "2026-09-19", "registered_on": "2026-09-19", "verification": "アプリ内の判定説明"
+    },
+    {
+      "document_id": "term:replay", "revision": "1", "category": "glossary", "topic_key": "replay",
+      "title": "再プレイ上限", "keywords": ["再プレイ", "貯メダル", "上限"],
+      "content": "再プレイ可能な残り枚数と、上限到達後の現金投資を分けて扱います。専用知識検索は当日の使用枚数を読み取らず、残り枚数や補正期待値を計算しません。店舗の上限と当日の利用状況は現場判定側で確認します。",
+      "source_label": "PACHI TOOLの資金条件説明", "source_locator": "opportunity/models.py",
+      "reviewed_on": "2026-09-19", "registered_on": "2026-09-19", "verification": "アプリ内の説明・店舗の上限は未確認"
+    },
+    {
+      "document_id": "term:knowledge", "revision": "1", "category": "glossary", "topic_key": "knowledge",
+      "title": "専用知識検索と追加学習", "keywords": ["専用知識", "追加学習", "AI学習", "資料検索"],
+      "content": "この機能は登録資料を検索して出典付きで引用する仕組みです。モデルの重みを変更する追加学習ではありません。画像の文字、会話、個人の実戦記録を自動的に確定知識へ追加することはありません。",
+      "source_label": "PACHI TOOL AI工程の決定事項", "source_locator": "DECISIONS.md#3.40〜3.49のAI専用工程",
+      "reviewed_on": "2026-09-19", "registered_on": "2026-09-19", "verification": "アプリ内の機能説明"
+    }
+  ]
+}

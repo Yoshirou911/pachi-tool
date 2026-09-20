@@ -60,7 +60,12 @@ def configure_environment() -> Path:
     configured_data_dir = os.environ.get("DATA_DIR", "").strip()
     data_dir = Path(configured_data_dir) if configured_data_dir else user_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    migrate_legacy_databases(data_dir)
+    # An explicit DATA_DIR is an isolation boundary for tests, servers and
+    # recovery work.  Import legacy desktop databases only for the normal
+    # per-user location; otherwise a nearby development DB could be copied
+    # into an intentionally empty directory.
+    if not configured_data_dir:
+        migrate_legacy_databases(data_dir)
     os.environ["DATA_DIR"] = str(data_dir)
     os.environ["HOST"] = "127.0.0.1"
     os.environ["RELOAD"] = "false"

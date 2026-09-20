@@ -1,6 +1,8 @@
 """店舗分析で共有する地域定義。"""
 from __future__ import annotations
 
+from hall.names import canonical_hall_name
+
 
 MATSUMOTO_SHIOJIRI_HALLS = frozenset({
     "ラッシュMATSUMOTO#59",
@@ -39,6 +41,7 @@ REGION_META = {
 
 
 def region_matches(hall_name: str, prefecture: str | None, region: str) -> bool:
+    hall_name = canonical_hall_name(hall_name)
     if region == "all":
         return True
     if region == "shijonawate":

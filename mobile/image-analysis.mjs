@@ -1,4 +1,4 @@
-import {recognizeNumberFromFile} from './ocr.mjs?v=3.49.0';
+import {recognizeNumberFromFile} from './ocr.mjs?v=3.49.1';
 
 const KIND_LABELS={data_lamp:'データランプ',store_material:'店舗資料',floor_map:'ホールマップ'};
 const ALLOWED_MIME=new Set(['image/jpeg','image/png','image/webp']);

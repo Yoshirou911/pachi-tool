@@ -1,4 +1,4 @@
-import {renderAiEvidence} from './ai-evidence.mjs?v=3.49.0';
+import {renderAiEvidence} from './ai-evidence.mjs?v=3.49.1';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const number = (value, suffix = '') => Number.isFinite(value) ? `${value}${suffix}` : '未計測';

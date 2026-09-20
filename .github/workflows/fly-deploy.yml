@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+env:
+  TZ: Asia/Tokyo
 jobs:
   test:
     name: Run tests

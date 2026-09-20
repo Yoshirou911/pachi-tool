@@ -1,11 +1,21 @@
 """PACHI TOOL の全クライアントで共有するリリース情報。"""
 from __future__ import annotations
 
-APP_VERSION = "3.49.0"
+APP_VERSION = "3.49.1"
 RELEASE_DATE = "2026-09-21"
 RELEASE_CHANNEL = "公開版"
 
 PATCH_NOTES = [
+    {
+        "version": "3.49.1",
+        "released_on": "2026-09-21",
+        "title": "公開APIと検証環境の日本時間を統一",
+        "items": [
+            "Fly.ioとGitHub ActionsをAsia/Tokyoへ統一し、日付境界で配置履歴の検証結果が変わる問題を修正",
+            "3.49.0のPWA公開後にAPI配信テストで判明した問題のパッチで、AI採用範囲や予測方式は変更しません",
+            "PWA・API・Windows版の版表示とキャッシュ番号を3.49.1へ更新",
+        ],
+    },
     {
         "version": "3.49.0",
         "released_on": "2026-09-21",

@@ -1,10 +1,10 @@
-import { renderAiEvidence } from './ai-evidence.mjs?v=3.49.0';
-import { mountHallAi } from './hall-ai.mjs?v=3.49.0';
-import { mountAiComparison } from './ai-comparison.mjs?v=3.49.0';
-import { mountAiEvaluation } from './ai-evaluation.mjs?v=3.49.0';
-import { mountKnowledge } from './ai-knowledge.mjs?v=3.49.0';
-import { mountAiReview } from './ai-review.mjs?v=3.49.0';
-import { mountImageAnalysis, buildImageMapDraft } from './image-analysis.mjs?v=3.49.0';
+import { renderAiEvidence } from './ai-evidence.mjs?v=3.49.1';
+import { mountHallAi } from './hall-ai.mjs?v=3.49.1';
+import { mountAiComparison } from './ai-comparison.mjs?v=3.49.1';
+import { mountAiEvaluation } from './ai-evaluation.mjs?v=3.49.1';
+import { mountKnowledge } from './ai-knowledge.mjs?v=3.49.1';
+import { mountAiReview } from './ai-review.mjs?v=3.49.1';
+import { mountImageAnalysis, buildImageMapDraft } from './image-analysis.mjs?v=3.49.1';
 import {
   JUDGMENT_LABELS,
   applyPersonalCalibration,
@@ -15,10 +15,10 @@ import {
   calculateSummary,
   minutesUntilClosing,
   money,
-} from './core.mjs?v=3.49.0';
-import { recognizeNumberFromFile } from './ocr.mjs?v=3.49.0';
+} from './core.mjs?v=3.49.1';
+import { recognizeNumberFromFile } from './ocr.mjs?v=3.49.1';
 
-const APP_VERSION = '3.49.0';
+const APP_VERSION = '3.49.1';
 const VERSION_SEEN_KEY = 'pachi-version-seen';
 const TARGET_REGION_KEY = 'pachi-target-region-v2';
 const API_ORIGIN = window.location.hostname === 'yoshirou911.github.io'
@@ -800,7 +800,7 @@ function renderTargetSearch() {
   const audit = targetSearchData.prediction_audit || {};
   const regionBoard = renderRegionDecisionBoard(targetSearchData.region_board);
   const accuracyCard = `<section id="prediction-verification" class="accuracy-gate-card"></section>` + `<section class="accuracy-gate-card"><div><span>${accuracy.target_pct || 70}%精度優先</span><strong>実戦候補 店舗${accuracy.actionable_halls || 0}・機種${accuracy.actionable_machines || 0}</strong></div><p>比較用：店舗TOP${accuracy.reference_halls || 0}・機種TOP${accuracy.reference_machines || 0}・参考台番号${accuracy.reference_seats || 0}件</p><p>検証通過：70%級 店舗${accuracy.hall_70_count || 0}・機種${accuracy.machine_70_count || 0} ／ 80%級 店舗${accuracy.hall_80_count || 0}・機種${accuracy.machine_80_count || 0}</p><p>予測監査：${audit.evaluated_models || 0}モデル・先読みなし${audit.out_of_sample_days || 0}日・確率補正${audit.calibrated_models || 0}件・相場変化${audit.regime_shift_models || 0}件</p><small>${esc(accuracy.message || '基準未達でも比較順位は表示します。')}<br>画面の成功率＝推奨日の平均差枚がプラスだった率（高設定的中率・本人勝率ではありません）</small></section>`;
-  import('./prediction-verification.mjs?v=3.49.0').then(({mountVerification}) => {
+  import('./prediction-verification.mjs?v=3.49.1').then(({mountVerification}) => {
     return mountVerification(document.getElementById('prediction-verification'), mobileArchiveRequest, targetSearchData);
   }).catch(() => {
     const panel = document.getElementById('prediction-verification');
@@ -1681,7 +1681,7 @@ async function loadFloorHeat() {
       seat.row_name = original.row_name || '';
       seat.row_order = original.row_order ?? null;
     });
-    const {serializePlacement} = await import('./placement-analysis.mjs?v=3.49.0');
+    const {serializePlacement} = await import('./placement-analysis.mjs?v=3.49.1');
     byId('floor-rows').value = serializePlacement(floorEditorSeats);
     byId('floor-valid-from').value = floorData.layout.valid_from || todayValue();
     byId('floor-source-label').value = floorData.layout.source_label || '';
@@ -1730,7 +1730,7 @@ async function saveFloorLayout(event) {
   const sourceUrl = byId('floor-source-url').value.trim();
   let placementSeats;
   try {
-    const {applyPlacement} = await import('./placement-analysis.mjs?v=3.49.0');
+    const {applyPlacement} = await import('./placement-analysis.mjs?v=3.49.1');
     placementSeats = applyPlacement(floorEditorSeats, byId('floor-rows').value);
   } catch (error) { return showToast(error.message); }
   const sourceLabel = byId('floor-source-label').value.trim();

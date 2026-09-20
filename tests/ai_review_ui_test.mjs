@@ -3,7 +3,7 @@ import {readFileSync} from 'node:fs';
 import {assetVersionPattern} from './asset_version.mjs';
 import {renderAiReview,mountAiReview} from '../mobile/ai-review.mjs';
 
-const review={app_version:'3.49.0',overall_label:'用途限定で採用',notice:'予測的中率ではない',
+const review={app_version:'3.49.1',overall_label:'用途限定で採用',notice:'予測的中率ではない',
   active_explanation:'無料の統計説明',adopted_external_provider:null,
   verification:{valid:true,reason:'現在のコードと一致',verified_at:'2026-09-20',python_passed:10,ui_passed:2},
   features:[{label:'<img onerror=bad>',status:'assistance_only',status_label:'補助限定',scope:'元資料の照合が必要',next_step:'実機確認'}],

@@ -1,4 +1,4 @@
-import {renderAiEvidence} from './ai-evidence.mjs?v=3.49.0';
+import {renderAiEvidence} from './ai-evidence.mjs?v=3.49.1';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const HALL_TOPICS = [['auto','質問から選ぶ'], ['overview','店舗の要点'], ['weekday','曜日'],

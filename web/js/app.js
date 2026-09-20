@@ -119,7 +119,7 @@ async function loadDesktopVersion() {
     desktopReleaseInfo = await api.getVersion();
     renderDesktopVersion();
   } catch (_) {
-    document.getElementById('desktop-version-label').textContent = 'v3.49.0';
+    document.getElementById('desktop-version-label').textContent = 'v3.49.1';
   }
 }
 
@@ -593,7 +593,7 @@ function renderDesktopTargetSearch(data) {
   const audit = data.prediction_audit || {};
   const regionBoard = renderDesktopRegionDecisionBoard(data.region_board);
   const accuracyCard = `<section id="prediction-verification" class="desktop-accuracy-gate"></section>` + `<section class="desktop-accuracy-gate"><div><span>${accuracy.target_pct || 70}%精度優先</span><strong>実戦候補 店舗${accuracy.actionable_halls || 0}・機種${accuracy.actionable_machines || 0}</strong></div><p>比較用：店舗TOP${accuracy.reference_halls || 0}・機種TOP${accuracy.reference_machines || 0}・参考台番号${accuracy.reference_seats || 0}件</p><p>検証通過：70%級 店舗${accuracy.hall_70_count || 0}・機種${accuracy.machine_70_count || 0} ／ 80%級 店舗${accuracy.hall_80_count || 0}・機種${accuracy.machine_80_count || 0}</p><p>予測監査：${audit.evaluated_models || 0}モデル・先読みなし${audit.out_of_sample_days || 0}日・確率補正${audit.calibrated_models || 0}件・相場変化${audit.regime_shift_models || 0}件</p><small>${esc(accuracy.message || '基準未達でも比較順位は表示します。')}<br>画面の成功率＝推奨日の平均差枚がプラスだった率（高設定的中率・本人勝率ではありません）</small></section>`;
-  import('/mobile/prediction-verification.mjs?v=3.49.0').then(({mountVerification}) => {
+  import('/mobile/prediction-verification.mjs?v=3.49.1').then(({mountVerification}) => {
     return mountVerification(document.getElementById('prediction-verification'), apiFetch, data);
   }).catch(() => {
     const panel = document.getElementById('prediction-verification');
@@ -980,7 +980,7 @@ async function syncDesktopFloorEditor() {
     seat.row_name = original.row_name || '';
     seat.row_order = original.row_order ?? null;
   });
-  const {serializePlacement} = await import('/mobile/placement-analysis.mjs?v=3.49.0');
+  const {serializePlacement} = await import('/mobile/placement-analysis.mjs?v=3.49.1');
   document.getElementById('desktop-layout-rows').value = serializePlacement(desktopFloorEditorSeats);
 }
 
@@ -1056,7 +1056,7 @@ async function saveDesktopFloorLayout(event) {
   if (!desktopFloorEditorSeats.length) return showToast('先に台番号を仮配置してください', 'error');
   let placementSeats;
   try {
-    const {applyPlacement} = await import('/mobile/placement-analysis.mjs?v=3.49.0');
+    const {applyPlacement} = await import('/mobile/placement-analysis.mjs?v=3.49.1');
     placementSeats = applyPlacement(desktopFloorEditorSeats, document.getElementById('desktop-layout-rows').value);
   } catch (error) { return showToast(error.message, 'error'); }
   const sourceUrl = document.getElementById('desktop-layout-source-url').value.trim();
@@ -5458,7 +5458,7 @@ document.getElementById('opp-quick-ocr').addEventListener('change', async event 
   const file = event.target.files?.[0];
   if (!file) return;
   try {
-    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.49.0');
+    const { recognizeNumberFromFile } = await import('/mobile/ocr.mjs?v=3.49.1');
     const result = await recognizeNumberFromFile(file);
     document.getElementById('opp-quick-current').value = result.value;
     showToast(`OCR候補 ${result.value}G。表示と照合してください`);
@@ -7134,7 +7134,7 @@ function appendAiEvidence(container, data) {
   if (!container || !data) return;
   const slot = document.createElement('div');
   container.appendChild(slot);
-  import('/mobile/ai-evidence.mjs?v=3.49.0').then(({renderAiEvidence}) => {
+  import('/mobile/ai-evidence.mjs?v=3.49.1').then(({renderAiEvidence}) => {
     slot.innerHTML = renderAiEvidence(data);
   }).catch(() => { slot.textContent = '根拠の表示を読み込めませんでした。再読み込みしてください。'; });
 }
@@ -7142,7 +7142,7 @@ function appendAiEvidence(container, data) {
 let aiChatHistory = [];
 
 async function loadAiPage() {
-  import('/mobile/ai-review.mjs?v=3.49.0').then(({mountAiReview}) =>
+  import('/mobile/ai-review.mjs?v=3.49.1').then(({mountAiReview}) =>
     mountAiReview(document.getElementById('desktop-ai-review-panel'))).catch(() => {
       const panel = document.getElementById('desktop-ai-review-panel');
       if(panel) panel.textContent = '審査結果の表示を読み込めません。画面を更新してください。';
@@ -8415,7 +8415,7 @@ window.toggleScrapeHall = toggleScrapeHall;
 function initializeHallAiPanel() {
   const root = document.getElementById('desktop-hall-ai-panel');
   if (!root) return;
-  import('/mobile/hall-ai.mjs?v=3.49.0').then(({mountHallAi}) => mountHallAi(root, {
+  import('/mobile/hall-ai.mjs?v=3.49.1').then(({mountHallAi}) => mountHallAi(root, {
     getContext: () => ({hall_name: document.getElementById('desktop-trend-hall').value,
       visit_date: document.getElementById('desktop-trend-date').value,
       days: document.getElementById('desktop-trend-days').value}),
@@ -8427,7 +8427,7 @@ else initializeHallAiPanel();
 function initializeKnowledgePanel() {
   const root = document.getElementById('desktop-ai-knowledge-panel');
   if (!root) return;
-  import('/mobile/ai-knowledge.mjs?v=3.49.0').then(({mountKnowledge}) => mountKnowledge(root, {
+  import('/mobile/ai-knowledge.mjs?v=3.49.1').then(({mountKnowledge}) => mountKnowledge(root, {
     getContext: () => ({hall_name: document.getElementById('desktop-trend-hall').value,
       visit_date: document.getElementById('desktop-trend-date').value}),
     contextElements: [document.getElementById('desktop-trend-hall'), document.getElementById('desktop-trend-date')],
@@ -8439,7 +8439,7 @@ else initializeKnowledgePanel();
 function initializeAiComparisonPanel() {
   const root = document.getElementById('desktop-ai-comparison-panel');
   if (!root) return;
-  import('/mobile/ai-comparison.mjs?v=3.49.0').then(({mountAiComparison}) => mountAiComparison(root, {
+  import('/mobile/ai-comparison.mjs?v=3.49.1').then(({mountAiComparison}) => mountAiComparison(root, {
     getContext: () => ({hall_name: document.getElementById('desktop-trend-hall').value,
       visit_date: document.getElementById('desktop-trend-date').value,
       days: document.getElementById('desktop-trend-days').value}),
@@ -8451,7 +8451,7 @@ else initializeAiComparisonPanel();
 function initializeAiEvaluationPanel() {
   const root = document.getElementById('desktop-ai-evaluation-panel');
   if (!root) return;
-  import('/mobile/ai-evaluation.mjs?v=3.49.0').then(({mountAiEvaluation}) => mountAiEvaluation(root))
+  import('/mobile/ai-evaluation.mjs?v=3.49.1').then(({mountAiEvaluation}) => mountAiEvaluation(root))
     .catch(() => { root.textContent = 'AI評価欄を読み込めませんでした。再読み込みしてください。'; });
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initializeAiEvaluationPanel, {once: true});
@@ -8460,7 +8460,7 @@ else initializeAiEvaluationPanel();
 function initializeImageAnalysisPanel() {
   const root = document.getElementById('desktop-image-analysis-panel');
   if (!root) return;
-  import('/mobile/image-analysis.mjs?v=3.49.0').then(({mountImageAnalysis,buildImageMapDraft}) => mountImageAnalysis(root, {
+  import('/mobile/image-analysis.mjs?v=3.49.1').then(({mountImageAnalysis,buildImageMapDraft}) => mountImageAnalysis(root, {
     getContext: () => ({
       hallName: document.getElementById('desktop-floor-hall').value,
       observedOn: document.getElementById('desktop-floor-date').value || localDateValue(),

@@ -1,4 +1,4 @@
-import {renderAiEvidence} from './ai-evidence.mjs?v=3.49.0';
+import {renderAiEvidence} from './ai-evidence.mjs?v=3.49.1';
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const CATEGORIES={glossary:'用語・使い方',machine:'機種の登録資料',expectation:'期待値条件',hall:'店舗の参照先'};

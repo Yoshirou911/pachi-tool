@@ -10,6 +10,7 @@ primary_region = 'nrt'
 
 [env]
   DATA_DIR = '/data'
+  TZ = 'Asia/Tokyo'
 
 [[mounts]]
   source = 'pachi_data'

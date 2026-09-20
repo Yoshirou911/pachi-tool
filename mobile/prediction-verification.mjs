@@ -61,32 +61,32 @@ export async function mountVerification(element, request, data) {
   if (!element) return;
   element.innerHTML = `${seatRankingMarkup(data.seat_ranking_studies)}<h3>前日固定の予測を検証</h3><p>過去検証とは別に、保存した予測と後日の実績を照合します。</p>${qualityMarkup(data)}${seatHistoryMarkup(data.seat_identity)}${eventStudyMarkup(data.event_studies)}${machineStudyMarkup(data.machine_studies)}<div data-verification-body role="status">保存済み予測を確認中…</div><section data-comparison-panel aria-label="予測方式の比較"></section>`;
   const body = element.querySelector('[data-verification-body]');
-  const {placementStudyMarkup} = await import('./placement-analysis.mjs?v=3.49.0');
+  const {placementStudyMarkup} = await import('./placement-analysis.mjs?v=3.49.1');
   if (!element.isConnected) return;
   element.insertAdjacentHTML('afterbegin', placementStudyMarkup(data.placement_studies));
   const review = document.createElement('section');
   review.setAttribute('aria-label', '予測モデルの採用審査');
   element.prepend(review);
-  const {mountModelReview} = await import('./model-review.mjs?v=3.49.0');
+  const {mountModelReview} = await import('./model-review.mjs?v=3.49.1');
   if (!element.isConnected) return;
   // Load independently: a review API error must not hide existing verification.
   void mountModelReview(review, request, data.model_review_research);
   const probability = document.createElement('section');
   probability.setAttribute('aria-label', '予測確率と予測幅の検証');
   element.prepend(probability);
-  const {mountProbabilityValidation} = await import('./probability-validation.mjs?v=3.49.0');
+  const {mountProbabilityValidation} = await import('./probability-validation.mjs?v=3.49.1');
   if (!element.isConnected) return;
   void mountProbabilityValidation(probability, request);
   const candidates = document.createElement('section');
   candidates.setAttribute('aria-label', '候補数と的中率の評価');
   element.prepend(candidates);
-  const {mountCandidateEvaluation} = await import('./candidate-evaluation.mjs?v=3.49.0');
+  const {mountCandidateEvaluation} = await import('./candidate-evaluation.mjs?v=3.49.1');
   if (!element.isConnected) return;
   void mountCandidateEvaluation(candidates, request);
   const monitor = document.createElement('section');
   monitor.setAttribute('aria-label', '店舗傾向と予測の変化');
   element.prepend(monitor);
-  const {mountPredictionMonitor} = await import('./prediction-monitor.mjs?v=3.49.0');
+  const {mountPredictionMonitor} = await import('./prediction-monitor.mjs?v=3.49.1');
   if (!element.isConnected) return;
   void mountPredictionMonitor(monitor, request);
   async function refresh() {

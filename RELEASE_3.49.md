@@ -8,7 +8,7 @@
 
 ## 公開結果
 
-- GitHub Pages：`https://yoshirou911.github.io/pachi-tool/`。HTML、主要JavaScript、Service Workerのキャッシュキーを3.49.1で確認。
+- GitHub Pages：`https://yoshirou911.github.io/pachi-tool/`。HTML、主要JavaScript、Service Workerのキャッシュキーを3.49.1で確認。隔離プロファイルのMicrosoft Edgeで、PWAから公開APIへ接続し、AI接続状態とAI審査結果が画面表示されることを確認。
 - 公開API：`https://pachi-tool.fly.dev/`。`GET /api/version` と `GET /api/ai/review` が3.49.1を返し、Pagesのオリジンに対するCORSを確認。外部AI送信は無効のまま。
 - Windows：`dist-v3.49.1/PACHI TOOL/PACHI TOOL.exe` を作成し、スモークテストとFileVersion／ProductVersion 3.49.1を確認。SHA-256は`C747A234E24CA138A4BA126A4E63928314D8F1B5FD11538411FF42416590FE6D`。3.49.0と3.10.1の成果物は削除していない。
 - GitHub Actions：Pages run `35526205103`、Fly Deploy run `35526205131`（事前テスト・配信とも成功）。公開コードのコミットは`fd7f8d7b50c8bc4c2a952a9f2510310a1ab01b8a`。
@@ -55,6 +55,5 @@
 - 料金は設定単価と使用量報告に基づくローカル管理。事業者側の隠れたトークンや別料金を含む請求上限は保証しない。単価・月枠は管理者の設定を使い、事業者側の上限も併用する。
 - 個人情報検出は形式検査で、完全な匿名化ではない。外部送信は公開資料と確認した質問だけ。実戦履歴・会話履歴は送らない。
 - 月枠はUTC月の要求受付時点で管理。未完了・不明要求も予約を保持する。再起動で有料処理を自動再開しない。
-- 公開PWAの画面表示と公開APIの応答・CORSは確認済み。実iPhoneでのインストール／オフライン復帰と、利用者環境の実ブラウザ・EXE操作は未実施。EXEでは照合用ソースがそろわないため審査を保留する場合がある。記録だけ同梱して合格扱いにはしない。
-- Codex内蔵ブラウザではFly.ioがクライアント側で遮断されたため、PWA内のAPI表示は同ブラウザでは確認できなかった。公開APIへの直接GET、Pagesオリジン付きGET、OPTIONS/CORSはいずれも成功しており、利用者ブラウザでの最終確認を残す。
+- 公開PWAの画面表示、Microsoft EdgeからのPWA→API接続、公開APIの直接応答・CORSは確認済み。実iPhoneでのインストール／オフライン復帰と、Windows EXEの通常操作は未実施。EXEでは照合用ソースがそろわないため審査を保留する場合がある。記録だけ同梱して合格扱いにはしない。
 - 次は3.50「朝一の候補画面」。今回の範囲には含めない。
